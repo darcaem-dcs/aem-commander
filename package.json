@@ -1,0 +1,22 @@
+{
+  "name": "aem-commander",
+  "version": "1.0.0",
+  "description": "Desktop app to monitor and process AEM JSON files.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "package-win": "electron-packager . aem-json-monitor --overwrite --asar=true --platform=win32 --arch=x64 --icon=./icon.ico --prune=true --out=release-builds --version-string.CompanyName=CE --version-string.FileDescription=AEMJsonMonitor --version-string.ProductName=\"AEM JSON Monitor\"",
+    "package-mac": "electron-packager . aem-json-monitor --overwrite --asar=true --platform=darwin --arch=x64 --icon=./icon.icns --prune=true --out=release-builds --version-string.CompanyName=CE --version-string.FileDescription=AEMJsonMonitor --version-string.ProductName=\"AEM JSON Monitor\"",
+    "package-linux": "electron-packager . aem-json-monitor --overwrite --asar=true --platform=linux --arch=x64 --icon=./icon.png --prune=true --out=release-builds --version-string.CompanyName=CE --version-string.FileDescription=AEMJsonMonitor --version-string.ProductName=\"AEM JSON Monitor\""
+  },
+  "keywords": [],
+  "author": "Alfonso Escriche Martínez",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^29.1.0",
+    "electron-packager": "^17.1.2"
+  },
+  "dependencies": {
+    "@google/genai": "^1.51.0"
+  }
+}

@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AEM Commander</title>
+    <style>
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            padding: 20px; 
+            line-height: 1.6; 
+            max-width: 900px; 
+            margin: auto; 
+            background: #f0f2f5; 
+            color: #333; 
+        }
+        .card { 
+            background: white; 
+            padding: 25px; 
+            border-radius: 12px; 
+            box-shadow: 0 4px 15px rgba(0,0,0,0.08); 
+        }
+        .header-info { 
+            background: #e9ecef; 
+            padding: 15px; 
+            border-radius: 8px; 
+            margin: 20px 0; 
+            border-left: 5px solid #0d6efd; 
+        }
+        .config-section {
+            margin-bottom: 20px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #ddd;
+        }
+        .config-section label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .input-field {
+            width: 100%;
+            padding: 10px;
+            box-sizing: border-box;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+            font-family: inherit;
+        }
+        .status { font-weight: bold; }
+        .running { color: #198754; }
+        .stopped { color: #dc3545; }
+        .log { 
+            background: #1e1e1e; 
+            color: #d4d4d4; 
+            padding: 15px; 
+            border-radius: 6px; 
+            height: 300px; 
+            overflow-y: auto; 
+            font-family: 'Consolas', monospace; 
+            font-size: 13px; 
+            border: 1px solid #333; 
+        }
+        .log div { 
+            margin-bottom: 4px; 
+            border-bottom: 1px solid #2d2d2d; 
+            padding-bottom: 2px; 
+        }
+        .log .timestamp { color: #858585; margin-right: 8px; }
+        .log .success { color: #4ec9b0; }
+        .log .error { color: #f48771; }
+        .log .info { color: #5bc0de; }
+        
+        .controls { margin-top: 20px; margin-bottom: 20px; }
+        button { 
+            padding: 12px 24px; 
+            cursor: pointer; 
+            border: none; 
+            border-radius: 6px; 
+            font-weight: 600; 
+            transition: opacity 0.2s; 
+        }
+        .btn-select { background: #0d6efd; color: white; }
+        .btn-stop { background: #6c757d; color: white; margin-left: 10px; }
+        button:hover { opacity: 0.9; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+		<h1>Autonomous Engagement Monitor</h1>
+        <p>Monitoring <strong>intelligence updates</strong> to generate actions via Gemini AI.</p>
+		
+		<div class="config-section" id="sectionConfig">
+            <label>Authentication Method:</label>
+			<div style="display: flex; gap: 20px; margin-top: 5px; margin-bottom: 15px;">
+				<label style="font-weight: normal;"><input type="radio" name="authOpt" value="apikey" checked> API Key (Google AI Studio)</label>
+				<label style="font-weight: normal;"><input type="radio" name="authOpt" value="vertex"> Service Account JSON (Vertex AI)</label>
+			</div>
+
+            <div id="authApiKeySection">
+                <label for="apiKey">Gemini API Key:</label>
+                <input type="password" id="apiKey" class="input-field" placeholder="Paste your Google AI Studio key here...">
+                <p style="font-size: 0.8em; color: #666; margin-top: 5px;">
+                    Get your key at <a href="https://aistudio.google.com/app/apikey" target="_blank">Google AI Studio</a>.
+                </p>
+            </div>
+
+            <div id="authVertexSection" style="display: none;">
+                <label>Vertex AI Service Account JSON:</label>
+                <div style="display: flex; gap: 10px;">
+                    <input type="text" id="vertexJsonPath" class="input-field" placeholder="Select your vertex-key.json..." readonly>
+                    <button id="btnSelectJson" class="btn-stop" style="margin: 0;">Browse...</button>
+                </div>
+            </div>
+			
+			<label for="aiModel" style="margin-top: 15px;">AI Model (Optional):</label>
+			<input type="text" id="aiModel" class="input-field" placeholder="gemini-3-flash-preview">
+            <p style="font-size: 0.8em; color: #666; margin-top: 5px;">Default: gemini-3-flash-preview.</p>
+			
+			<label for="intervalTime" style="margin-top: 15px;">Refresh Interval (seconds):</label>
+			<input type="number" id="intervalTime" class="input-field" value="300" min="30">
+            <p style="font-size: 0.8em; color: #666; margin-top: 5px;">Time between AI commander checks. Default: 300 seconds (5 minutes).</p>
+			
+			<label style="margin-top: 15px;">Commanders to Create:</label>
+			<div style="display: flex; gap: 20px; margin-top: 5px;">
+				<label style="font-weight: normal;"><input type="radio" name="commanderOpt" value="both" checked> Both</label>
+				<label style="font-weight: normal;"><input type="radio" name="commanderOpt" value="red"> Red Only</label>
+				<label style="font-weight: normal;"><input type="radio" name="commanderOpt" value="blue"> Blue Only</label>
+			</div>
+			
+			<label style="margin-top: 15px;">Strategic context (Optional)</label>
+			<textarea type="text" id="inputInstructionsRed" class="input-field" placeholder="Default red: Maintain air superiority on our territory: launch defensive caps. Attack flights must have escort or cap."></textarea>
+			<textarea type="text" id="inputInstructionsBlue" class="input-field" placeholder="Default blue: Maintain air superiority on our territory: launch defensive caps. Attack flights must have escort or cap."></textarea>
+			<p style="font-size: 0.8em; color: #666; margin-top: 5px;">Describe the context, doctrine and goals that the commander should follow.</p>
+		</div>
+
+        <div class="controls" id="sectionButtons">
+            <button id="btnSelectStart" class="btn-select">Start</button>
+            <button id="btnStop" class="btn-stop" disabled>Stop</button>
+        </div>
+
+        <div class="header-info" id="sectionStatus">
+            <div><strong>Status:</strong> <span id="statusText" class="stopped">Inactive</span></div>
+            <div><strong>Active Directory:</strong> <span id="folderPath">None selected</span></div>
+        </div>
+
+        <div class="log" id="logBox" style="display: none;">
+            <div class="info">[System Ready] Choose auth method and select a folder.</div>
+        </div>
+    </div>
+
+    <script>
+        const btnSelectStart = document.getElementById('btnSelectStart');
+        const btnStop = document.getElementById('btnStop');
+        const btnSelectJson = document.getElementById('btnSelectJson');
+        const logBox = document.getElementById('logBox');
+        const statusText = document.getElementById('statusText');
+        const folderPathDisplay = document.getElementById('folderPath');
+        const apiKeyInput = document.getElementById('apiKey');
+        const vertexJsonPathInput = document.getElementById('vertexJsonPath');
+		const aiModelInput = document.getElementById('aiModel');
+		const sectionConfig = document.getElementById("sectionConfig");
+		const authApiKeySection = document.getElementById("authApiKeySection");
+		const authVertexSection = document.getElementById("authVertexSection");
+		const inputInstructionsRed = document.getElementById('inputInstructionsRed');
+		const inputInstructionsBlue = document.getElementById('inputInstructionsBlue');
+		const commanderRadios = document.querySelectorAll('input[name="commanderOpt"]');
+        const authRadios = document.querySelectorAll('input[name="authOpt"]');
+
+		window.electronAPI.onLogMessage((message, type) => {
+            addLog(message, type);
+        });
+
+        // Toggle Auth Sections
+        authRadios.forEach(radio => {
+            radio.addEventListener('change', () => {
+                if (document.querySelector('input[name="authOpt"]:checked').value === 'apikey') {
+                    authApiKeySection.style.display = 'block';
+                    authVertexSection.style.display = 'none';
+                } else {
+                    authApiKeySection.style.display = 'none';
+                    authVertexSection.style.display = 'block';
+                }
+            });
+        });
+
+        // Select JSON File
+        btnSelectJson.addEventListener('click', async () => {
+            const filePath = await window.electronAPI.selectJsonFile();
+            if (filePath) {
+                vertexJsonPathInput.value = filePath;
+            }
+        });
+
+        btnSelectStart.addEventListener('click', async () => {
+            const authMethod = document.querySelector('input[name="authOpt"]:checked').value;
+            let authCredential = "";
+            
+            if (authMethod === 'apikey') {
+                authCredential = apiKeyInput.value.trim();
+                if (!authCredential) {
+                    addLog('Error: Please enter a valid API Key.', 'error');
+                    logBox.style.display = "";
+                    return;
+                }
+            } else {
+                authCredential = vertexJsonPathInput.value.trim();
+                if (!authCredential) {
+                    addLog('Error: Please select a Vertex AI JSON file.', 'error');
+                    logBox.style.display = "";
+                    return;
+                }
+            }
+
+			const model = aiModelInput.value.trim() || 'gemini-3-flash-preview';
+			const intervalTime = parseInt(document.getElementById('intervalTime').value, 10) || 300;
+            const commanderSide = document.querySelector('input[name="commanderOpt"]:checked').value;
+			const instructionsRed = inputInstructionsRed.value;
+			const instructionsBlue = inputInstructionsBlue.value;
+			
+			logBox.style.display = "";
+			
+            const selectedPath = await window.electronAPI.selectAndStart(authMethod, authCredential, model, commanderSide, instructionsRed, instructionsBlue, intervalTime);
+            
+            if (selectedPath) {
+                folderPathDisplay.innerText = selectedPath;
+                statusText.innerText = "Running (${intervalTime}s Cycle)";
+                statusText.className = "running";
+                
+				sectionConfig.style.display = "none";
+                btnSelectStart.disabled = true;
+                btnStop.disabled = false;
+				addLog('Operations started, waiting initial reports.', 'info');
+            } else {
+                addLog('Folder selection cancelled.', 'info');
+            }
+        });
+
+        btnStop.addEventListener('click', async () => {
+            const stopped = await window.electronAPI.stopMonitor();
+            if (stopped) {
+                statusText.innerText = "Stopped";
+                statusText.className = "stopped";
+                
+				sectionConfig.style.display = "";
+                btnSelectStart.disabled = false;
+				btnStop.disabled = true;
+            }
+        });
+		
+		commanderRadios.forEach(radio => {
+			radio.addEventListener('change', updateContextVisibility);
+		});
+		
+		function updateContextVisibility() {
+			const selectedOpt = document.querySelector('input[name="commanderOpt"]:checked').value;
+			if (selectedOpt === 'both') {
+				inputInstructionsRed.style.display = 'block';
+				inputInstructionsBlue.style.display = 'block';
+				inputInstructionsBlue.style.marginTop = '10px';
+			} else if (selectedOpt === 'red') {
+				inputInstructionsRed.style.display = 'block';
+				inputInstructionsBlue.style.display = 'none';
+			} else if (selectedOpt === 'blue') {
+				inputInstructionsRed.style.display = 'none';
+				inputInstructionsBlue.style.display = 'block';
+				inputInstructionsBlue.style.marginTop = '0px';
+			}
+		}
+
+        function addLog(message, type = '') {
+            const now = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.innerHTML = `<span class="timestamp">[${now}]</span> <span class="${type}">${message}</span>`;
+            logBox.appendChild(logEntry);
+            logBox.scrollTop = logBox.scrollHeight;
+        }
+    </script>
+</body>
+</html>

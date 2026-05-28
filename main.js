@@ -1,0 +1,471 @@
+const {app, BrowserWindow, ipcMain, dialog} = require('electron')
+const path = require('path');
+const net = require('net');
+
+let mainWindow;
+let processIntervalId = null;
+let dcsSocket = null;
+
+// Gemini
+const AiHelper = require('./utils/aiHelper.js');
+const ai = new AiHelper();
+let currentModelName = 'gemini-3.1-flash';
+let authMethodGlobal = 'apikey';
+let authCredentialGlobal = null;
+
+// Commanders
+const CoalitionArmedForces = require('./utils/coalitionArmedForces.js');
+let redCoalition = null, blueCoalition = null;
+const CoalitionTargets = require('./utils/coalitionTargets.js');
+let redTargets = null, blueTargets = null;
+const CoalitionTerritory = require('./utils/coalitionTerritory.js');
+let redTerritory = null, blueTerritory = null;
+const REBASE_INTERVAL = 30;
+let cycleCount = 0;
+let redActive = false, blueActive = false;
+
+let state = {
+    red: { forces: null, targets: null, territory: null, events: [] },
+    blue: { forces: null, targets: null, territory: null, events: [] }
+};
+
+const defaultDoctrine = 'Maintain air superiority on our territory: launch defensive caps. Attack flights must have escort or cap.';
+const getSystemInstructions = (userContext) => `
+# ROLE
+You are a highly capable and conservative AI Theater Commander for a DCS World mission. Your goal is to manage coalition assets to achieve strategic goals while minimizing losses.
+
+# STRATEGIC CONTEXT & COMMANDER INTENT
+The following specific doctrine, posture, and goals have been dictated for your coalition. You must prioritize this intent while strictly obeying the critical constraints below:
+${userContext}
+
+# DATA INPUTS
+1. goals: Current tactical objectives.
+2. active_assets: Units already in the field (can be redirected or RTB).
+3. available_assets: Reserve units ready for new tasking.
+4. isr_report: Enemy contacts detected by intelligence.
+
+# JOINT OPERATIONS
+- **CONQUER GOALS:** To achieve a 'conquer' type goal, you MUST: task ground units with the "CONQUER" task to move to and occupy the 'target_area'; OR task air or helo units with the "TRANSPORT" to move to the 'target_area' to deploy troops.
+- **COMBINED ARMS:** Ground units are vulnerable. Do not send ground assets into a 'conquer' zone unless you have established local Air Superiority (CAP) or provided Close Air Support (CAS).
+- **STRIKE ASSETS:** Ground units with the "CAS" mission should be used to soften target areas before a "CONQUER" move.
+
+# CRITICAL CONSTRAINTS - DOCTRINE & RULES
+
+## 1. MANDATORY MISSION VALIDATION (ZERO-TOLERANCE)
+- **THE MISSION ARRAY IS THE ONLY SOURCE OF TRUTH FOR CAPABILITIES.** - You are UNMISTAKABLY FORBIDDEN from assigning a 'task' to a unit unless that task is explicitly listed in the unit's 'mission' array within 'available_assets'.
+- **EXAMPLE:** If a MiG-29 has mission: ["CAP"], you CANNOT assign it "SEAD", "STRIKE", or "CAS" even if you believe it is capable.
+- If no available unit possesses the required capability for a high-priority goal, log the failure in 'mission_log' and DO NOT issue the order.
+
+## 2. RULE OF TWO (FLIGHT COMPOSITION)
+- All NEW air groups must consist of exactly 2 units. Ground units may be tasked in groups of 1 or more as available.
+- If asset counts are odd, leave the 'remainder' unit in reserve. NEVER create flights of 1 or 3 units.
+
+## 3. ACTION TYPES & RECALL
+- "new": Tasking units from 'available_assets'. Requires 'location', 'airbase', 'unit_count', and an array of 'unit_names' selected from the tool's available_unit_ids. CRITICAL: Do not assign the same static ID to multiple different actions.
+- "existing": Redirecting units from 'active_assets'. Requires 'group_name' (the 'id' from active_assets). Omit 'unit_names'. The 'task' must remain exactly the same as its current active mission, OR be set to "RTB" (units cannot change armaments mid-flight).
+
+## 4. CONSERVATIVE STRATEGY
+- **PROACTIVE DEPLOYMENT:** You must not remain idle if goals are unfulfilled. Launch minimum required assets to achieve goals even if the ISR report is empty.
+- Deploy the minimum force necessary. 
+- Conduct Threat Assessments: Monitor SAM and EW sites. 
+- Coordinate Packages: Do not send STRIKE/CAS into contested zones without ESCORT or SEAD if threats are present.
+- **ECONOMY OF FORCE:** Deploy only the minimum force necessary to secure a goal or counter a threat. Do not over-commit.
+- **RESERVE RATIO:** You should maintain a baseline of 20-50% of available units in reserve** during standard operations to handle unforeseen threats.
+- **FORCE MULTIPLIERS:** Only task the minimum necessary force to achieve a task. For example, do not task 10 groups for a mission where 1-2 would suffice for the current threat level.
+- **GO/NO-GO LOGIC:** If available assets are insufficient to meet a high-priority threat safely (e.g., attacking a heavy SAM site without SEAD), you MUST choose NOT to deploy. Preserving the force is a valid strategic victory.
+
+## 5. TASKS
+- "INTERCEPT": Use to INTERCEPT enemy aircraft entering our territory or that might be a threat to our active forces. When tasking INTERCEPT, the expected interception coordinates must be declared in "target_area" and the name of the enemy group from the ISR report must be declared in "reference_entity".
+- "CAP": Use CAP to secure an area generally. When tasking CAP the coordinates of the area center must be declared in "target_area".
+- "ESCORT": Use ESCORT to tether a fighter group specifically to a STRIKE, CAS, or TRANSPORT group. An Air group can escort any category, but a Helo group cannot escort Air category. When tasking ESCORT the name of group to escort must be declared in "reference_entity".
+- "CAS": Use CAS to locate and destroy ground targets, useful against enemy ground units or to support a conquer goal. When tasking CAS the coordinates of the search area center must be declared in "target_area".
+- "STRIKE": Use STRIKE to attack specific coordinates in a strike goal. When tasking STRIKE the coordinates to attack must be declared in "target_area".
+- "SEAD": Use SEAD to protect any flight package when enemy SAMs are a threat, or when the goal is to destroy enemy SAMs. When tasking SEAD the approximate coordinates where the SAMs are must be declared in "target_area".
+- "ANTI-SHIP": Use ANTI-SHIP to attack enemy ships. When tasking ANTI-SHIP the approximate coordinates of the target, or they last known location, must be declared in "target_area".
+- "TRANSPORT": Use TRANSPORT simulate troops movement to conquer an area. When tasking TRANSPORT the coordinates where the troops must be transported must be declared in "target_area".
+- "CSAR": Use CSAR to rescue a downed pilot. Besides active doctrine rules, CSAR assets should always be protected against enemy air units, and with a CAS group if the downed pilot is in enemy territory. When tasking CSAR the approximate coordinates of the search area center must be declared in "target_area" and the name of the downed pilot to locate must be declared in "reference_entity".
+- "RTB": Use RTB to command an active group to return to base when it is no longer needed, the risk is too high, or you consider it appropriate.
+
+## 6. GOALS
+- "strike": the specific coordinates must be bombed.
+- "csar": the specific units in assetsInvolved must be rescued.
+- "enemy-csar": the specific units in assetsInvolved must be destroyed.
+- "conquer": either ground units must be moved or simulated troops must be transported to the specific coordinates. 
+
+# OUTPUT CONTRACT
+Return ONLY a valid JSON object. No conversational text.
+{
+  "mission_log": "Strategic summary and assessment of history.",
+  "actions": [
+    {
+      "action_type": "new|existing",
+      "group_name": "The 'id' from active_assets (ONLY if 'existing')",
+      "unit_names": ["Static_ID_1", "Static_ID_2"], // Exactly 'unit_count' IDs (ONLY if 'new')
+      "unit_type": "Exact type from asset list",
+      "location": "Origin location (if 'new')",
+      "airbase": "Airbase name (if 'new')",
+      "unit_count": 2,
+	  "task": "MUST match a value in the unit's 'mission' array exactly (or current task if 'existing'), OR be 'RTB'.",
+      "target_area": {"lat": 0.0, "long": 0.0},
+      "target_name": "targetName from goals (if applicable)",
+	  "reference_entity": "name of the group or unit referenced by the task (if applicable)",
+      "rationale": "Military reasoning, including a capability verification check."
+    }
+  ]
+}
+`;
+
+const tcpServer = net.createServer((socket) => {
+    dcsSocket = socket;
+    console.log("DCS World connected to AEM Commander.");
+    let buffer = '';
+
+    socket.on('data', (data) => {
+        buffer += data.toString();
+        let lines = buffer.split('\n');
+        buffer = lines.pop();
+        
+        for (let line of lines) {
+            if(line.trim() === '') continue;
+            try {
+                let msg = JSON.parse(line);
+                routeDCSMessage(msg);
+            } catch(e) { console.error("Error parsing JSON from DCS", e); }
+        }
+    });
+
+    socket.on('close', () => {
+        console.log("DCS World disconnected.");
+        dcsSocket = null;
+		
+		if (processIntervalId) {
+            clearInterval(processIntervalId);
+            processIntervalId = null;
+        }
+        
+        state.red.forces = null; 
+        state.blue.forces = null;
+        
+        if (mainWindow) {
+            mainWindow.webContents.send('log-message', 'DCS Mission ended. Operations suspended automatically.', 'success');
+        }
+		
+    });
+	
+	socket.on('error', (err) => {
+        console.log(err);
+        dcsSocket = null;
+		
+		if (processIntervalId) {
+            clearInterval(processIntervalId);
+            processIntervalId = null;
+        }
+        
+        state.red.forces = null; 
+        state.blue.forces = null;
+        
+        if (mainWindow) {
+            mainWindow.webContents.send('log-message', 'Error. Operations suspended automatically.', 'error');
+        }
+		
+    });
+	
+});
+tcpServer.listen(8080, '127.0.0.1');
+
+function sendOrdersToDCS(coalition, actions) {
+    if(dcsSocket) {
+        const payload = JSON.stringify({ type: "ORDERS", coalition, actions });
+        dcsSocket.write(payload + "\n");
+    }
+}
+
+function routeDCSMessage(msg) {
+    const coal = msg.coalition.toLowerCase();
+    if (!state[coal].forces) return;
+
+    switch (msg.type) {
+        case "ACTIVE":
+            state[coal].forces.updateActiveGroups(msg.data);	
+            break;
+        case "AVAILABLE":
+            state[coal].forces.updateAvailableUnits(msg.data);
+            break;
+        case "ISR":
+            state[coal].forces.updateISR(msg.data);
+            break;
+        case "GOALS":
+            state[coal].targets.updateGoals(msg.data);
+            break;
+        case "BORDER":
+            state[coal].territory.updateBorder(msg.data);
+            break;
+        case "EVENTS":
+            state[coal].events.push(...msg.data);
+            break;
+    }
+}
+
+function createWindow() {
+    mainWindow = new BrowserWindow({
+        width: 900, height: 750,
+        webPreferences: {
+            preload: path.join(__dirname, 'preload.js'),
+            contextIsolation: true,
+            nodeIntegration: false
+        }
+    });
+    mainWindow.loadFile(path.join(__dirname, 'public', 'index.html'));
+}
+
+async function processCommander(side) {
+	
+	console.log("processCommander");
+	
+	const cState = state[side];
+    if (!cState.forces || !cState.targets || !cState.territory) return;
+    
+    const forces = cState.forces;
+    const targets = cState.targets;
+    const territory = cState.territory;
+
+    if (!forces.activeGroups || !targets.targets || !territory.border) {
+        mainWindow.webContents.send('log-message', `Commander of ${side} is waiting for DCS telemetry...`, 'info');
+	console.log("[processCommander] not ready: " + forces.activeGroups + " + " + forces.targets + " - " + forces.border);
+		setTimeout(() => processCommander(side), 10000);
+        return;
+    }
+	
+	if (forces.session == null) {
+		
+		try {
+			// Pasamos el método y la credencial a tu initModel
+			forces.model = ai.initModel(authMethodGlobal, authCredentialGlobal, currentModelName, getSystemInstructions(forces.instructions));
+			forces.session = ai.startChatSession(forces.model);
+			mainWindow.webContents.send('log-message', `Commander of ${forces.coalition} is monitoring the battlefield`, 'success');
+			
+			// Get initial orders
+			try {
+				const prompt = `
+The battlefield simulation has started.
+You are the active Theater Commander.
+
+1. Use your tools to retrieve the highest priority goals.
+2. ISR CHECK: Use 'get_enemy_threats_near_location' to check for ENEMY SAMs, CAP, or EW sites near your high-priority goals. 
+3. FRIENDLY CHECK: Use 'get_active_groups_by_mission' to check your OWN deployed defensive assets. Do not confuse your own SAMs with enemy SAMs.
+4. Check if targets are in friendly territory to determine if SEAD or ESCORT is needed.
+5. Find the closest capable reserve groups to fulfill the objectives.
+6. When you have gathered enough intelligence, issue your final orders.
+
+CRITICAL: Your final response MUST be a valid JSON object matching the contract exactly. Absolutely no conversational text, no markdown blocks, and no narrative reasoning outside the JSON. If no action is needed, return {"mission_log": "Idle", "actions": []}.`;
+				const aiRawResponse = await ai.sendChatUpdate(prompt, forces, targets, territory);
+				const jsonOutput = JSON.parse(aiRawResponse);
+				if (jsonOutput && jsonOutput.actions) {
+					mainWindow.webContents.send('log-message', `Red Commander Journal: ${jsonOutput.mission_log}`, 'success');
+					sendOrdersToDCS(side.toUpperCase(), jsonOutput.actions);
+				}
+			} catch (err) {
+				mainWindow.webContents.send('log-message', `Commander of ${forces.coalition} error: ${err.message}`, 'error');
+				return;
+			}
+		} catch (err) {
+			console.log(err);
+			mainWindow.webContents.send('log-message', `Failed to initialize model for ${forces.coalition}: ${err.message}`, 'error');
+			forces.session = null;
+			return;
+		}
+		
+	} else {
+		
+		try {
+			const eventsData = [...cState.events];
+			cState.events = [];
+			
+			if (!eventsData || eventsData.length === 0) {
+				mainWindow.webContents.send('log-message', `Commander of ${forces.coalition} receiving battlefield update: no changes`, 'info');
+				return;
+			}
+			
+			if (eventsData && eventsData.length > 0) {
+				
+				mainWindow.webContents.send('log-message', `Commander of ${forces.coalition} receiving battlefield updates...`, 'info');
+				
+				let logForAI = [];
+				
+				for (var i = 0; i < eventsData.length; i++) {
+					const eventCoalition = eventsData[i].coalition;
+					switch (eventsData[i].type) {
+					case 'activated':	// Available units have been tasked
+						if (eventCoalition == forces.coalition) {
+							const arrayStatics = eventsData[i].staticUnits;
+							forces.addActiveGroup(
+								eventsData[i].group.name,
+								eventsData[i].group.type,
+								eventsData[i].group.category,
+								eventsData[i].group.lat,
+								eventsData[i].group.lon,
+								eventsData[i].group.airbase,
+								arrayStatics.length
+							);
+							arrayStatics.forEach(name => forces.removeAvailableUnit(name));
+						}
+						break;
+						
+					case 'destroyed':	// Unit has been destroyed
+						if (eventCoalition == forces.coalition) {
+							const groupName = eventsData[i].groupName;
+							if (!forces.activeUnitDestroyed(groupName)) {
+								logForAI.push('All units from ' + groupName + ' has been destroyed, this group has been destroyed');
+							} else{
+								logForAI.push('A unit from ' + groupName + ' has been destroyed');
+							}
+						}
+						break;
+						
+					case 'csar':		// Pilot downed with parachute sighted
+						if (eventCoalition == forces.coalition) {
+							targets.addTarget(
+								'csar-' + eventsData[i].name,
+								999,	// maximum priority, above anything else
+								'csar',
+								eventsData[i].lat,
+								eventsData[i].lon,
+								null
+							);
+							logForAI.push('One of our pilots has ejected safely and needs to be rescued. A new csar mission has been added to the targets list');
+						} else {
+							targets.addTarget(
+								'enemy csar-' + eventsData[i].name,
+								0.5,	// medium priority
+								'enemy-csar',
+								eventsData[i].lat,
+								eventsData[i].lon,
+								null
+							);
+							logForAI.push('An enemy pilot has ejected safely and the enemy may launch a csar mission to rescue him. A new enemy-csar mission has been added to the targets lists');
+						}
+						break;
+						
+					case 'rescued':		// CSAR success
+						if (eventCoalition == forces.coalition) {
+							const target = targets.removeTarget(eventsData[i].name);
+							if (target) {
+								logForAI.push('The CSAR mission to rescue ' + eventsData[i].name + ' has been a success');
+							}
+						} else {
+							const target = targets.removeTarget('enemy csar-' + eventsData[i].name);
+							if (target) {
+								logForAI.push('The enemy csar mission has rescued ' + eventsData[i].name);
+							}
+						}
+						break;
+						
+					case 'captured':	// Zone has been captured
+						/// TODO:
+						break;
+						
+					case 'land':		// Unit has landed
+						if (eventCoalition == forces.coalition) {
+							const groupName = eventsData[i].groupName;
+							if (forces.removeActiveGroup(groupName)) {
+								logForAI.push(`The group ${groupName} has landed safely and is no longer active. They are entering turnaround for rearm/refuel.`);
+							}
+							
+							// 3. TODO: Decidir mecanismo para devolverlos a available_assets
+						}
+						break;
+					}
+				}
+			
+				const updatePrompt = `
+SITUATION UPDATE: The battlefield state has changed based on new intelligence and events.
+
+RECENT BATTLEFIELD EVENTS:
+${logForAI.length > 0 ? logForAI.join('.\n') : "ISR contacts updated. Review new intelligence."}
+
+1. REVIEW HISTORY: Consider your previous 'mission_log' and the orders you recently issued. Do not issue duplicate orders to units already task-saturated.
+2. ASSESS NEW DATA: Use your tools to review your goals, available reserve assets, currently active deployments, and updated ISR threats.
+3. TAKE ACTION: 
+   - Issue 'new' orders to available assets to respond to unhandled threats or unfulfilled goals.
+   - Issue 'RTB' commands to 'existing' active units if their goal is complete, or if the threat level has become unsurvivable.
+4. If the current situation is nominal and your previous orders are still sufficient, simply return {"mission_log": "Situation nominal, continuing execution of previous orders.", "actions": []}.
+
+CRITICAL: Output ONLY valid JSON matching the contract exactly. No conversational text.`;
+			
+				const aiRawResponse = await ai.sendChatUpdate(updatePrompt, forces, targets, territory);
+				const jsonOutput = ai.aiSanitizeJson(aiRawResponse);
+				
+				if (jsonOutput && jsonOutput.actions && jsonOutput.actions.length > 0) {
+					mainWindow.webContents.send('log-message', `${forces.coalition} Commander: ${jsonOutput.mission_log}`, 'success');
+					sendOrdersToDCS(side.toUpperCase(), jsonOutput.actions);
+				} else if (jsonOutput) {
+					mainWindow.webContents.send('log-message', `${forces.coalition} Commander: Monitoring. ${jsonOutput.mission_log}`, 'info');
+				} else {
+					mainWindow.webContents.send('log-message', `Commander of ${forces.coalition}: AI failed to determine what to do in time.`, 'error');
+				}
+
+				// 5. Rebase context every few cycles to keep the AI's memory clean
+				cycleCount++;
+				if (cycleCount % REBASE_INTERVAL === 0) {
+				   forces.session = await ai.rebaseChatSession(forces.model, forces.session, 4);
+				}
+				
+			}
+		} catch (err) {
+            mainWindow.webContents.send('log-message', `Commander of ${forces.coalition} error during update: ${err.message}`, 'error');
+        }
+		
+	}
+}
+
+// UI Handlers
+
+ipcMain.handle('select-json-file', async (event) => {
+    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+        properties: ['openFile'],
+        filters: [{ name: 'JSON Files', extensions: ['json'] }]
+    });
+    if (canceled) return null;
+    return filePaths[0];
+});
+
+ipcMain.handle('select-and-start', async (event, authMethod, authCredential, modelName, commanderSide, instructionsRed, instructionsBlue, intervalTime) => {
+
+	authMethodGlobal = authMethod;
+    authCredentialGlobal = authCredential;
+	currentModelName = modelName;
+	
+    if (commanderSide === 'red' || commanderSide === 'both') {
+        state.red.forces = new CoalitionArmedForces('red', instructionsRed);
+        state.red.targets = new CoalitionTargets('red');
+        state.red.territory = new CoalitionTerritory('red');
+    }
+    if (commanderSide === 'blue' || commanderSide === 'both') {
+        state.blue.forces = new CoalitionArmedForces('blue', instructionsBlue);
+        state.blue.targets = new CoalitionTargets('blue');
+        state.blue.territory = new CoalitionTerritory('blue');
+    }
+	
+	const intervalMs = intervalTime * 1000;
+	
+	if (processIntervalId) clearInterval(processIntervalId);
+    processIntervalId = setInterval(() => {
+        if (state.red.forces) processCommander('red');
+        if (state.blue.forces) processCommander('blue');
+    }, intervalMs);
+	
+	return true;
+});
+
+ipcMain.handle('stop-monitor', () => {
+    if (processIntervalId) {
+        clearInterval(processIntervalId);
+        processIntervalId = null;
+    }
+	state.red.forces = null; 
+    state.blue.forces = null;
+    mainWindow.webContents.send('log-message', 'Operations suspended by user.', 'info');
+    return true;
+});
+
+app.whenReady().then(createWindow);
