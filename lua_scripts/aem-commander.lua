@@ -1,5 +1,9 @@
 -------------------------------------------------------------------------
--- Variables
+-- CUSTOM SETTINGS
+-------------------------------------------------------------------------
+
+-------------------------------------------------------------------------
+-- AI Commander
 --
 --	*_EW: prefix for EW groups on mission editor. They can be any type of
 --	unit and will contribute with their sensors to the enemy's detection,
@@ -25,11 +29,6 @@
 --	SCHEDULER_ISR_FREQ_*: seconds passed between each ISR update data 
 --	passed to AI Commander
 --
---	*_RAFT: late activation group name for the water template
---	*_PILOT: late activation group name for the ground template
---	SINKING_SHIP: not used yet
---	__CSAR_SOS: filename that will be used as beacon
---
 -------------------------------------------------------------------------
 
 RED_EW = "RED EW"
@@ -46,17 +45,36 @@ TEMPLATE_PREFIX = "AEM_TPL_"
 SCHEDULER_ISR_FREQ_RED = 60
 SCHEDULER_ISR_FREQ_BLUE = 60
 
--- CSAR Variables
+-------------------------------------------------------------------------
+-- CSAR
+--
+--	*_RAFT: late activation group name for the water template
+--	*_PILOT: late activation group name for the ground template
+--	SINKING_SHIP: not used yet
+--	__CSAR_SOS: filename that will be used as beacon
+--
+-------------------------------------------------------------------------
+
+MODULE_CSAR = true
 BLUE_RAFT = "BLUE LIFE RAFT"
 BLUE_PILOT = "BLUE DOWNED PILOT"
 RED_RAFT = "RED LIFE RAFT"
 RED_PILOT = "RED DOWNED PILOT"
 __CSAR_SOS = "morse-sos.ogg"
-menuCSARblue = nil
-menuCSARred = nil
 
 -------------------------------------------------------------------------
--- // Code: DO NOT EDIT BEYOND THIS POINT
+-- Debug messages
+--
+--	Show on screen messages
+--
+-------------------------------------------------------------------------
+
+MODULE_DEBUG = true
+
+-------------------------------------------------------------------------
+--
+-- // Code: DO NOT EDIT BEYOND THIS POINT //
+--
 -------------------------------------------------------------------------
 
 -- Event Queues for the Node.js Monitor
@@ -81,7 +99,7 @@ local function AEM_ConnectTCP()
     
     local _, err = tcp_conn:connect(TCP_HOST, TCP_PORT)
     if err and err ~= "timeout" and err ~= "Operation already in progress" then
-		trigger.action.outText("AEM Commander: failed to init connection with HQ", 15)
+		messageToAll("AEM Commander: failed to init connection with HQ", 15)
         env.info("AEM Commander failed to init TCP: " .. tostring(err))
         tcp_conn = nil
     end
@@ -101,13 +119,13 @@ local function SendToNode(dataType, coalitionStr, payload)
         local _, err = tcp_conn:send(jsonString .. "\n")
         
         if err and err ~= "timeout" then
-			trigger.action.outText("AEM Commander: connection with HQ lost", 15)
+			messageToAll("AEM Commander: connection with HQ lost", 15)
             env.info("AEM Commander disconnected while sending data: " .. tostring(err))
             tcp_conn:close()
             tcp_conn = nil
         end
     else
-		trigger.action.outText("AEM Commander: failed to send intelligence to HQ", 15)
+		messageToAll("AEM Commander: failed to send intelligence to HQ", 15)
         env.info("AEM Commander: Error encoding JSON for " .. dataType)
     end
 end
@@ -120,7 +138,7 @@ function AEM_ReceiveOrders(jsonString)
             ProcessAIOrders(msg.actions, msg.coalition)
         end
     else
-		trigger.action.outText("AEM Commander: failed to recieve orders from HQ", 15)
+		messageToAll("AEM Commander: failed to recieve orders from HQ", 15)
         env.info("AEM Commander: Error decoding tasks or JSON malformed.")
     end
 end
@@ -140,7 +158,7 @@ local function AEM_NetworkLoop()
             AEM_ReceiveOrders(line)
         else
             if err == "closed" then
-				trigger.action.outText("AEM Commander: connection with HQ lost", 15)
+				messageToAll("AEM Commander: connection with HQ lost", 15)
                 env.info("AEM Commander: La conexión TCP fue cerrada por el servidor.")
                 tcp_conn:close()
                 tcp_conn = nil
@@ -250,7 +268,7 @@ function ExportOrderOfBattle()
                 end
 
                 local coord = group:GetCoordinate()
-                local lat, lon = coord:GetLLDDM()
+                local lat, lon = coord:GetLLDD()
                 
                 -- Determine Airbase Presence
                 local nearestBase = coord:GetClosestAirbase()
@@ -313,7 +331,7 @@ function ExportOrderOfBattle()
             local dict = (coalitionVal == coalition.side.RED) and AEM_Pool_Red or AEM_Pool_Blue
             
             if not dict[key] then
-                local lat, lon = coord:GetLLDDM()
+                local lat, lon = coord:GetLLDD()
                 dict[key] = {
                     category = category,
                     count = 0,
@@ -341,7 +359,7 @@ function ExportOrderOfBattle()
     SendToNode("AVAILABLE", "RED", available_red_list)
     SendToNode("AVAILABLE", "BLUE", available_blue_list)
 
-    trigger.action.outText("AEM: Order of Battle Exported", 15)
+    messageToAll("AEM: Order of Battle Exported", 15)
 end
 
 -- Run once at 1 second into the mission
@@ -369,7 +387,7 @@ function ExportGoals()
                 local lat, lon = 0, 0
                 if mooseZone then
                     local coord = mooseZone:GetCoordinate()
-                    lat, lon = coord:GetLLDDM()
+                    lat, lon = coord:GetLLDD()
                 end
 
                 local entry = {
@@ -397,7 +415,7 @@ function ExportGoals()
     SendToNode("GOALS", "RED", goals_red)
     SendToNode("GOALS", "BLUE", goals_blue)
 
-    trigger.action.outText("AEM: Mission Goals Exported", 15)
+    messageToAll("AEM: Mission Goals Exported", 15)
 end
 
 -- Run once at 2 seconds into the mission
@@ -426,7 +444,7 @@ function ExportBorders()
                 for _, wp in ipairs(template.route.points) do
                     -- In the DCS Mission Editor table, x is North/South, y is East/West
                     local coord = COORDINATE:NewFromVec2({x = wp.x, y = wp.y})
-                    local lat, lon = coord:GetLLDDM()
+                    local lat, lon = coord:GetLLDD()
                     
                     table.insert(coordsArray, {
                         lat = lat,
@@ -451,7 +469,7 @@ function ExportBorders()
 		SendToNode("BORDER", "BLUE", blue_border_coords)
 	end
 
-    trigger.action.outText("AEM: Borders Exported", 15)
+    messageToAll("AEM: Borders Exported", 15)
 end
 
 -- Run once at 3 seconds into the mission, staggering it from the other exports
@@ -535,7 +553,7 @@ local function ProcessIntelData(intelObject, detectorSide, targetSide, timeNow)
         -- Gather Telemetry & Location
         -- ----------------------------------------------------
         local speed, heading = GetTargetTelemetry(trackKey, currentCoord, timeNow)
-        local latNum, lonNum = currentCoord:GetLLDDM()
+        local latNum, lonNum = currentCoord:GetLLDD()
         
         -- Extract Altitude (currentCoord.y is in meters, convert to feet for standard aviation)
         local alt_ft = math.floor(currentCoord.y * 3.28084)
@@ -693,135 +711,159 @@ end, {}, 35, SCHEDULER_ISR_FREQ_BLUE)
 -- Logic related to csar mission
 -- ======================================================================
 
-local function launchFlare(unitFlaring) unitFlaring:FlareRed() end
+if MODULE_CSAR then	-- activate module CSAR
 
-local function radioTransmit(unitTransmiting, freq)
-	unitTransmiting:GetRadio():NewUnitTransmission(__CSAR_SOS, "SOS signal transmiting", 10, freq or 44.00, radio.modulation.FM, true):Broadcast(true)
-end
+	menuCSARblue = nil
+	menuCSARred = nil
+	
+	local function launchFlare(unitFlaring) unitFlaring:FlareRed() end
 
-local function attemptRescue(rescuedGroup, menuPath, rescueCoalitionStr)
-	local playerDCSUnit = world.getPlayer()
-	if playerDCSUnit then
-		local playerMooseUnit = UNIT:Find(playerDCSUnit)
-		local timeInZone = 0
-		local rescueTimer = TIMER:New(function(self)
-			local dist3D = playerMooseUnit:GetCoordinate():Get3DDistance(rescuedGroup:GetCoordinate())
-            local speedKMH = playerMooseUnit:GetVelocityKMH()
-			if dist3D <= 50 and speedKMH <= 10 then
-				timeInZone = timeInZone + 1
-				if timeInZone == 5 then trigger.action.outText("Pilot boarding... hold steady!", 5) end
-				if timeInZone >= 10 then
-                    trigger.action.outText("Pilot successfully rescued! Get them back to base.", 10)
-					if menuPath ~= nil then missionCommands.removeItemForCoalition(rescueCoalitionStr == "red" and coalition.side.RED or coalition.side.BLUE, menuPath) end
-					
-                    -- Send "Rescued" event to Node.js
-                    PushEvent(rescueCoalitionStr, {
-                        type = "rescued",
-                        coalition = rescueCoalitionStr,
-                        name = rescuedGroup:GetName()
-                    })
+	local function radioTransmit(unitTransmiting, freq)
+		unitTransmiting:GetRadio():NewUnitTransmission(__CSAR_SOS, "SOS signal transmiting", 10, freq or 44.00, radio.modulation.FM, true):Broadcast(true)
+	end
 
-                    rescuedGroup:Destroy()
-                    self:Stop()
-                end
-			else
-				if timeInZone > 5 then
-					trigger.action.outText("Rescue aborted! You moved out of the zone or exceeded speed limits.", 5)
-					self:Stop()
+	local function attemptRescue(rescuedGroup, menuPath, rescueCoalitionStr)
+		local playerDCSUnit = world.getPlayer()
+		if playerDCSUnit then
+			local playerMooseUnit = UNIT:Find(playerDCSUnit)
+			local timeInZone = 0
+			local rescueTimer = TIMER:New(function(self)
+				local dist3D = playerMooseUnit:GetCoordinate():Get3DDistance(rescuedGroup:GetCoordinate())
+				local speedKMH = playerMooseUnit:GetVelocityKMH()
+				if dist3D <= 50 and speedKMH <= 10 then
+					timeInZone = timeInZone + 1
+					if timeInZone == 5 then messageToAll("Pilot boarding... hold steady!", 5) end
+					if timeInZone >= 10 then
+						messageToAll("Pilot successfully rescued! Get them back to base.", 10)
+						if menuPath ~= nil then missionCommands.removeItemForCoalition(rescueCoalitionStr == "red" and coalition.side.RED or coalition.side.BLUE, menuPath) end
+						
+						-- Send "Rescued" event to Node.js
+						PushEvent(rescueCoalitionStr, {
+							type = "rescued",
+							coalition = rescueCoalitionStr,
+							name = rescuedGroup:GetName()
+						})
+
+						rescuedGroup:Destroy()
+						self:Stop()
+					end
+				else
+					if timeInZone > 5 then
+						messageToAll("Rescue aborted! You moved out of the zone or exceeded speed limits.", 5)
+						self:Stop()
+					end
+				end
+			end)
+			rescueTimer:Start(1, 1)
+		end
+	end
+
+	local function InitializeDownedPilot(SpawnGroup, coalStr)
+		local _unit = SpawnGroup:GetFirstUnit()
+		local freq = math.random(30, 59) + (0.01 * math.random(0, 99))
+		radioTransmit(_unit, freq)
+		
+		local unitCoord = _unit:GetCoordinate()
+		local lat, lon = unitCoord:GetLLDD()
+		local approxCoords = unitCoord:ToStringLLDDM()
+		local limitedCoords = string.gsub(approxCoords, "%.%d+", "")
+		
+		local dcsCoalition = coalStr == "red" and coalition.side.RED or coalition.side.BLUE
+		local menuCSAR = coalStr == "red" and menuCSARred or menuCSARblue
+
+		if menuCSAR == nil then
+			menuCSAR = missionCommands.addSubMenuForCoalition(dcsCoalition, "CSAR", nil)
+			if coalStr == "red" then menuCSARred = menuCSAR else menuCSARblue = menuCSAR end
+		end
+
+		missionCommands.addCommandForCoalition(dcsCoalition, limitedCoords.." / FM "..string.format("%.2f", freq)..": Launch flare", menuCSAR, function() launchFlare(_unit) end, nil)
+		
+		local f10CommandPath = nil
+		f10CommandPath = missionCommands.addCommandForCoalition(dcsCoalition, limitedCoords.." / FM "..string.format("%.2f", freq)..": Attempt rescue", menuCSAR, function() attemptRescue(SpawnGroup, f10CommandPath, coalStr) end, nil)
+
+		-- Notify Node.js that the pilot is on the ground
+		PushEvent(coalStr, {
+			type = "csar",
+			coalition = coalStr,
+			name = SpawnGroup:GetName(),
+			lat = lat,
+			lon = lon
+		})
+	end
+
+	BLUE_LIFE_RAFT = SPAWN:New(BLUE_RAFT):InitLimit(100, 100):OnSpawnGroup(function(grp) InitializeDownedPilot(grp, "blue") end)
+	BLUE_DOWNED_PILOT = SPAWN:New(BLUE_PILOT):InitLimit(100, 100):OnSpawnGroup(function(grp) InitializeDownedPilot(grp, "blue") end)
+	RED_LIFE_RAFT = SPAWN:New(RED_RAFT):InitLimit(100, 100):OnSpawnGroup(function(grp) InitializeDownedPilot(grp, "red") end)
+	RED_DOWNED_PILOT = SPAWN:New(RED_PILOT):InitLimit(100, 100):OnSpawnGroup(function(grp) InitializeDownedPilot(grp, "red") end)
+	
+	local CSAR_EventHandler = {}
+	function CSAR_EventHandler:onEvent(Event)
+		local chuteObject = nil
+		local isBailout = false
+		
+		-- Fighter Jets (Ejection Seats)
+		if Event.id == world.event.S_EVENT_EJECTION then
+			if Event.target then
+				chuteObject = Event.target
+				isBailout = true
+			end
+			
+		-- Heavy Aircraft / Helis (Manual Bailouts)
+		elseif Event.id == world.event.S_EVENT_BIRTH then
+			if Event.initiator and Event.initiator:isExist() then
+				local successName, unitName = pcall(function() return Event.initiator:getName() end)
+				if successName and unitName then
+					if string.find(unitName, BLUE_RAFT) or string.find(unitName, BLUE_PILOT) or string.find(unitName, RED_RAFT) or string.find(unitName, RED_PILOT) then
+						return -- Stop processing this event immediately!
+					end
+				end
+				local success, typeName = pcall(function() return Event.initiator:getTypeName() end)
+				if success and typeName and type(typeName) == "string" then
+					local lowerName = string.lower(typeName)
+					if string.find(lowerName, "parachute") or string.find(lowerName, "paratrooper") or string.find(lowerName, "pilot") then
+						chuteObject = Event.initiator
+						isBailout = true
+					end
 				end
 			end
-		end)
-		rescueTimer:Start(1, 1)
+		end
+		
+		-- Execute Rescue Spawn Logic
+		if isBailout and chuteObject then
+			local rawVec3 = chuteObject:getPoint()
+			local parachuteCoord = COORDINATE:NewFromVec3(rawVec3)
+			local altMeters = parachuteCoord:GetY()
+			local ejectCoalition = chuteObject:getCoalition()
+			
+			local staggerDelay = math.random(0, 15)
+			local fallTime = math.max(altMeters / 5.5, 5) + staggerDelay 
+			local maxDrift = math.min(altMeters * 0.5, 3000) 
+			local spawnCoord = parachuteCoord:GetRandomCoordinateInRadius(maxDrift, 100)
+			
+			messageToAll("EJECTION DETECTED! Surface ETA: " .. math.floor(fallTime) .. " seconds.", 15)
+			
+			timer.scheduleFunction(function()
+				local surface = spawnCoord:GetSurfaceType()
+				local isWater = (surface == land.SurfaceType.WATER or surface == land.SurfaceType.SHALLOW_WATER)
+				
+				if isWater then
+					if ejectCoalition == coalition.side.BLUE then BLUE_LIFE_RAFT:SpawnFromCoordinate(spawnCoord)
+					elseif ejectCoalition == coalition.side.RED then RED_LIFE_RAFT:SpawnFromCoordinate(spawnCoord) end
+				else
+					if ejectCoalition == coalition.side.BLUE then BLUE_DOWNED_PILOT:SpawnFromCoordinate(spawnCoord)
+					elseif ejectCoalition == coalition.side.RED then RED_DOWNED_PILOT:SpawnFromCoordinate(spawnCoord) end
+				end
+			end, nil, timer.getTime() + fallTime)
+			
+		end	
 	end
-end
-
-local function InitializeDownedPilot(SpawnGroup, coalStr)
-    local _unit = SpawnGroup:GetFirstUnit()
-    local freq = math.random(30, 59) + (0.01 * math.random(0, 99))
-    radioTransmit(_unit, freq)
-    
-    local unitCoord = _unit:GetCoordinate()
-    local lat, lon = unitCoord:GetLLDDM()
-    local approxCoords = unitCoord:ToStringLLDDM()
-    local limitedCoords = string.gsub(approxCoords, "%.%d+", "")
-    
-    local dcsCoalition = coalStr == "red" and coalition.side.RED or coalition.side.BLUE
-    local menuCSAR = coalStr == "red" and menuCSARred or menuCSARblue
-
-    if menuCSAR == nil then
-        menuCSAR = missionCommands.addSubMenuForCoalition(dcsCoalition, "CSAR", nil)
-        if coalStr == "red" then menuCSARred = menuCSAR else menuCSARblue = menuCSAR end
-    end
-
-    missionCommands.addCommandForCoalition(dcsCoalition, limitedCoords.." / FM "..string.format("%.2f", freq)..": Launch flare", menuCSAR, function() launchFlare(_unit) end, nil)
-    
-    local f10CommandPath = nil
-    f10CommandPath = missionCommands.addCommandForCoalition(dcsCoalition, limitedCoords.." / FM "..string.format("%.2f", freq)..": Attempt rescue", menuCSAR, function() attemptRescue(SpawnGroup, f10CommandPath, coalStr) end, nil)
-
-    -- Notify Node.js that the pilot is on the ground
-    PushEvent(coalStr, {
-        type = "csar",
-        coalition = coalStr,
-        name = SpawnGroup:GetName(),
-        lat = lat,
-        lon = lon
-    })
-end
-
-BLUE_LIFE_RAFT = SPAWN:New(BLUE_RAFT):InitLimit(100, 100):OnSpawnGroup(function(grp) InitializeDownedPilot(grp, "blue") end)
-BLUE_DOWNED_PILOT = SPAWN:New(BLUE_PILOT):InitLimit(100, 100):OnSpawnGroup(function(grp) InitializeDownedPilot(grp, "blue") end)
-RED_LIFE_RAFT = SPAWN:New(RED_RAFT):InitLimit(100, 100):OnSpawnGroup(function(grp) InitializeDownedPilot(grp, "red") end)
-RED_DOWNED_PILOT = SPAWN:New(RED_PILOT):InitLimit(100, 100):OnSpawnGroup(function(grp) InitializeDownedPilot(grp, "red") end)
+	world.addEventHandler(CSAR_EventHandler)
+	
+end	-- module CSAR
 
 -- ======================================================================
 -- Event handlers
 -- ======================================================================
-
--- local EventCatcher = EVENTHANDLER:New()
--- EventCatcher:HandleEvent(EVENTS.Dead)
--- EventCatcher:HandleEvent(EVENTS.Crash)
--- EventCatcher:HandleEvent(EVENTS.Ejection)
-
--- function EventCatcher:OnEventDead(EventData)
-    -- if EventData.IniGroup and EventData.IniCoalition then
-        -- local coal = (EventData.IniCoalition == coalition.side.RED) and "red" or "blue"
-        -- PushEvent(coal, {
-            -- type = "destroyed",
-            -- coalition = coal,
-            -- groupName = EventData.IniGroup:GetName()
-        -- })
-    -- end
--- end
-
--- function EventCatcher:OnEventCrash(EventData)
-    -- self:OnEventDead(EventData)
--- end
-
--- function EventCatcher:OnEventEjection(EventData)
-    -- if EventData.IniUnit and EventData.IniCoalition then
-        -- local coal = (EventData.IniCoalition == coalition.side.RED) and "red" or "blue"
-        -- local coord = EventData.IniUnit:GetCoordinate()
-        -- local altMeters = coord:GetY()
-        -- local fallTime = math.max(altMeters / 5.5, 5) 
-        -- local maxDrift = math.min(altMeters * 0.5, 3000) 
-        -- local spawnCoord = coord:GetRandomCoordinateInRadius(maxDrift, 100)
-        
-		
-		-- trigger.action.outText("EJECTION "..fallTime, 15)
-		
-        -- timer.scheduleFunction(function()
-            -- local surface = spawnCoord:GetSurfaceType()
-            -- local isWater = (surface == land.SurfaceType.WATER or surface == land.SurfaceType.SHALLOW_WATER)
-            -- if isWater then
-                -- if coal == "blue" then BLUE_LIFE_RAFT:SpawnFromCoordinate(spawnCoord)
-                -- else RED_LIFE_RAFT:SpawnFromCoordinate(spawnCoord) end
-            -- else
-                -- if coal == "blue" then BLUE_DOWNED_PILOT:SpawnFromCoordinate(spawnCoord)
-                -- else RED_DOWNED_PILOT:SpawnFromCoordinate(spawnCoord) end
-            -- end
-        -- end, nil, timer.getTime() + fallTime)
-    -- end
--- end
 
 local EventCatcher = EVENTHANDLER:New()
 EventCatcher:HandleEvent(EVENTS.Dead)
@@ -841,70 +883,6 @@ end
 function EventCatcher:OnEventCrash(EventData)
     self:OnEventDead(EventData)
 end
-
--- 2. Native DCS Handler: Dedicated strictly to CSAR Ejections and Bailouts
-local CSAR_EventHandler = {}
-function CSAR_EventHandler:onEvent(Event)
-	local chuteObject = nil
-	local isBailout = false
-	
-	-- Fighter Jets (Ejection Seats)
-	if Event.id == world.event.S_EVENT_EJECTION then
-		if Event.target then
-			chuteObject = Event.target
-			isBailout = true
-		end
-		
-	-- Heavy Aircraft / Helis (Manual Bailouts)
-	elseif Event.id == world.event.S_EVENT_BIRTH then
-		if Event.initiator and Event.initiator:isExist() then
-			local successName, unitName = pcall(function() return Event.initiator:getName() end)
-			if successName and unitName then
-				if string.find(unitName, BLUE_RAFT) or string.find(unitName, BLUE_PILOT) or string.find(unitName, RED_RAFT) or string.find(unitName, RED_PILOT) then
-					return -- Stop processing this event immediately!
-				end
-			end
-			local success, typeName = pcall(function() return Event.initiator:getTypeName() end)
-			if success and typeName and type(typeName) == "string" then
-				local lowerName = string.lower(typeName)
-				if string.find(lowerName, "parachute") or string.find(lowerName, "paratrooper") or string.find(lowerName, "pilot") then
-					chuteObject = Event.initiator
-					isBailout = true
-				end
-			end
-		end
-	end
-	
-	-- Execute Rescue Spawn Logic
-	if isBailout and chuteObject then
-		local rawVec3 = chuteObject:getPoint()
-		local parachuteCoord = COORDINATE:NewFromVec3(rawVec3)
-		local altMeters = parachuteCoord:GetY()
-		local ejectCoalition = chuteObject:getCoalition()
-		
-		local staggerDelay = math.random(0, 15)
-		local fallTime = math.max(altMeters / 5.5, 5) + staggerDelay 
-		local maxDrift = math.min(altMeters * 0.5, 3000) 
-		local spawnCoord = parachuteCoord:GetRandomCoordinateInRadius(maxDrift, 100)
-		
-		trigger.action.outText("EJECTION DETECTED! Surface ETA: " .. math.floor(fallTime) .. " seconds.", 15)
-		
-		timer.scheduleFunction(function()
-			local surface = spawnCoord:GetSurfaceType()
-			local isWater = (surface == land.SurfaceType.WATER or surface == land.SurfaceType.SHALLOW_WATER)
-			
-			if isWater then
-				if ejectCoalition == coalition.side.BLUE then BLUE_LIFE_RAFT:SpawnFromCoordinate(spawnCoord)
-				elseif ejectCoalition == coalition.side.RED then RED_LIFE_RAFT:SpawnFromCoordinate(spawnCoord) end
-			else
-				if ejectCoalition == coalition.side.BLUE then BLUE_DOWNED_PILOT:SpawnFromCoordinate(spawnCoord)
-				elseif ejectCoalition == coalition.side.RED then RED_DOWNED_PILOT:SpawnFromCoordinate(spawnCoord) end
-			end
-		end, nil, timer.getTime() + fallTime)
-		
-	end	
-end
-world.addEventHandler(CSAR_EventHandler)
 
 local function FlushEvents()
     if #AEM_Events_Red > 0 then
@@ -948,11 +926,11 @@ local function SpawnAndTask(action, spawnTemplate, spawnAirbase, coalitionStr)
 		-- NewGroup:CommandSetUnlimitedFuel(true)
 		
         local groupName = NewGroup:GetName()
-        trigger.action.outText(string.format("AEM: Executing Order - %s launched from %s", action.unit_type, action.airbase), 15)
+        messageToAll(string.format("AEM: Executing Order - %s launched from %s", action.unit_type, action.airbase), 15)
         
         local FlightGroup = FLIGHTGROUP:New(NewGroup)
         local startCoord  = NewGroup:GetCoordinate()
-        local startLat, startLon = startCoord:GetLLDDM()
+        local startLat, startLon = startCoord:GetLLDD()
         
         local targetLat = action.target_area.lat
         local targetLon = action.target_area.long
@@ -1293,4 +1271,36 @@ function ProcessAIOrders(actions, coalitionStr)
     end
 end
 
-trigger.action.outText("AEM Commander loaded", 15)
+-- ======================================================================
+-- Log
+-- ======================================================================
+
+local function messageToAll(message, t)
+	if MODULE_DEBUG then
+		trigger.action.outText(message, t)
+	end
+end
+
+local function printBootStatus()
+    env.info("==================================================")
+    env.info(" AEM COMMANDER: SCRIPT LOADED")
+    env.info("==================================================")
+    
+    -- Feature Toggles
+    env.info(" -> MODULE_CSAR: " .. tostring(MODULE_CSAR))
+	env.info(" -> MODULE_DEBUG: " .. tostring(MODULE_DEBUG))
+    
+    -- Network info
+    env.info(" -> TCP BRIDGE: " .. tostring(TCP_HOST) .. ":" .. tostring(TCP_PORT))
+    
+    -- Basic Settings
+    env.info(" -> ISR UPDATE FREQ (RED): " .. tostring(SCHEDULER_ISR_FREQ_RED) .. "s")
+    env.info(" -> ISR UPDATE FREQ (BLUE): " .. tostring(SCHEDULER_ISR_FREQ_BLUE) .. "s")
+    
+    env.info("==================================================")
+    
+    -- Feedback in-game
+    messageToAll("AEM Commander loaded successfully.", 15)
+end
+
+printBootStatus()
