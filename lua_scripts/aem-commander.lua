@@ -59,15 +59,6 @@ menuCSARred = nil
 -- // Code: DO NOT EDIT BEYOND THIS POINT
 -------------------------------------------------------------------------
 
-function _G.testFunction()
-	return "hola"
-end
-
-_G.AEM_COMMANDER_ACTIVE = true
-
-TEST = 47
-_G.TEST2 = 48
-
 -- Event Queues for the Node.js Monitor
 AEM_Events_Red = {}
 AEM_Events_Blue = {}
@@ -786,10 +777,55 @@ RED_DOWNED_PILOT = SPAWN:New(RED_PILOT):InitLimit(100, 100):OnSpawnGroup(functio
 -- Event handlers
 -- ======================================================================
 
+-- local EventCatcher = EVENTHANDLER:New()
+-- EventCatcher:HandleEvent(EVENTS.Dead)
+-- EventCatcher:HandleEvent(EVENTS.Crash)
+-- EventCatcher:HandleEvent(EVENTS.Ejection)
+
+-- function EventCatcher:OnEventDead(EventData)
+    -- if EventData.IniGroup and EventData.IniCoalition then
+        -- local coal = (EventData.IniCoalition == coalition.side.RED) and "red" or "blue"
+        -- PushEvent(coal, {
+            -- type = "destroyed",
+            -- coalition = coal,
+            -- groupName = EventData.IniGroup:GetName()
+        -- })
+    -- end
+-- end
+
+-- function EventCatcher:OnEventCrash(EventData)
+    -- self:OnEventDead(EventData)
+-- end
+
+-- function EventCatcher:OnEventEjection(EventData)
+    -- if EventData.IniUnit and EventData.IniCoalition then
+        -- local coal = (EventData.IniCoalition == coalition.side.RED) and "red" or "blue"
+        -- local coord = EventData.IniUnit:GetCoordinate()
+        -- local altMeters = coord:GetY()
+        -- local fallTime = math.max(altMeters / 5.5, 5) 
+        -- local maxDrift = math.min(altMeters * 0.5, 3000) 
+        -- local spawnCoord = coord:GetRandomCoordinateInRadius(maxDrift, 100)
+        
+		
+		-- trigger.action.outText("EJECTION "..fallTime, 15)
+		
+        -- timer.scheduleFunction(function()
+            -- local surface = spawnCoord:GetSurfaceType()
+            -- local isWater = (surface == land.SurfaceType.WATER or surface == land.SurfaceType.SHALLOW_WATER)
+            -- if isWater then
+                -- if coal == "blue" then BLUE_LIFE_RAFT:SpawnFromCoordinate(spawnCoord)
+                -- else RED_LIFE_RAFT:SpawnFromCoordinate(spawnCoord) end
+            -- else
+                -- if coal == "blue" then BLUE_DOWNED_PILOT:SpawnFromCoordinate(spawnCoord)
+                -- else RED_DOWNED_PILOT:SpawnFromCoordinate(spawnCoord) end
+            -- end
+        -- end, nil, timer.getTime() + fallTime)
+    -- end
+-- end
+
 local EventCatcher = EVENTHANDLER:New()
 EventCatcher:HandleEvent(EVENTS.Dead)
 EventCatcher:HandleEvent(EVENTS.Crash)
-EventCatcher:HandleEvent(EVENTS.Ejection)
 
 function EventCatcher:OnEventDead(EventData)
     if EventData.IniGroup and EventData.IniCoalition then
@@ -806,28 +842,69 @@ function EventCatcher:OnEventCrash(EventData)
     self:OnEventDead(EventData)
 end
 
-function EventCatcher:OnEventEjection(EventData)
-    if EventData.IniUnit and EventData.IniCoalition then
-        local coal = (EventData.IniCoalition == coalition.side.RED) and "red" or "blue"
-        local coord = EventData.IniUnit:GetCoordinate()
-        local altMeters = coord:GetY()
-        local fallTime = math.max(altMeters / 5.5, 5) 
-        local maxDrift = math.min(altMeters * 0.5, 3000) 
-        local spawnCoord = coord:GetRandomCoordinateInRadius(maxDrift, 100)
-        
-        timer.scheduleFunction(function()
-            local surface = spawnCoord:GetSurfaceType()
-            local isWater = (surface == land.SurfaceType.WATER or surface == land.SurfaceType.SHALLOW_WATER)
-            if isWater then
-                if coal == "blue" then BLUE_LIFE_RAFT:SpawnFromCoordinate(spawnCoord)
-                else RED_LIFE_RAFT:SpawnFromCoordinate(spawnCoord) end
-            else
-                if coal == "blue" then BLUE_DOWNED_PILOT:SpawnFromCoordinate(spawnCoord)
-                else RED_DOWNED_PILOT:SpawnFromCoordinate(spawnCoord) end
-            end
-        end, nil, timer.getTime() + fallTime)
-    end
+-- 2. Native DCS Handler: Dedicated strictly to CSAR Ejections and Bailouts
+local CSAR_EventHandler = {}
+function CSAR_EventHandler:onEvent(Event)
+	local chuteObject = nil
+	local isBailout = false
+	
+	-- Fighter Jets (Ejection Seats)
+	if Event.id == world.event.S_EVENT_EJECTION then
+		if Event.target then
+			chuteObject = Event.target
+			isBailout = true
+		end
+		
+	-- Heavy Aircraft / Helis (Manual Bailouts)
+	elseif Event.id == world.event.S_EVENT_BIRTH then
+		if Event.initiator and Event.initiator:isExist() then
+			local successName, unitName = pcall(function() return Event.initiator:getName() end)
+			if successName and unitName then
+				if string.find(unitName, BLUE_RAFT) or string.find(unitName, BLUE_PILOT) or string.find(unitName, RED_RAFT) or string.find(unitName, RED_PILOT) then
+					return -- Stop processing this event immediately!
+				end
+			end
+			local success, typeName = pcall(function() return Event.initiator:getTypeName() end)
+			if success and typeName and type(typeName) == "string" then
+				local lowerName = string.lower(typeName)
+				if string.find(lowerName, "parachute") or string.find(lowerName, "paratrooper") or string.find(lowerName, "pilot") then
+					chuteObject = Event.initiator
+					isBailout = true
+				end
+			end
+		end
+	end
+	
+	-- Execute Rescue Spawn Logic
+	if isBailout and chuteObject then
+		local rawVec3 = chuteObject:getPoint()
+		local parachuteCoord = COORDINATE:NewFromVec3(rawVec3)
+		local altMeters = parachuteCoord:GetY()
+		local ejectCoalition = chuteObject:getCoalition()
+		
+		local staggerDelay = math.random(0, 15)
+		local fallTime = math.max(altMeters / 5.5, 5) + staggerDelay 
+		local maxDrift = math.min(altMeters * 0.5, 3000) 
+		local spawnCoord = parachuteCoord:GetRandomCoordinateInRadius(maxDrift, 100)
+		
+		trigger.action.outText("EJECTION DETECTED! Surface ETA: " .. math.floor(fallTime) .. " seconds.", 15)
+		
+		timer.scheduleFunction(function()
+			local surface = spawnCoord:GetSurfaceType()
+			local isWater = (surface == land.SurfaceType.WATER or surface == land.SurfaceType.SHALLOW_WATER)
+			
+			if isWater then
+				if ejectCoalition == coalition.side.BLUE then BLUE_LIFE_RAFT:SpawnFromCoordinate(spawnCoord)
+				elseif ejectCoalition == coalition.side.RED then RED_LIFE_RAFT:SpawnFromCoordinate(spawnCoord) end
+			else
+				if ejectCoalition == coalition.side.BLUE then BLUE_DOWNED_PILOT:SpawnFromCoordinate(spawnCoord)
+				elseif ejectCoalition == coalition.side.RED then RED_DOWNED_PILOT:SpawnFromCoordinate(spawnCoord) end
+			end
+		end, nil, timer.getTime() + fallTime)
+		
+	end	
 end
+world.addEventHandler(CSAR_EventHandler)
 
 local function FlushEvents()
     if #AEM_Events_Red > 0 then
