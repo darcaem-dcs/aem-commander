@@ -4,12 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AEM Commander</title>
+	<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
         body { 
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
             padding: 20px; 
             line-height: 1.6; 
-            max-width: 900px; 
+            max-width: 98%; 
             margin: auto; 
             background: #f0f2f5; 
             color: #333; 
@@ -82,6 +84,42 @@
         .btn-stop { background: #6c757d; color: white; margin-left: 10px; }
         button:hover { opacity: 0.9; }
         button:disabled { background: #ccc; cursor: not-allowed; }
+		
+		/* Estilos para las pestañas y el mapa */
+        #battlefieldView {
+            display: none; /* Oculto hasta que le demos a Start */
+            margin-top: 20px;
+        }
+        .tabs {
+            display: flex;
+            margin-bottom: 10px;
+        }
+        .tab-btn {
+            padding: 10px 20px;
+            cursor: pointer;
+            border: 1px solid #ccc;
+            background: #e9ecef;
+            border-radius: 6px 6px 0 0;
+            margin-right: 5px;
+            font-weight: bold;
+            opacity: 0.7;
+        }
+        .tab-btn.active {
+            background: #fff;
+            border-bottom: 1px solid #fff;
+            opacity: 1;
+        }
+        .tab-red.active { color: #dc3545; }
+        .tab-blue.active { color: #0d6efd; }
+        
+        #map { 
+            height: 600px; 
+            width: 100%; 
+            border: 1px solid #ccc;
+            border-radius: 0 6px 6px 6px;
+            margin-bottom: 15px;
+            z-index: 1; /* Para que no se pise con modales de Electron */
+        }
     </style>
 </head>
 <body>
@@ -144,8 +182,17 @@
             <div><strong>Active Directory:</strong> <span id="folderPath">None selected</span></div>
         </div>
 
-        <div class="log" id="logBox" style="display: none;">
-            <div class="info">[System Ready] Choose auth method and select a folder.</div>
+        <div id="battlefieldView">
+            <div class="tabs">
+                <div id="tabRed" class="tab-btn tab-red active">Red Commander</div>
+                <div id="tabBlue" class="tab-btn tab-blue">Blue Commander</div>
+            </div>
+            
+            <div id="map"></div>
+
+            <div class="log" id="logBox">
+                <div class="info">[System Ready] Choose auth method and select a folder.</div>
+            </div>
         </div>
     </div>
 
@@ -166,7 +213,15 @@
 		const inputInstructionsBlue = document.getElementById('inputInstructionsBlue');
 		const commanderRadios = document.querySelectorAll('input[name="commanderOpt"]');
         const authRadios = document.querySelectorAll('input[name="authOpt"]');
-
+		const battlefieldView = document.getElementById('battlefieldView');
+        const tabRed = document.getElementById('tabRed');
+        const tabBlue = document.getElementById('tabBlue');
+        
+		let map;
+		let mapLayerGroup;
+        let lastBattleState = null;
+        let currentMapView = 'red';
+		
 		window.electronAPI.onLogMessage((message, type) => {
             addLog(message, type);
         });
@@ -200,14 +255,14 @@
                 authCredential = apiKeyInput.value.trim();
                 if (!authCredential) {
                     addLog('Error: Please enter a valid API Key.', 'error');
-                    logBox.style.display = "";
+					battlefieldView.style.display = "block";
                     return;
                 }
             } else {
                 authCredential = vertexJsonPathInput.value.trim();
                 if (!authCredential) {
                     addLog('Error: Please select a Vertex AI JSON file.', 'error');
-                    logBox.style.display = "";
+					battlefieldView.style.display = "block";
                     return;
                 }
             }
@@ -218,8 +273,6 @@
 			const instructionsRed = inputInstructionsRed.value;
 			const instructionsBlue = inputInstructionsBlue.value;
 			
-			logBox.style.display = "";
-			
             const selectedPath = await window.electronAPI.selectAndStart(authMethod, authCredential, model, commanderSide, instructionsRed, instructionsBlue, intervalTime);
             
             if (selectedPath) {
@@ -227,6 +280,19 @@
                 statusText.innerText = "Running (${intervalTime}s Cycle)";
                 statusText.className = "running";
                 
+                battlefieldView.style.display = "block";
+				
+                if (!map) {
+                    map = L.map('map').setView([42.0, 42.0], 6);
+                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                        maxZoom: 19,
+                        attribution: '© OpenStreetMap contributors'
+                    }).addTo(map);
+					mapLayerGroup = L.layerGroup().addTo(map);
+                } else {
+                    setTimeout(() => map.invalidateSize(), 100);
+                }
+				
 				sectionConfig.style.display = "none";
                 btnSelectStart.disabled = true;
                 btnStop.disabled = false;
@@ -252,6 +318,84 @@
 			radio.addEventListener('change', updateContextVisibility);
 		});
 		
+        tabRed.addEventListener('click', () => {
+            currentMapView = 'red';
+            tabRed.classList.add('active');
+            tabBlue.classList.remove('active');
+            renderMap();
+        });
+
+        tabBlue.addEventListener('click', () => {
+            currentMapView = 'blue';
+            tabBlue.classList.add('active');
+            tabRed.classList.remove('active');
+            renderMap();
+        });
+		
+		// Escuchar los datos de Node.js
+        window.electronAPI.onUpdateMap((newState) => {
+            lastBattleState = newState;
+            // Solo pintamos si el mapa ya está visible
+            if (map && battlefieldView.style.display !== "none") {
+                renderMap();
+            }
+        });
+
+        function renderMap() {
+            if (!map || !mapLayerGroup || !lastBattleState) return;
+
+            // 1. Limpiamos todos los marcadores del frame anterior
+            mapLayerGroup.clearLayers();
+
+            const sideData = lastBattleState[currentMapView]; // Leemos 'red' o 'blue'
+            if (!sideData || !sideData.forces) return;
+
+            // Definimos colores: Aliados vs Enemigos dependiendo de la pestaña actual
+            const friendlyColor = currentMapView === 'red' ? '#dc3545' : '#0d6efd'; // Rojo o Azul
+            const enemyColor = currentMapView === 'red' ? '#0d6efd' : '#dc3545'; // El opuesto
+
+            // 2. Dibujar Fuerzas Activas (Aliadas)
+            if (sideData.forces.activeGroups) {
+                sideData.forces.activeGroups.forEach(group => {
+                    let marker = L.circleMarker([group.lat, group.lon], {
+                        radius: 6,
+                        color: '#000',
+                        weight: 1,
+                        fillColor: friendlyColor,
+                        fillOpacity: 1
+                    }).bindPopup(`<b>${group.name}</b><br>Type: ${group.type}<br>Task: ${group.mission}`);
+                    mapLayerGroup.addLayer(marker);
+                });
+            }
+
+            // 3. Dibujar Contactos ISR (Enemigos detectados)
+            if (sideData.forces.enemyGroups) {
+                sideData.forces.enemyGroups.forEach(enemy => {
+                    let marker = L.circleMarker([enemy.lat, enemy.lon], {
+                        radius: 6,
+                        color: enemyColor, // Borde del color enemigo
+                        weight: 2,
+                        fillColor: 'transparent', // Hueco por dentro para distinguirlo de los nuestros
+                        dashArray: "3 3" // Borde punteado (contacto de radar)
+                    }).bindPopup(`<b>ISR Contact</b><br>Target: ${enemy.name}<br>Class: ${enemy.threat}`);
+                    mapLayerGroup.addLayer(marker);
+                });
+            }
+
+            // 4. Dibujar Objetivos (Goals)
+            if (sideData.targets && sideData.targets.targets) {
+                sideData.targets.targets.forEach(target => {
+                    let marker = L.circle([target.lat, target.lon], {
+                        radius: 3000, // 3km de radio dibujado
+                        color: '#ffc107', // Amarillo/Naranja
+                        fillOpacity: 0.2,
+                        weight: 2
+                    }).bindPopup(`<b>Goal: ${target.name}</b><br>Priority: ${target.priority}<br>Type: ${target.type}`);
+                    mapLayerGroup.addLayer(marker);
+                });
+            }
+        }
+		
 		function updateContextVisibility() {
 			const selectedOpt = document.querySelector('input[name="commanderOpt"]:checked').value;
 			if (selectedOpt === 'both') {
@@ -275,6 +419,7 @@
             logBox.appendChild(logEntry);
             logBox.scrollTop = logBox.scrollHeight;
         }
+		
     </script>
 </body>
 </html>

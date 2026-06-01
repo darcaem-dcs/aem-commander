@@ -204,11 +204,15 @@ function routeDCSMessage(msg) {
             state[coal].events.push(...msg.data);
             break;
     }
+	
+	if (mainWindow) {
+        mainWindow.webContents.send('update-map', state);
+    }
 }
 
 function createWindow() {
     mainWindow = new BrowserWindow({
-        width: 900, height: 750,
+        width: 1280, height: 900,
         webPreferences: {
             preload: path.join(__dirname, 'preload.js'),
             contextIsolation: true,

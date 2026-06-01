@@ -22,5 +22,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
      * Listens for log updates sent from the main process to be 
      * displayed in the UI log console.
      */
-    onLogMessage: (callback) => ipcRenderer.on('log-message', (event, message, type) => callback(message, type))
+    onLogMessage: (callback) => ipcRenderer.on('log-message', (event, message, type) => callback(message, type)),
+	
+	/**
+     * Listens for battlefield state updates to draw on the Leaflet map
+     */
+    onUpdateMap: (callback) => ipcRenderer.on('update-map', (event, state) => callback(state))
 });
