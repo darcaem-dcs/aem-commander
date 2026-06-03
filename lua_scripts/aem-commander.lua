@@ -48,6 +48,8 @@ TEMPLATE_PREFIX = "AEM_TPL_"
 SCHEDULER_ISR_FREQ_RED = 60
 SCHEDULER_ISR_FREQ_BLUE = 60
 
+UNLIMITED_FUEL = true
+
 -------------------------------------------------------------------------
 -- CSAR
 --
@@ -957,7 +959,7 @@ local function SpawnAndTask(action, spawnTemplate, spawnAirbase, coalitionStr)
     -- Setup the callback *before* calling SpawnAtAirbase
     SpawnObj:OnSpawnGroup(function(NewGroup)
         
-		-- NewGroup:CommandSetUnlimitedFuel(true)
+		NewGroup:CommandSetUnlimitedFuel(UNLIMITED_FUEL)
 		
         local groupName = NewGroup:GetName()
         messageToAll(string.format("AEM: Executing Order - %s launched from %s", action.unit_type, action.airbase), 15)
@@ -1048,7 +1050,7 @@ local function SpawnAndTask(action, spawnTemplate, spawnAirbase, coalitionStr)
 		
 			-- Flight parameters for a high-speed intercept scramble
 			altitude = math.random(25000, 35000)
-			speed = 550 -- High speed for QRA interception
+			speed = 500 -- High speed for QRA interception
 			
 			local targetGroupName = action.reference_entity
 			local TargetGroup = targetGroupName and GROUP:FindByName(targetGroupName) or nil
@@ -1056,6 +1058,14 @@ local function SpawnAndTask(action, spawnTemplate, spawnAirbase, coalitionStr)
 			if TargetGroup and TargetGroup:IsAlive() then
 				-- Target exists, create direct intercept mission
 				local interceptMission = AUFTRAG:NewINTERCEPT(TargetGroup)
+				
+				FlightGroup:AddWaypoint(
+					targetCoord,
+					speed,
+					nil,
+					altitude,
+					true
+				)
 				
 				-- Assign immediately without intermediate waypoints so they vector straight to the threat
 				FlightGroup:AddMission(interceptMission)
