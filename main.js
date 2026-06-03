@@ -25,8 +25,8 @@ let cycleCount = 0;
 let redActive = false, blueActive = false;
 
 let state = {
-    red: { forces: null, targets: null, territory: null, events: [] },
-    blue: { forces: null, targets: null, territory: null, events: [] }
+    red: { forces: null, targets: null, territory: null, aiLogs: [] },
+    blue: { forces: null, targets: null, territory: null, aiLogs: [] }
 };
 
 const defaultDoctrine = 'Maintain air superiority on our territory: launch defensive caps. Attack flights must have escort or cap.';
@@ -142,9 +142,15 @@ const tcpServer = net.createServer((socket) => {
             clearInterval(processIntervalId);
             processIntervalId = null;
         }
-        
+		
         state.red.forces = null; 
+		state.red.aiLogs = [];
+		state.red.targets = null;
+		state.red.territory = null;
         state.blue.forces = null;
+		state.blue.aiLogs = [];
+		state.blue.targets = null;
+		state.blue.territory = null;
         
         if (mainWindow) {
             mainWindow.webContents.send('log-message', 'DCS Mission ended. Operations suspended automatically.', 'success');
@@ -162,7 +168,13 @@ const tcpServer = net.createServer((socket) => {
         }
         
         state.red.forces = null; 
+		state.red.aiLogs = [];
+		state.red.targets = null;
+		state.red.territory = null;
         state.blue.forces = null;
+		state.blue.aiLogs = [];
+		state.blue.targets = null;
+		state.blue.territory = null;
         
         if (mainWindow) {
             mainWindow.webContents.send('log-message', 'Error. Operations suspended automatically.', 'error');
@@ -171,7 +183,7 @@ const tcpServer = net.createServer((socket) => {
     });
 	
 });
-tcpServer.listen(8080, '127.0.0.1');
+tcpServer.listen(49080, '0.0.0.0');
 
 function sendOrdersToDCS(coalition, actions) {
     if(dcsSocket) {
@@ -200,14 +212,77 @@ function routeDCSMessage(msg) {
         case "BORDER":
             state[coal].territory.updateBorder(msg.data);
             break;
-        case "EVENTS":
-            state[coal].events.push(...msg.data);
+		case "EVENTS":
+            const forces = state[coal].forces;
+            const targets = state[coal].targets;
+            
+            for (let i = 0; i < msg.data.length; i++) {
+                const event = msg.data[i];
+                const eventCoalition = event.coalition.toLowerCase();
+                
+                // Asegurarnos de que el evento pertenece a este bando
+                if (eventCoalition !== coal) continue; 
+
+                switch (event.type) {
+                    case 'activated':
+                        const arrayStatics = event.staticUnits;
+                        forces.addActiveGroup(
+                            event.group.name, event.group.type, event.group.category,
+                            event.group.mission, event.group.lat, event.group.lon,
+                            event.group.airbase, arrayStatics.length
+                        );
+                        arrayStatics.forEach(name => forces.removeAvailableUnit(name));
+                        state[coal].aiLogs.push(`The new flight ${event.group.name} has successfully launched from ${event.group.airbase}`);
+                        break;
+                        
+                    case 'destroyed':
+                        if (!forces.activeUnitDestroyed(event.groupName)) {
+                            state[coal].aiLogs.push(`All units from ${event.groupName} have been destroyed, this group has been destroyed`);
+                        } else {
+                            state[coal].aiLogs.push(`A unit from ${event.groupName} has been destroyed`);
+                        }
+                        break;
+                        
+                    case 'csar':
+                        if (eventCoalition === forces.coalition) {
+                            targets.addTarget(`csar-${event.name}`, 999, 'csar', event.lat, event.lon, null);
+                            state[coal].aiLogs.push('One of our pilots has ejected safely and needs to be rescued. A new csar mission has been added to the targets list');
+                        } else {
+                            targets.addTarget(`enemy csar-${event.name}`, 0.5, 'enemy-csar', event.lat, event.lon, null);
+                            state[coal].aiLogs.push('An enemy pilot has ejected safely. A new enemy-csar mission has been added to the targets list');
+                        }
+                        break;
+                        
+                    case 'rescued':
+                        if (eventCoalition === forces.coalition) {
+                            if (targets.removeTarget(event.name)) {
+                                state[coal].aiLogs.push(`The CSAR mission to rescue ${event.name} has been a success`);
+                            }
+                        } else {
+                            if (targets.removeTarget(`enemy csar-${event.name}`)) {
+                                state[coal].aiLogs.push(`The enemy csar mission has rescued ${event.name}`);
+                            }
+                        }
+                        break;
+                        
+                    case 'land':
+                        if (forces.removeActiveGroup(event.groupName)) {
+                            state[coal].aiLogs.push(`The group ${event.groupName} has landed safely and is no longer active. They are entering turnaround for rearm/refuel.`);
+                        }
+                        break;
+					
+					case 'captured':	// Zone has been captured
+						/// TODO:
+						break;
+                }
+            }
             break;
     }
 	
 	if (mainWindow) {
         mainWindow.webContents.send('update-map', state);
     }
+	
 }
 
 function createWindow() {
@@ -223,8 +298,6 @@ function createWindow() {
 }
 
 async function processCommander(side) {
-	
-	console.log("processCommander");
 	
 	const cState = state[side];
     if (!cState.forces || !cState.targets || !cState.territory) return;
@@ -282,106 +355,17 @@ CRITICAL: Your final response MUST be a valid JSON object matching the contract 
 	} else {
 		
 		try {
-			const eventsData = [...cState.events];
-			cState.events = [];
+			const logForAI = [...cState.aiLogs];
+			cState.aiLogs = [];
 			
-			if (!eventsData || eventsData.length === 0) {
-				mainWindow.webContents.send('log-message', `Commander of ${forces.coalition} receiving battlefield update: no changes`, 'info');
-				return;
-			}
+			// if (logForAI.length === 0) {
+				// mainWindow.webContents.send('log-message', `Commander of ${forces.coalition} receiving battlefield update: no changes`, 'info');
+				// return; 
+			// }
 			
-			if (eventsData && eventsData.length > 0) {
-				
-				mainWindow.webContents.send('log-message', `Commander of ${forces.coalition} receiving battlefield updates...`, 'info');
-				
-				let logForAI = [];
-				
-				for (var i = 0; i < eventsData.length; i++) {
-					const eventCoalition = eventsData[i].coalition;
-					switch (eventsData[i].type) {
-					case 'activated':	// Available units have been tasked
-						if (eventCoalition == forces.coalition) {
-							const arrayStatics = eventsData[i].staticUnits;
-							forces.addActiveGroup(
-								eventsData[i].group.name,
-								eventsData[i].group.type,
-								eventsData[i].group.category,
-								eventsData[i].group.lat,
-								eventsData[i].group.lon,
-								eventsData[i].group.airbase,
-								arrayStatics.length
-							);
-							arrayStatics.forEach(name => forces.removeAvailableUnit(name));
-						}
-						break;
-						
-					case 'destroyed':	// Unit has been destroyed
-						if (eventCoalition == forces.coalition) {
-							const groupName = eventsData[i].groupName;
-							if (!forces.activeUnitDestroyed(groupName)) {
-								logForAI.push('All units from ' + groupName + ' has been destroyed, this group has been destroyed');
-							} else{
-								logForAI.push('A unit from ' + groupName + ' has been destroyed');
-							}
-						}
-						break;
-						
-					case 'csar':		// Pilot downed with parachute sighted
-						if (eventCoalition == forces.coalition) {
-							targets.addTarget(
-								'csar-' + eventsData[i].name,
-								999,	// maximum priority, above anything else
-								'csar',
-								eventsData[i].lat,
-								eventsData[i].lon,
-								null
-							);
-							logForAI.push('One of our pilots has ejected safely and needs to be rescued. A new csar mission has been added to the targets list');
-						} else {
-							targets.addTarget(
-								'enemy csar-' + eventsData[i].name,
-								0.5,	// medium priority
-								'enemy-csar',
-								eventsData[i].lat,
-								eventsData[i].lon,
-								null
-							);
-							logForAI.push('An enemy pilot has ejected safely and the enemy may launch a csar mission to rescue him. A new enemy-csar mission has been added to the targets lists');
-						}
-						break;
-						
-					case 'rescued':		// CSAR success
-						if (eventCoalition == forces.coalition) {
-							const target = targets.removeTarget(eventsData[i].name);
-							if (target) {
-								logForAI.push('The CSAR mission to rescue ' + eventsData[i].name + ' has been a success');
-							}
-						} else {
-							const target = targets.removeTarget('enemy csar-' + eventsData[i].name);
-							if (target) {
-								logForAI.push('The enemy csar mission has rescued ' + eventsData[i].name);
-							}
-						}
-						break;
-						
-					case 'captured':	// Zone has been captured
-						/// TODO:
-						break;
-						
-					case 'land':		// Unit has landed
-						if (eventCoalition == forces.coalition) {
-							const groupName = eventsData[i].groupName;
-							if (forces.removeActiveGroup(groupName)) {
-								logForAI.push(`The group ${groupName} has landed safely and is no longer active. They are entering turnaround for rearm/refuel.`);
-							}
-							
-							// 3. TODO: Decidir mecanismo para devolverlos a available_assets
-						}
-						break;
-					}
-				}
+			mainWindow.webContents.send('log-message', `Commander of ${forces.coalition} receiving battlefield updates...`, 'info');
 			
-				const updatePrompt = `
+			const updatePrompt = `
 SITUATION UPDATE: The battlefield state has changed based on new intelligence and events.
 
 RECENT BATTLEFIELD EVENTS:
@@ -396,25 +380,24 @@ ${logForAI.length > 0 ? logForAI.join('.\n') : "ISR contacts updated. Review new
 
 CRITICAL: Output ONLY valid JSON matching the contract exactly. No conversational text.`;
 			
-				const aiRawResponse = await ai.sendChatUpdate(updatePrompt, forces, targets, territory);
-				const jsonOutput = ai.aiSanitizeJson(aiRawResponse);
-				
-				if (jsonOutput && jsonOutput.actions && jsonOutput.actions.length > 0) {
-					mainWindow.webContents.send('log-message', `${forces.coalition} Commander: ${jsonOutput.mission_log}`, 'success');
-					sendOrdersToDCS(side.toUpperCase(), jsonOutput.actions);
-				} else if (jsonOutput) {
-					mainWindow.webContents.send('log-message', `${forces.coalition} Commander: Monitoring. ${jsonOutput.mission_log}`, 'info');
-				} else {
-					mainWindow.webContents.send('log-message', `Commander of ${forces.coalition}: AI failed to determine what to do in time.`, 'error');
-				}
-
-				// 5. Rebase context every few cycles to keep the AI's memory clean
-				cycleCount++;
-				if (cycleCount % REBASE_INTERVAL === 0) {
-				   forces.session = await ai.rebaseChatSession(forces.model, forces.session, 4);
-				}
-				
+			const aiRawResponse = await ai.sendChatUpdate(updatePrompt, forces, targets, territory);
+            const jsonOutput = ai.aiSanitizeJson(aiRawResponse);
+			
+			if (jsonOutput && jsonOutput.actions && jsonOutput.actions.length > 0) {
+				mainWindow.webContents.send('log-message', `Commander of ${forces.coalition}: ${jsonOutput.mission_log}`, 'success');
+				sendOrdersToDCS(side.toUpperCase(), jsonOutput.actions);
+			} else if (jsonOutput) {
+				mainWindow.webContents.send('log-message', `Commander of ${forces.coalition}: Monitoring. ${jsonOutput.mission_log}`, 'info');
+			} else {
+				mainWindow.webContents.send('log-message', `Commander of ${forces.coalition}: AI failed to determine what to do in time.`, 'error');
 			}
+			
+			// 5. Rebase context every few cycles to keep the AI's memory clean
+			cycleCount++;
+			if (cycleCount % REBASE_INTERVAL === 0) {
+			   forces.session = await ai.rebaseChatSession(forces.model, forces.session, 4);
+			}
+				
 		} catch (err) {
             mainWindow.webContents.send('log-message', `Commander of ${forces.coalition} error during update: ${err.message}`, 'error');
         }

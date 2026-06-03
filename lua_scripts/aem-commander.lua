@@ -2,6 +2,9 @@
 -- CUSTOM SETTINGS
 -------------------------------------------------------------------------
 
+HOST_IP = "192.168.1.42"
+HOST_PORT = "49080"
+
 -------------------------------------------------------------------------
 -- AI Commander
 --
@@ -82,6 +85,38 @@ AEM_Events_Red = {}
 AEM_Events_Blue = {}
 
 -- ======================================================================
+-- Log
+-- ======================================================================
+
+local function messageToAll(message, t)
+	if MODULE_DEBUG then
+		trigger.action.outText(message, t)
+	end
+end
+
+local function printBootStatus()
+    env.info("==================================================")
+    env.info(" AEM COMMANDER: SCRIPT LOADED")
+    env.info("==================================================")
+    
+    -- Feature Toggles
+    env.info(" -> MODULE_CSAR: " .. tostring(MODULE_CSAR))
+	env.info(" -> MODULE_DEBUG: " .. tostring(MODULE_DEBUG))
+    
+    -- Network info
+    env.info(" -> TCP BRIDGE: " .. tostring(TCP_HOST) .. ":" .. tostring(TCP_PORT))
+    
+    -- Basic Settings
+    env.info(" -> ISR UPDATE FREQ (RED): " .. tostring(SCHEDULER_ISR_FREQ_RED) .. "s")
+    env.info(" -> ISR UPDATE FREQ (BLUE): " .. tostring(SCHEDULER_ISR_FREQ_BLUE) .. "s")
+    
+    env.info("==================================================")
+    
+    -- Feedback in-game
+    messageToAll("AEM Commander loaded successfully.", 15)
+end
+
+-- ======================================================================
 -- AEM NETWORK BRIDGE (HOOK INTERFACE)
 -- ======================================================================
 
@@ -89,8 +124,8 @@ package.path  = package.path..";.\\LuaSocket\\?.lua;"
 package.cpath = package.cpath..";.\\LuaSocket\\?.dll;"
 
 local socket = require("socket")
-local TCP_HOST = "127.0.0.1"
-local TCP_PORT = 8080
+local TCP_HOST = HOST_IP
+local TCP_PORT = HOST_PORT
 local tcp_conn = nil
 
 local function AEM_ConnectTCP()
@@ -186,12 +221,6 @@ timer.scheduleFunction(AEM_NetworkLoop, nil, timer.getTime() + 1)
 -- Generates the initial force composition and available resources.
 -- ======================================================================
 
--- HELPER: Push Event to Queue
-local function PushEvent(coalitionStr, eventData)
-    local q = (string.lower(coalitionStr) == "red") and AEM_Events_Red or AEM_Events_Blue
-    table.insert(q, eventData)
-end
-
 -- HELPER: Guess Mission from Group Name and return as an Array
 local function GetMissionsFromName(groupName)
     local upperName = string.upper(groupName)
@@ -250,13 +279,13 @@ function ExportOrderOfBattle()
     local AEM_Pool_Blue = {}
 
     -- 1. DETECT ACTIVE FORCES (Deployed Groups)
-    local ActiveSet = SET_GROUP:New():FilterActive():FilterStart()
+    local ActiveSet = SET_GROUP:New():FilterStart()
     
     ActiveSet:ForEachGroup(function(group)
         local groupName = group:GetName()
         local coalitionVal = group:GetCoalition()
         
-        if coalitionVal ~= coalition.side.NEUTRAL then
+		if coalitionVal ~= coalition.side.NEUTRAL and group:IsAlive() then
             local firstUnit = group:GetFirstUnitAlive()
             if firstUnit then
                 local unitType = firstUnit:GetTypeName()
@@ -268,7 +297,7 @@ function ExportOrderOfBattle()
                 end
 
                 local coord = group:GetCoordinate()
-                local lat, lon = coord:GetLLDD()
+                local lat, lon = coord:GetLLDDM()
                 
                 -- Determine Airbase Presence
                 local nearestBase = coord:GetClosestAirbase()
@@ -331,7 +360,7 @@ function ExportOrderOfBattle()
             local dict = (coalitionVal == coalition.side.RED) and AEM_Pool_Red or AEM_Pool_Blue
             
             if not dict[key] then
-                local lat, lon = coord:GetLLDD()
+                local lat, lon = coord:GetLLDDM()
                 dict[key] = {
                     category = category,
                     count = 0,
@@ -362,7 +391,7 @@ function ExportOrderOfBattle()
     messageToAll("AEM: Order of Battle Exported", 15)
 end
 
--- Run once at 1 second into the mission
+-- Run periodically each 30s
 timer.scheduleFunction(ExportOrderOfBattle, nil, timer.getTime() + 1)
 
 -- ======================================================================
@@ -387,7 +416,7 @@ function ExportGoals()
                 local lat, lon = 0, 0
                 if mooseZone then
                     local coord = mooseZone:GetCoordinate()
-                    lat, lon = coord:GetLLDD()
+                    lat, lon = coord:GetLLDDM()
                 end
 
                 local entry = {
@@ -444,7 +473,7 @@ function ExportBorders()
                 for _, wp in ipairs(template.route.points) do
                     -- In the DCS Mission Editor table, x is North/South, y is East/West
                     local coord = COORDINATE:NewFromVec2({x = wp.x, y = wp.y})
-                    local lat, lon = coord:GetLLDD()
+                    local lat, lon = coord:GetLLDDM()
                     
                     table.insert(coordsArray, {
                         lat = lat,
@@ -553,7 +582,7 @@ local function ProcessIntelData(intelObject, detectorSide, targetSide, timeNow)
         -- Gather Telemetry & Location
         -- ----------------------------------------------------
         local speed, heading = GetTargetTelemetry(trackKey, currentCoord, timeNow)
-        local latNum, lonNum = currentCoord:GetLLDD()
+        local latNum, lonNum = currentCoord:GetLLDDM()
         
         -- Extract Altitude (currentCoord.y is in meters, convert to feet for standard aviation)
         local alt_ft = math.floor(currentCoord.y * 3.28084)
@@ -764,7 +793,7 @@ if MODULE_CSAR then	-- activate module CSAR
 		radioTransmit(_unit, freq)
 		
 		local unitCoord = _unit:GetCoordinate()
-		local lat, lon = unitCoord:GetLLDD()
+		local lat, lon = unitCoord:GetLLDDM()
 		local approxCoords = unitCoord:ToStringLLDDM()
 		local limitedCoords = string.gsub(approxCoords, "%.%d+", "")
 		
@@ -884,6 +913,11 @@ function EventCatcher:OnEventCrash(EventData)
     self:OnEventDead(EventData)
 end
 
+local function PushEvent(coalitionStr, eventData)
+    local q = (string.lower(coalitionStr) == "red") and AEM_Events_Red or AEM_Events_Blue
+    table.insert(q, eventData)
+end
+
 local function FlushEvents()
     if #AEM_Events_Red > 0 then
         SendToNode("EVENTS", "RED", AEM_Events_Red)
@@ -930,7 +964,7 @@ local function SpawnAndTask(action, spawnTemplate, spawnAirbase, coalitionStr)
         
         local FlightGroup = FLIGHTGROUP:New(NewGroup)
         local startCoord  = NewGroup:GetCoordinate()
-        local startLat, startLon = startCoord:GetLLDD()
+        local startLat, startLon = startCoord:GetLLDDM()
         
         local targetLat = action.target_area.lat
         local targetLon = action.target_area.long
@@ -945,6 +979,7 @@ local function SpawnAndTask(action, spawnTemplate, spawnAirbase, coalitionStr)
                 name = groupName,
                 type = action.unit_type,
                 category = "Air",
+				mission = {action.task},
                 lat = startLat,
                 lon = startLon,
                 airbase = action.airbase
@@ -1272,35 +1307,7 @@ function ProcessAIOrders(actions, coalitionStr)
 end
 
 -- ======================================================================
--- Log
+-- Done
 -- ======================================================================
-
-local function messageToAll(message, t)
-	if MODULE_DEBUG then
-		trigger.action.outText(message, t)
-	end
-end
-
-local function printBootStatus()
-    env.info("==================================================")
-    env.info(" AEM COMMANDER: SCRIPT LOADED")
-    env.info("==================================================")
-    
-    -- Feature Toggles
-    env.info(" -> MODULE_CSAR: " .. tostring(MODULE_CSAR))
-	env.info(" -> MODULE_DEBUG: " .. tostring(MODULE_DEBUG))
-    
-    -- Network info
-    env.info(" -> TCP BRIDGE: " .. tostring(TCP_HOST) .. ":" .. tostring(TCP_PORT))
-    
-    -- Basic Settings
-    env.info(" -> ISR UPDATE FREQ (RED): " .. tostring(SCHEDULER_ISR_FREQ_RED) .. "s")
-    env.info(" -> ISR UPDATE FREQ (BLUE): " .. tostring(SCHEDULER_ISR_FREQ_BLUE) .. "s")
-    
-    env.info("==================================================")
-    
-    -- Feedback in-game
-    messageToAll("AEM Commander loaded successfully.", 15)
-end
 
 printBootStatus()

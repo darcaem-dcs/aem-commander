@@ -221,6 +221,7 @@
 		let mapLayerGroup;
         let lastBattleState = null;
         let currentMapView = 'red';
+		let isMapCentered = false;
 		
 		window.electronAPI.onLogMessage((message, type) => {
             addLog(message, type);
@@ -277,7 +278,7 @@
             
             if (selectedPath) {
                 folderPathDisplay.innerText = selectedPath;
-                statusText.innerText = "Running (${intervalTime}s Cycle)";
+                statusText.innerText = `Running (${intervalTime}s Cycle)`;
                 statusText.className = "running";
                 
                 battlefieldView.style.display = "block";
@@ -288,7 +289,7 @@
                         maxZoom: 19,
                         attribution: '© OpenStreetMap contributors'
                     }).addTo(map);
-					mapLayerGroup = L.layerGroup().addTo(map);
+					mapLayerGroup = L.featureGroup().addTo(map);
                 } else {
                     setTimeout(() => map.invalidateSize(), 100);
                 }
@@ -394,6 +395,12 @@
                     mapLayerGroup.addLayer(marker);
                 });
             }
+			
+			if (!isMapCentered && mapLayerGroup.getLayers().length > 0) {
+                // Calcula el área de todos los marcadores y ajusta el zoom
+                map.fitBounds(mapLayerGroup.getBounds(), { padding: [50, 50] });
+                isMapCentered = true; // Lo marcamos como true para no marear al usuario en las siguientes iteraciones
+            }
         }
 		
 		function updateContextVisibility() {
@@ -416,7 +423,7 @@
             const now = new Date().toLocaleTimeString();
             const logEntry = document.createElement('div');
             logEntry.innerHTML = `<span class="timestamp">[${now}]</span> <span class="${type}">${message}</span>`;
-            logBox.appendChild(logEntry);
+            logBox.prepend(logEntry);
             logBox.scrollTop = logBox.scrollHeight;
         }
 		
