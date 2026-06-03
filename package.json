@@ -1,7 +1,7 @@
 {
-  "name": "aem-commander",
+  "name": "AEM Commander",
   "version": "1.0.0",
-  "description": "Desktop app to monitor and process AEM JSON files.",
+  "description": "Autonomous Engagement Monitor: DCS companion app that emulates the HQ issuing orders to armed forces.",
   "main": "main.js",
   "scripts": {
     "start": "electron .",

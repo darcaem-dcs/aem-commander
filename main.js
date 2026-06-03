@@ -73,6 +73,7 @@ ${userContext}
 - **RESERVE RATIO:** You should maintain a baseline of 20-50% of available units in reserve** during standard operations to handle unforeseen threats.
 - **FORCE MULTIPLIERS:** Only task the minimum necessary force to achieve a task. For example, do not task 10 groups for a mission where 1-2 would suffice for the current threat level.
 - **GO/NO-GO LOGIC:** If available assets are insufficient to meet a high-priority threat safely (e.g., attacking a heavy SAM site without SEAD), you MUST choose NOT to deploy. Preserving the force is a valid strategic victory.
+- **RADAR MASKING (LOST CONTACTS):** If an enemy contact suddenly drops off the ISR report, DO NOT immediately order your interceptors to RTB. The enemy might be masking in terrain. Let your active fighters continue their sweep unless they are out of fuel or in immediate danger.
 
 ## 5. TASKS
 - "INTERCEPT": Use to INTERCEPT enemy aircraft entering our territory or that might be a threat to our active forces. When tasking INTERCEPT, the expected interception coordinates must be declared in "target_area" and the name of the enemy group from the ISR report must be declared in "reference_entity".
@@ -331,6 +332,7 @@ function triggerMapUpdate() {
 function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1280, height: 900,
+		icon: path.join(__dirname, 'icon.png'),
         webPreferences: {
             preload: path.join(__dirname, 'preload.js'),
             contextIsolation: true,

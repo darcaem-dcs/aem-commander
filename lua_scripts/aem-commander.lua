@@ -1050,7 +1050,7 @@ local function SpawnAndTask(action, spawnTemplate, spawnAirbase, coalitionStr)
 		
 			-- Flight parameters for a high-speed intercept scramble
 			altitude = math.random(25000, 35000)
-			speed = 500 -- High speed for QRA interception
+			speed = 550 -- High speed for QRA interception
 			
 			local targetGroupName = action.reference_entity
 			local TargetGroup = targetGroupName and GROUP:FindByName(targetGroupName) or nil

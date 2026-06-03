@@ -358,7 +358,9 @@
             let missionStr = Array.isArray(missionData) ? missionData.join(" ").toUpperCase() : String(missionData).toUpperCase();
 
             // Lógica de asignación de iconos
-            if (category === "Air") {
+            if (category === "CSAR") {
+                iconClass = "fa-solid fa-parachute-box"; 
+            } else if (category === "Air") {
                 iconClass = "fa-solid fa-jet-fighter"; 
             } else if (category === "Helo") {
                 iconClass = "fa-solid fa-helicopter";
@@ -416,13 +418,22 @@
 			
 			if (sideData.targets && sideData.targets.targets) {
                 sideData.targets.targets.forEach(target => {
-                    let marker = L.circle([target.lat, target.lon], {
-                        radius: 3000,	// meters
-                        color: '#ffc107',
-                        fillOpacity: 0.2,
-                        weight: 2
-                    }).bindPopup('<b>Goal: ' + target.name + '</b><br>Priority: ' + target.priority + '<br>Type: ' + target.type);
-                    mapLayerGroup.addLayer(marker);
+					if (target.type === 'csar' || target.type === 'enemy-csar') {
+                        let isEnemy = target.type === 'enemy-csar';
+                        let color = isEnemy ? enemyColor : friendlyColor;
+                        let customIcon = getUnitIcon("CSAR", "CSAR", color, isEnemy);
+                        let marker = L.marker([target.lat, target.lon], { icon: customIcon })
+                            .bindPopup('<b>Rescue Operation</b><br>Target: ' + target.name);
+                        mapLayerGroup.addLayer(marker);
+                    } else {				
+						let marker = L.circle([target.lat, target.lon], {
+							radius: 3000,	// meters
+							color: '#ffc107',
+							fillOpacity: 0.2,
+							weight: 2
+						}).bindPopup('<b>Goal: ' + target.name + '</b><br>Priority: ' + target.priority + '<br>Type: ' + target.type);
+						mapLayerGroup.addLayer(marker);
+					}
                 });
             }
 
@@ -479,7 +490,7 @@
             const logEntry = document.createElement('div');
             logEntry.innerHTML = `<span class="timestamp">[${now}]</span> <span class="${type}">${message}</span>`;
             logBox.prepend(logEntry);
-            logBox.scrollTop = logBox.scrollHeight;
+            logBox.scrollTop = 0;
         }
 		
     </script>
