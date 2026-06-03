@@ -206,18 +206,7 @@ module.exports = function() {
 			
 			const extractAndDeduplicateCalls = (res) => {
                 const parts = res.candidates?.[0]?.content?.parts || [];
-                const rawCalls = parts.filter(p => p.functionCall).map(p => p.functionCall);
-                    
-                const unique = [];
-                const seen = new Set();
-                for (const call of rawCalls) {
-                    const signature = call.name + JSON.stringify(call.args || {});
-                    if (!seen.has(signature)) {
-                        seen.add(signature);
-                        unique.push(call);
-                    }
-                }
-                return unique;
+                return parts.filter(p => p.functionCall).map(p => p.functionCall);
             };
 			
 			let calls = extractAndDeduplicateCalls(response);

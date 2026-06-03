@@ -225,6 +225,10 @@ function routeDCSMessage(msg) {
 
                 switch (event.type) {
                     case 'activated':
+					
+						console.log("EVENT");
+						console.log(event);
+					
                         const arrayStatics = event.staticUnits;
                         forces.addActiveGroup(
                             event.group.name, event.group.type, event.group.category,
@@ -233,6 +237,9 @@ function routeDCSMessage(msg) {
                         );
                         arrayStatics.forEach(name => forces.removeAvailableUnit(name));
                         state[coal].aiLogs.push(`The new flight ${event.group.name} has successfully launched from ${event.group.airbase}`);
+						
+						console.log(`The new flight ${event.group.name} has successfully launched from ${event.group.airbase}`);
+						
                         break;
                         
                     case 'destroyed':
@@ -279,10 +286,46 @@ function routeDCSMessage(msg) {
             break;
     }
 	
-	if (mainWindow) {
-        mainWindow.webContents.send('update-map', state);
-    }
+	triggerMapUpdate();
 	
+}
+
+function triggerMapUpdate() {
+    if (!mainWindow) return;
+
+    const cleanState = {
+        red: {
+            forces: {
+                activeGroups: state.red.forces ? state.red.forces.activeGroups : null,
+                enemyGroups: state.red.forces ? state.red.forces.enemyGroups : null
+            },
+            targets: {
+                targets: state.red.targets ? state.red.targets.targets : null
+            },
+            territory: {
+                border: state.red.territory ? state.red.territory.border : null
+            }
+        },
+        blue: {
+            forces: {
+                activeGroups: state.blue.forces ? state.blue.forces.activeGroups : null,
+                enemyGroups: state.blue.forces ? state.blue.forces.enemyGroups : null
+            },
+            targets: {
+                targets: state.blue.targets ? state.blue.targets.targets : null
+            },
+            territory: {
+                border: state.blue.territory ? state.blue.territory.border : null
+            }
+        }
+    };
+
+    try {
+        const serializedData = JSON.parse(JSON.stringify(cleanState));
+        mainWindow.webContents.send('update-map', serializedData);
+    } catch (e) {
+        console.error("Error serializing map state:", e);
+    }
 }
 
 function createWindow() {
