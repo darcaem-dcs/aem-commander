@@ -71,6 +71,88 @@
         .log .success { color: #4ec9b0; }
         .log .error { color: #f48771; }
         .log .info { color: #5bc0de; }
+		
+		/* Contenedor inferior dividido */
+		.dashboard-bottom {
+			display: flex;
+			gap: 15px;
+			height: 300px;
+		}
+
+		/* Modificamos ligeramente el log para que use Flexbox correctamente */
+		.log {
+			flex: 2.5; /* Ocupa la mayor parte del espacio */
+			height: 100%;
+			box-sizing: border-box;
+			margin: 0; /* Quitamos márgenes si los tuviera heredados */
+		}
+
+		/* Estilos de los paneles de Debug */
+		.debug-panels {
+			flex: 1; /* Ocupa el espacio restante en la derecha */
+			display: flex;
+			flex-direction: column;
+			gap: 10px;
+			height: 100%;
+		}
+
+		.debug-panel {
+			flex: 1;
+			background: #1e1e1e;
+			border-radius: 6px;
+			border: 1px solid #333;
+			display: flex;
+			flex-direction: column;
+			overflow: hidden;
+		}
+
+		.debug-panel h4 {
+			margin: 0;
+			padding: 8px 12px;
+			background: #2d2d2d;
+			color: #fff;
+			font-size: 13px;
+			border-bottom: 1px solid #444;
+			text-transform: uppercase;
+			letter-spacing: 0.5px;
+		}
+
+		.debug-list {
+			flex: 1;
+			overflow-y: auto;
+			padding: 8px;
+			font-family: 'Consolas', monospace;
+			font-size: 12px;
+		}
+
+		.debug-item {
+			padding: 4px 0;
+			border-bottom: 1px solid #333;
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+		}
+
+		.debug-item:last-child {
+			border-bottom: none;
+		}
+
+		.debug-item .unit-name {
+			color: #5bc0de;
+			font-weight: bold;
+		}
+
+		.debug-item .unit-meta {
+			color: #858585;
+			font-size: 11px;
+		}
+
+		.empty-list {
+			color: #666;
+			font-style: italic;
+			text-align: center;
+			padding-top: 10px;
+		}
         
         .controls { margin-top: 20px; margin-bottom: 20px; }
         button { 
@@ -132,6 +214,112 @@
         .enemy-icon {
             opacity: 0.8;
         }
+		
+		/* Layout a dos columnas */
+        .battlefield-layout {
+            display: flex;
+            gap: 15px;
+            align-items: stretch;
+        }
+        .main-column {
+            flex: 2.5; /* Ocupa el 70-75% del ancho */
+            display: flex;
+            flex-direction: column;
+        }
+        .side-column {
+            flex: 1; /* Ocupa el 25-30% del ancho restante */
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            /* Altura total aprox del mapa (600) + margen (15) + log (250) */
+            height: 865px; 
+        }
+
+        /* Ajustes específicos para el mapa y log en el nuevo layout */
+        #map {
+            height: 600px;
+            margin-bottom: 15px;
+        }
+        .log {
+            height: 250px;
+            margin: 0;
+        }
+
+        /* Estilos de las listas de debug */
+        .debug-panel {
+            flex: 1;
+            background: #1e1e1e;
+            border-radius: 6px;
+            border: 1px solid #333;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .debug-panel h4 {
+            margin: 0;
+            padding: 10px 12px;
+            background: #2d2d2d;
+            color: #fff;
+            font-size: 13px;
+            border-bottom: 1px solid #444;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .debug-list {
+            flex: 1;
+            overflow-y: auto;
+            font-family: 'Consolas', monospace;
+            font-size: 12px;
+        }
+        .debug-item {
+            padding: 8px 10px;
+            border-bottom: 1px solid #2d2d2d;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .debug-item:last-child { border-bottom: none; }
+        
+        .active-unit-item { cursor: pointer; transition: background 0.2s; }
+        .active-unit-item:hover { background: #2a2a2a; border-left: 3px solid #5bc0de; padding-left: 7px;}
+        
+        .debug-item .unit-name { color: #5bc0de; font-weight: bold; display: block; margin-bottom: 2px;}
+        .debug-item .unit-meta { color: #858585; font-size: 11px; }
+        .debug-item .unit-qty { color: #4ec9b0; font-weight: bold; font-size: 14px; }
+        
+        .airbase-header {
+            background: #0d6efd;
+            color: white;
+            padding: 6px 10px;
+            font-size: 11px;
+            font-weight: bold;
+            text-transform: uppercase;
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        .airbase-header.red-base { background: #dc3545; }
+		
+		.task-header {
+            background: #3a3a3a;
+            color: white;
+            padding: 6px 10px;
+            font-size: 11px;
+            font-weight: bold;
+            text-transform: uppercase;
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        
+        .empty-list {
+            color: #666;
+            font-style: italic;
+            text-align: center;
+            padding-top: 15px;
+        }
     </style>
 </head>
 <body>
@@ -168,8 +356,8 @@
             <p style="font-size: 0.8em; color: #666; margin-top: 5px;">Default: gemini-3-flash-preview.</p>
 			
 			<label for="intervalTime" style="margin-top: 15px;">Refresh Interval (seconds):</label>
-			<input type="number" id="intervalTime" class="input-field" value="300" min="30">
-            <p style="font-size: 0.8em; color: #666; margin-top: 5px;">Time between AI commander checks. Default: 300 seconds (5 minutes).</p>
+			<input type="number" id="intervalTime" class="input-field" value="300" min="60">
+            <p style="font-size: 0.8em; color: #666; margin-top: 5px;">Time between AI commander checks. Default: 300s, min: 60s.</p>
 			
 			<label style="margin-top: 15px;">Commanders to Create:</label>
 			<div style="display: flex; gap: 20px; margin-top: 5px;">
@@ -199,10 +387,24 @@
                 <div id="tabBlue" class="tab-btn tab-blue">Blue Commander</div>
             </div>
             
-            <div id="map"></div>
+            <div class="battlefield-layout">
+                <div class="main-column">
+                    <div id="map"></div>
+                    <div class="log" id="logBox">
+                        <div class="info">[System Ready] Choose auth method and select a folder.</div>
+                    </div>
+                </div>
 
-            <div class="log" id="logBox">
-                <div class="info">[System Ready] Choose auth method and select a folder.</div>
+                <div class="side-column debug-panels">
+                    <div class="debug-panel">
+                        <h4>Active Units</h4>
+                        <div id="activeUnitsList" class="debug-list"></div>
+                    </div>
+                    <div class="debug-panel">
+                        <h4>Available Units</h4>
+                        <div id="availableUnitsList" class="debug-list"></div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -232,6 +434,7 @@
         let lastBattleState = null;
         let currentMapView = 'red';
 		let isMapCentered = false;
+		let activeMarkers = {}
 		
 		window.electronAPI.onLogMessage((message, type) => {
             addLog(message, type);
@@ -279,7 +482,7 @@
             }
 
 			const model = aiModelInput.value.trim() || 'gemini-3-flash-preview';
-			const intervalTime = parseInt(document.getElementById('intervalTime').value, 10) || 300;
+			const intervalTime = Math.max(parseInt(document.getElementById('intervalTime').value, 10) || 300, 60);
             const commanderSide = document.querySelector('input[name="commanderOpt"]:checked').value;
 			const instructionsRed = inputInstructionsRed.value;
 			const instructionsBlue = inputInstructionsBlue.value;
@@ -365,12 +568,18 @@
             } else if (category === "Helo") {
                 iconClass = "fa-solid fa-helicopter";
             } else if (category === "Ground") {
-                if (missionStr.includes("SAM") || missionStr.includes("AAA")) {
-                    iconClass = "fa-solid fa-rocket"; // Icono de misil para baterías antiaéreas
+                if (missionStr.includes("SAM")) {
+                    iconClass = "fa-solid fa-rocket";
                 } else if (missionStr.includes("EW") || missionStr.includes("RADAR")) {
-                    iconClass = "fa-solid fa-satellite-dish"; // Icono de radar para alerta temprana
+                    iconClass = "fa-solid fa-satellite-dish"; 
+                } else if (missionStr.includes("AAA")) {
+                    iconClass = "fa-solid fa-crosshairs";
+				} else if (missionStr.includes("ARMOR") || missionStr.includes("MBT") || missionStr.includes("IFV")) {
+                    iconClass = "fa-solid fa-shield-halved";
+                } else if (missionStr.includes("ARTILLERY") || missionStr.includes("MLRS")) {
+                    iconClass = "fa-solid fa-bullseye";
                 } else {
-                    iconClass = "fa-solid fa-truck-front"; // Vehículo genérico
+                    iconClass = "fa-solid fa-truck";
                 }
             } else if (category === "Naval") {
                 iconClass = "fa-solid fa-ship";
@@ -393,10 +602,11 @@
 
             // 1. Limpiamos todos los marcadores del frame anterior
             mapLayerGroup.clearLayers();
+			activeMarkers = {};
 
-            const sideData = lastBattleState[currentMapView]; // Leemos 'red' o 'blue'
+            const sideData = lastBattleState[currentMapView];
             if (!sideData || !sideData.forces) return;
-
+			
             // Definimos colores: Aliados vs Enemigos dependiendo de la pestaña actual
             const friendlyColor = currentMapView === 'red' ? '#dc3545' : '#0d6efd'; // Rojo o Azul
             const enemyColor = currentMapView === 'red' ? '#0d6efd' : '#dc3545'; // El opuesto
@@ -446,6 +656,7 @@
                         .bindPopup('<b>' + group.name + '</b><br>Type: ' + group.type + '<br>Task: ' + group.mission);
                     
                     mapLayerGroup.addLayer(marker);
+					activeMarkers[group.name] = marker;
                 });
             }
 
@@ -463,10 +674,11 @@
             }
 
             if (!isMapCentered && mapLayerGroup.getLayers().length > 0) {
-                // Calcula el área de todos los marcadores y ajusta el zoom
                 map.fitBounds(mapLayerGroup.getBounds(), { padding: [50, 50] });
-                isMapCentered = true; // Lo marcamos como true para no marear al usuario en las siguientes iteraciones
+                isMapCentered = true;
             }
+			
+			updateDebugLists(sideData, currentMapView);
         }
 		
 		function updateContextVisibility() {
@@ -488,9 +700,111 @@
         function addLog(message, type = '') {
             const now = new Date().toLocaleTimeString();
             const logEntry = document.createElement('div');
-            logEntry.innerHTML = `<span class="timestamp">[${now}]</span> <span class="${type}">${message}</span>`;
+            logEntry.innerHTML = '<span class="timestamp">[' + now + ']</span> <span class="' + type + '">' + message + '</span>';
             logBox.prepend(logEntry);
             logBox.scrollTop = 0;
+        }
+		
+		function updateDebugLists(sideData, sideColor) {
+            const activeList = document.getElementById('activeUnitsList');
+            const availableList = document.getElementById('availableUnitsList');
+            
+            activeList.innerHTML = '';
+            availableList.innerHTML = '';
+
+            if (!sideData || !sideData.forces) {
+                activeList.innerHTML = '<div class="empty-list">Waiting for data...</div>';
+                availableList.innerHTML = '<div class="empty-list">Waiting for data...</div>';
+                return;
+            }
+
+            // 1. Llenar lista de Unidades Activas (Agrupadas por Tarea)
+            if (sideData.forces.activeGroups && sideData.forces.activeGroups.length > 0) {
+                const groupedByTask = {};
+                
+                // Agrupar por misión/tarea
+                sideData.forces.activeGroups.forEach(group => {
+                    const taskKey = Array.isArray(group.mission) ? group.mission.join(', ') : (group.mission || 'Idle');
+                    if (!groupedByTask[taskKey]) {
+                        groupedByTask[taskKey] = [];
+                    }
+                    groupedByTask[taskKey].push(group);
+                });
+
+                // Renderizar grupos de tareas
+                Object.keys(groupedByTask).sort().forEach(task => {
+                    // Crear y añadir la cabecera del grupo de tareas usando el DOM
+                    const headerItem = document.createElement('div');
+                    headerItem.className = 'task-header';
+                    headerItem.innerHTML = `<i class="fa-solid fa-crosshairs"></i> Task: ${task}`;
+                    activeList.appendChild(headerItem);
+                    
+                    groupedByTask[task].forEach(group => {
+                        const item = document.createElement('div');
+                        item.className = 'debug-item active-unit-item';
+                        item.innerHTML = `
+                            <div>
+                                <span class="unit-name">${group.name}</span>
+                                <span class="unit-meta">Type: ${group.type} ${group.airbase ? `(${group.airbase})` : ''}</span>
+                            </div>
+                        `;
+                        // Evento Click para centrar y abrir popup en el mapa
+                        item.onclick = () => {
+                            const marker = activeMarkers[group.name];
+                            if (marker) {
+                                map.flyTo(marker.getLatLng(), 10, { duration: 0.5 });
+                                setTimeout(() => marker.openPopup(), 500);
+                            }
+                        };
+                        activeList.appendChild(item);
+                    });
+                });
+            } else {
+                activeList.innerHTML = '<div class="empty-list">No active units deployed</div>';
+            }
+
+            // 2. Llenar lista de Unidades Disponibles (Agrupadas por Base)
+            if (sideData.forces.availableUnits && sideData.forces.availableUnits.length > 0) {
+                const groupedByBase = {};
+                
+                // Agrupar
+                sideData.forces.availableUnits.forEach(unit => {
+                    const base = unit.airbase || 'Field Deployment';
+                    if (!groupedByBase[base]) groupedByBase[base] = {};
+                    
+                    const missionStr = Array.isArray(unit.missions) ? unit.missions.join(', ') : (unit.missions || 'N/A');
+                    const key = `${unit.type}_${missionStr}`;
+                    
+                    if (!groupedByBase[base][key]) {
+                        groupedByBase[base][key] = { type: unit.type, mission: missionStr, count: 0 };
+                    }
+                    groupedByBase[base][key].count++;
+                });
+
+                // Renderizar
+                const headerClass = sideColor === 'red' ? 'airbase-header red-base' : 'airbase-header';
+                Object.keys(groupedByBase).sort().forEach(base => {
+                    // Crear cabecera como nodo DOM
+                    const baseHeader = document.createElement('div');
+                    baseHeader.className = headerClass;
+                    baseHeader.innerHTML = `<i class="fa-solid fa-plane-departure"></i> ${base}`;
+                    availableList.appendChild(baseHeader);
+                    
+                    Object.values(groupedByBase[base]).forEach(g => {
+                        const item = document.createElement('div');
+                        item.className = 'debug-item';
+                        item.innerHTML = `
+                            <div>
+                                <span class="unit-name">${g.type}</span>
+                                <span class="unit-meta">${g.mission}</span>
+                            </div>
+                            <span class="unit-qty">x${g.count}</span>`;
+                        availableList.appendChild(item);
+                    });
+                });
+            } else {
+                availableList.innerHTML = '<div class="empty-list">No reserves available</div>';
+            }
         }
 		
     </script>

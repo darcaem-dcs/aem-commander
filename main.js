@@ -298,7 +298,8 @@ function triggerMapUpdate() {
         red: {
             forces: {
                 activeGroups: state.red.forces ? state.red.forces.activeGroups : null,
-                enemyGroups: state.red.forces ? state.red.forces.enemyGroups : null
+                enemyGroups: state.red.forces ? state.red.forces.enemyGroups : null,
+				availableUnits: state.red.forces ? state.red.forces.availableUnits : null
             },
             targets: {
                 targets: state.red.targets ? state.red.targets.targets : null
@@ -310,7 +311,8 @@ function triggerMapUpdate() {
         blue: {
             forces: {
                 activeGroups: state.blue.forces ? state.blue.forces.activeGroups : null,
-                enemyGroups: state.blue.forces ? state.blue.forces.enemyGroups : null
+                enemyGroups: state.blue.forces ? state.blue.forces.enemyGroups : null,
+				availableUnits: state.blue.forces ? state.blue.forces.availableUnits : null
             },
             targets: {
                 targets: state.blue.targets ? state.blue.targets.targets : null
@@ -339,6 +341,7 @@ function createWindow() {
             nodeIntegration: false
         }
     });
+	mainWindow.setMenu(null);
     mainWindow.loadFile(path.join(__dirname, 'public', 'index.html'));
 }
 
@@ -385,6 +388,14 @@ CRITICAL: Your final response MUST be a valid JSON object matching the contract 
 				if (jsonOutput && jsonOutput.actions) {
 					mainWindow.webContents.send('log-message', `Red Commander Journal: ${jsonOutput.mission_log}`, 'success');
 					sendOrdersToDCS(side.toUpperCase(), jsonOutput.actions);
+					jsonOutput.actions.forEach(action => {
+                        if (action.action_type === 'new' && action.unit_names) {
+                            action.unit_names.forEach(unitName => {
+                                forces.removeAvailableUnit(unitName);
+                            });
+                        }
+                    });
+                    triggerMapUpdate();
 				}
 			} catch (err) {
 				mainWindow.webContents.send('log-message', `Commander of ${forces.coalition} error: ${err.message}`, 'error');
@@ -402,11 +413,6 @@ CRITICAL: Your final response MUST be a valid JSON object matching the contract 
 		try {
 			const logForAI = [...cState.aiLogs];
 			cState.aiLogs = [];
-			
-			// if (logForAI.length === 0) {
-				// mainWindow.webContents.send('log-message', `Commander of ${forces.coalition} receiving battlefield update: no changes`, 'info');
-				// return; 
-			// }
 			
 			mainWindow.webContents.send('log-message', `Commander of ${forces.coalition} receiving battlefield updates...`, 'info');
 			
@@ -431,6 +437,14 @@ CRITICAL: Output ONLY valid JSON matching the contract exactly. No conversationa
 			if (jsonOutput && jsonOutput.actions && jsonOutput.actions.length > 0) {
 				mainWindow.webContents.send('log-message', `Commander of ${forces.coalition}: ${jsonOutput.mission_log}`, 'success');
 				sendOrdersToDCS(side.toUpperCase(), jsonOutput.actions);
+				jsonOutput.actions.forEach(action => {
+                    if (action.action_type === 'new' && action.unit_names) {
+                        action.unit_names.forEach(unitName => {
+                            forces.removeAvailableUnit(unitName);
+                        });
+                    }
+                });
+                triggerMapUpdate();
 			} else if (jsonOutput) {
 				mainWindow.webContents.send('log-message', `Commander of ${forces.coalition}: Monitoring. ${jsonOutput.mission_log}`, 'info');
 			} else {

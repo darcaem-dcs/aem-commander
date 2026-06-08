@@ -75,6 +75,7 @@ class CoalitionArmedForces {
 		this.model = null;
 		this.session = null;
 		this.instructions = instructions || "Operate using standard doctrine.";
+		this.consumedStatics = new Set();
 	}
 	
 	updateActiveGroups(dataArray) {
@@ -88,10 +89,12 @@ class CoalitionArmedForces {
         this.availableUnits = [];
         dataArray.forEach(group => {
             group.static_ids.forEach(staticId => {
-                this.availableUnits.push(new AvailableUnit(
-                    staticId, group.type, group.category, group.mission, 
-                    group.location.lat, group.location.long, group.airbase
-                ));
+                if (!this.consumedStatics.has(staticId)) {
+                    this.availableUnits.push(new AvailableUnit(
+                        staticId, group.type, group.category, group.mission, 
+                        group.location.lat, group.location.long, group.airbase
+                    ));
+                }
             });
         });
     }
@@ -110,6 +113,7 @@ class CoalitionArmedForces {
 	}
 	
 	removeAvailableUnit(name) {
+		this.consumedStatics.add(name);
 		if (!this.availableUnits || this.availableUnits.length == 0) return false;
 		const index = this.availableUnits.findIndex(unit => unit.name === name);
 		if (index != -1) {

@@ -1,12 +1,5 @@
 -------------------------------------------------------------------------
--- CUSTOM SETTINGS
--------------------------------------------------------------------------
-
-HOST_IP = "192.168.1.42"
-HOST_PORT = "49080"
-
--------------------------------------------------------------------------
--- AI Commander
+-- Variables
 --
 --	*_EW: prefix for EW groups on mission editor. They can be any type of
 --	unit and will contribute with their sensors to the enemy's detection,
@@ -32,6 +25,9 @@ HOST_PORT = "49080"
 --	SCHEDULER_ISR_FREQ_*: seconds passed between each ISR update data 
 --	passed to AI Commander
 --
+--	SCHEDULER_TASKING_FREQ: seconds passed between each checking for new
+--	tasking available
+--
 -------------------------------------------------------------------------
 
 RED_EW = "RED EW"
@@ -47,175 +43,16 @@ TEMPLATE_PREFIX = "AEM_TPL_"
 
 SCHEDULER_ISR_FREQ_RED = 60
 SCHEDULER_ISR_FREQ_BLUE = 60
-
-UNLIMITED_FUEL = true
-
--------------------------------------------------------------------------
--- CSAR
---
---	*_RAFT: late activation group name for the water template
---	*_PILOT: late activation group name for the ground template
---	SINKING_SHIP: not used yet
---	__CSAR_SOS: filename that will be used as beacon
---
--------------------------------------------------------------------------
-
-MODULE_CSAR = true
-BLUE_RAFT = "BLUE LIFE RAFT"
-BLUE_PILOT = "BLUE DOWNED PILOT"
-RED_RAFT = "RED LIFE RAFT"
-RED_PILOT = "RED DOWNED PILOT"
-__CSAR_SOS = "morse-sos.ogg"
+SCHEDULER_TASKING_FREQ = 60
 
 -------------------------------------------------------------------------
--- Debug messages
---
---	Show on screen messages
---
+-- // Code: DO NOT EDIT BEYOND THIS POINT
 -------------------------------------------------------------------------
 
-MODULE_DEBUG = true
-
--------------------------------------------------------------------------
---
--- // Code: DO NOT EDIT BEYOND THIS POINT //
---
--------------------------------------------------------------------------
-
--- Event Queues for the Node.js Monitor
-AEM_Events_Red = {}
-AEM_Events_Blue = {}
-
--- ======================================================================
--- Log
--- ======================================================================
-
-local function messageToAll(message, t)
-	if MODULE_DEBUG then
-		trigger.action.outText(message, t)
-	end
-end
-
-local function printBootStatus()
-    env.info("==================================================")
-    env.info(" AEM COMMANDER: SCRIPT LOADED")
-    env.info("==================================================")
-    
-    -- Feature Toggles
-    env.info(" -> MODULE_CSAR: " .. tostring(MODULE_CSAR))
-	env.info(" -> MODULE_DEBUG: " .. tostring(MODULE_DEBUG))
-    
-    -- Network info
-    env.info(" -> TCP BRIDGE: " .. tostring(TCP_HOST) .. ":" .. tostring(TCP_PORT))
-    
-    -- Basic Settings
-    env.info(" -> ISR UPDATE FREQ (RED): " .. tostring(SCHEDULER_ISR_FREQ_RED) .. "s")
-    env.info(" -> ISR UPDATE FREQ (BLUE): " .. tostring(SCHEDULER_ISR_FREQ_BLUE) .. "s")
-    
-    env.info("==================================================")
-    
-    -- Feedback in-game
-    messageToAll("AEM Commander loaded successfully.", 15)
-end
-
--- ======================================================================
--- AEM NETWORK BRIDGE (HOOK INTERFACE)
--- ======================================================================
-
-package.path  = package.path..";.\\LuaSocket\\?.lua;"
-package.cpath = package.cpath..";.\\LuaSocket\\?.dll;"
-
-local socket = require("socket")
-local TCP_HOST = HOST_IP
-local TCP_PORT = HOST_PORT
-local tcp_conn = nil
-
-local function AEM_ConnectTCP()
-    tcp_conn = socket.tcp()
-    tcp_conn:settimeout(0) 
-    
-    local _, err = tcp_conn:connect(TCP_HOST, TCP_PORT)
-    if err and err ~= "timeout" and err ~= "Operation already in progress" then
-		messageToAll("AEM Commander: failed to init connection with HQ", 15)
-        env.info("AEM Commander failed to init TCP: " .. tostring(err))
-        tcp_conn = nil
-    end
-end
-
-local function SendToNode(dataType, coalitionStr, payload)
-    if not tcp_conn then return end
-
-    local message = {
-        type = dataType,
-        coalition = string.upper(coalitionStr),
-        data = payload
-    }
-    
-    local success, jsonString = pcall(json.encode, message)
-    if success then
-        local _, err = tcp_conn:send(jsonString .. "\n")
-        
-        if err and err ~= "timeout" then
-			messageToAll("AEM Commander: connection with HQ lost", 15)
-            env.info("AEM Commander disconnected while sending data: " .. tostring(err))
-            tcp_conn:close()
-            tcp_conn = nil
-        end
-    else
-		messageToAll("AEM Commander: failed to send intelligence to HQ", 15)
-        env.info("AEM Commander: Error encoding JSON for " .. dataType)
-    end
-end
-
-function AEM_ReceiveOrders(jsonString)
-    local success, msg = pcall(json.decode, jsonString)
-    
-    if success and msg and msg.type == "ORDERS" then
-        if ProcessAIOrders then
-            ProcessAIOrders(msg.actions, msg.coalition)
-        end
-    else
-		messageToAll("AEM Commander: failed to recieve orders from HQ", 15)
-        env.info("AEM Commander: Error decoding tasks or JSON malformed.")
-    end
-end
-
-local function AEM_NetworkLoop()
-    
-    if not tcp_conn then
-        AEM_ConnectTCP()
-        return timer.getTime() + 5 -- Retry
-    end
-
-	-- Read new data
-    while true do
-        local line, err = tcp_conn:receive("*l")
-        
-        if line then
-            AEM_ReceiveOrders(line)
-        else
-            if err == "closed" then
-				messageToAll("AEM Commander: connection with HQ lost", 15)
-                env.info("AEM Commander: La conexión TCP fue cerrada por el servidor.")
-                tcp_conn:close()
-                tcp_conn = nil
-                return timer.getTime() + 5
-			elseif err == "timeout" then
-                -- No new data
-                break
-            else
-                env.info("AEM Commander unexpected TCP error: " .. tostring(err))
-                tcp_conn:close()
-                tcp_conn = nil
-                return timer.getTime() + 5
-            end
-        end
-    end
-
-    return timer.getTime() + 0.1 -- Ejecuta este chequeo 10 veces por segundo
-end
-
-timer.scheduleFunction(AEM_NetworkLoop, nil, timer.getTime() + 1)
+-- Global Resource Pools (Dictionaries for fast lookup)
+-- Structure: Pool["AirbaseName|UnitType"] = { count=X, static_ids={...} }
+AEM_Pool_Red = {}
+AEM_Pool_Blue = {}
 
 -- ======================================================================
 -- Order of Battle
@@ -223,17 +60,35 @@ timer.scheduleFunction(AEM_NetworkLoop, nil, timer.getTime() + 1)
 -- Generates the initial force composition and available resources.
 -- ======================================================================
 
+-- CONFIGURATION
+local OUTPUT_DIR = ""
+if lfs then
+    OUTPUT_DIR = lfs.writedir() .. "Logs/"
+end
+
+local FILE_ACTIVE_RED     = OUTPUT_DIR .. "aem-active-red.json"
+local FILE_ACTIVE_BLUE    = OUTPUT_DIR .. "aem-active-blue.json"
+local FILE_AVAILABLE_RED  = OUTPUT_DIR .. "aem-available-red.json"
+local FILE_AVAILABLE_BLUE = OUTPUT_DIR .. "aem-available-blue.json"
+local FILE_GOALS_RED      = OUTPUT_DIR .. "aem-goals-red.json"
+local FILE_GOALS_BLUE     = OUTPUT_DIR .. "aem-goals-blue.json"
+local FILE_ISR_RED        = OUTPUT_DIR .. "aem-isr-red.json"
+local FILE_ISR_BLUE       = OUTPUT_DIR .. "aem-isr-blue.json"
+local FILE_ORDERS_RED     = OUTPUT_DIR .. "aem-orders-red.json"
+local FILE_ORDERS_BLUE    = OUTPUT_DIR .. "aem-orders-blue.json"
+local FILE_BORDER_RED     = OUTPUT_DIR .. "aem-border-red.json"
+local FILE_BORDER_BLUE    = OUTPUT_DIR .. "aem-border-blue.json"
+
 -- HELPER: Guess Mission from Group Name and return as an Array
 local function GetMissionsFromName(groupName)
     local upperName = string.upper(groupName)
     local missions = {}
     
-    if string.find(upperName, "INTERCEPT") then table.insert(missions, "INTERCEPT") end
     if string.find(upperName, "CAP") then table.insert(missions, "CAP") end
     if string.find(upperName, "SEAD") then table.insert(missions, "SEAD") end
     if string.find(upperName, "CAS") then table.insert(missions, "CAS") end
     if string.find(upperName, "STRIKE") then table.insert(missions, "STRIKE") end
-    if string.find(upperName, "ANTI%-SHIP") then table.insert(missions, "ANTI-SHIP") end
+    if string.find(upperName, "ANTI-SHIP") then table.insert(missions, "ANTI-SHIP") end
     if string.find(upperName, "AWACS") then table.insert(missions, "AWACS") end
     if string.find(upperName, "TANKER") then table.insert(missions, "TANKER") end
     if string.find(upperName, "ESCORT") then table.insert(missions, "ESCORT") end
@@ -271,23 +126,34 @@ local function GetCategoryFromDCSStatic(staticObj)
     return "Unknown" -- Fallback assumption
 end
 
+-- HELPER: Safe JSON Writer
+local function WriteJSONSafe(data, path)
+    local success, err = pcall(function()
+        UTILS.WriteJSON(data, path)
+    end)
+    if not success then
+        env.info("AEM Export Error for " .. path .. ": " .. tostring(err))
+    end
+end
+
+-------------------------------------------------------------------------
+-- GENERATE OOB
+-------------------------------------------------------------------------
 function ExportOrderOfBattle()
 
     local active_red = {}
     local active_blue = {}
     local available_red_list = {}
     local available_blue_list = {}
-	local AEM_Pool_Red = {}
-    local AEM_Pool_Blue = {}
 
     -- 1. DETECT ACTIVE FORCES (Deployed Groups)
-    local ActiveSet = SET_GROUP:New():FilterStart()
+    local ActiveSet = SET_GROUP:New():FilterActive():FilterStart()
     
     ActiveSet:ForEachGroup(function(group)
         local groupName = group:GetName()
         local coalitionVal = group:GetCoalition()
         
-		if coalitionVal ~= coalition.side.NEUTRAL and group:IsAlive() then
+        if coalitionVal ~= coalition.side.NEUTRAL then
             local firstUnit = group:GetFirstUnitAlive()
             if firstUnit then
                 local unitType = firstUnit:GetTypeName()
@@ -350,13 +216,9 @@ function ExportOrderOfBattle()
             if nearestBase and coord:Get2DDistance(nearestBase:GetCoordinate()) < 5000 then
                 airbaseName = nearestBase:GetName()
             end
-			
-			local staticMissions = GetMissionsFromName(staticName)
-            table.sort(staticMissions)
-            local missionString = table.concat(staticMissions, "_")
 
-            -- Create Key for Dictionary: "AirbaseName|UnitTypeName|Missions"
-            local key = string.format("%s|%s|%s", airbaseName, typeName, missionString)
+            -- Create Key for Dictionary: "AirbaseName|UnitTypeName"
+            local key = string.format("%s|%s", airbaseName, typeName)
             
             -- Select the correct global pool
             local dict = (coalitionVal == coalition.side.RED) and AEM_Pool_Red or AEM_Pool_Blue
@@ -368,15 +230,14 @@ function ExportOrderOfBattle()
                     count = 0,
                     location = { lat = lat, long = lon },
                     airbase = airbaseName,
-                    mission = staticMissions, -- Pass the accurately parsed array
+                    mission = GetMissionsFromName(staticName),
                     type = typeName,
-                    static_ids = {}
+                    static_ids = {} -- Store list of actual static names
                 }
             end
             
             dict[key].count = dict[key].count + 1
             table.insert(dict[key].static_ids, staticName)
-			
         end
     end)
 
@@ -385,15 +246,15 @@ function ExportOrderOfBattle()
     for _, res in pairs(AEM_Pool_Blue) do table.insert(available_blue_list, res) end
 
     -- 3. WRITE TO JSON FILES
-	SendToNode("ACTIVE", "RED", active_red)
-    SendToNode("ACTIVE", "BLUE", active_blue)
-    SendToNode("AVAILABLE", "RED", available_red_list)
-    SendToNode("AVAILABLE", "BLUE", available_blue_list)
+    WriteJSONSafe(active_red, FILE_ACTIVE_RED)
+    WriteJSONSafe(active_blue, FILE_ACTIVE_BLUE)
+    WriteJSONSafe(available_red_list, FILE_AVAILABLE_RED)
+    WriteJSONSafe(available_blue_list, FILE_AVAILABLE_BLUE)
 
-    messageToAll("AEM: Order of Battle Exported", 15)
+    trigger.action.outText("AEM: Order of Battle Exported", 15)
 end
 
--- Run periodically each 30s
+-- Run once at 1 second into the mission
 timer.scheduleFunction(ExportOrderOfBattle, nil, timer.getTime() + 1)
 
 -- ======================================================================
@@ -443,10 +304,10 @@ function ExportGoals()
     end
 
     -- Write to JSON Files
-    SendToNode("GOALS", "RED", goals_red)
-    SendToNode("GOALS", "BLUE", goals_blue)
+    WriteJSONSafe(goals_red, FILE_GOALS_RED)
+    WriteJSONSafe(goals_blue, FILE_GOALS_BLUE)
 
-    messageToAll("AEM: Mission Goals Exported", 15)
+    trigger.action.outText("AEM: Mission Goals Exported", 15)
 end
 
 -- Run once at 2 seconds into the mission
@@ -493,14 +354,14 @@ function ExportBorders()
     -- Extract both borders
 	if (RED_BORDER) then
 		local red_border_coords = GetGroupRouteCoordinates(RED_BORDER)
-		SendToNode("BORDER", "RED", red_border_coords)
+		WriteJSONSafe(red_border_coords, FILE_BORDER_RED)
 	end
 	if (BLUE_BORDER) then
 		local blue_border_coords = GetGroupRouteCoordinates(BLUE_BORDER)
-		SendToNode("BORDER", "BLUE", blue_border_coords)
+		WriteJSONSafe(blue_border_coords, FILE_BORDER_BLUE)
 	end
 
-    messageToAll("AEM: Borders Exported", 15)
+    trigger.action.outText("AEM: Borders Exported", 15)
 end
 
 -- Run once at 3 seconds into the mission, staggering it from the other exports
@@ -594,35 +455,13 @@ local function ProcessIntelData(intelObject, detectorSide, targetSide, timeNow)
         -- ----------------------------------------------------
         -- Determine Type & Threat Score
         -- ----------------------------------------------------
-		local threatClass = "Unknown"
+        local primaryType = "Unknown"
         local threatScore = 0
         local firstUnit = enemySet:GetFirst()
         
         if firstUnit then
             if firstUnit:IsAir() then 
-				threatClass = "CAP"
-				
-                -- Check helicopters first
-                if firstUnit:HasAttribute("Attack helicopters") then
-                    threatClass = "ATTACK_HELO"
-                elseif firstUnit:HasAttribute("Transport helicopters") then
-                    threatClass = "TRANSPORT_HELO"
-                    
-                -- Check specialized fixed-wing
-                elseif firstUnit:HasAttribute("AWACS") then 
-                    threatClass = "AWACS" 
-                elseif firstUnit:HasAttribute("Tankers") then 
-                    threatClass = "TANKER"
-                elseif firstUnit:HasAttribute("Transports") then 
-                    threatClass = "TRANSPORT"
-                    
-                -- Check combat fixed-wing
-                elseif firstUnit:HasAttribute("Bombers") then 
-                    -- Note: DCS categorizes dedicated ground-attack jets (A-10, Su-25) here too
-                    threatClass = "STRIKE" 
-                elseif firstUnit:HasAttribute("Multirole fighters") or firstUnit:HasAttribute("Fighters") then
-                    threatClass = "CAP"
-                end
+                primaryType = "Air"
                 
                 -- Base threat per aircraft
                 local baseThreat = 10 
@@ -646,59 +485,17 @@ local function ProcessIntelData(intelObject, detectorSide, targetSide, timeNow)
                 threatScore = baseThreat * unitCount
                 
             elseif firstUnit:IsGround() then 
-				threatClass = "GROUND"
-				threatScore = 5 * unitCount
+                primaryType = "Ground"
+                threatScore = 5 * unitCount
                 
-                -- 1. Anti-Air Threats (Highest priority for aviation safety)
+                -- Huge threat if the radar detects it's an enemy SAM system moving up
                 if firstUnit:HasAttribute("Air Defence") then
-                    -- Distinguish between flak/guns and missile systems
-                    if firstUnit:HasAttribute("AAA") then
-                        threatClass = "AAA"
-						threatScore = threatScore + 15 * unitCount
-                    else
-                        threatClass = "SAM"
-						threatScore = threatScore + 30 * unitCount
-                    end
-                    
-                -- 2. Indirect Fire Threats (Massive threat to stationary goals/bases)
-                elseif firstUnit:HasAttribute("Artillery") or firstUnit:HasAttribute("MLRS") then
-                    threatClass = "ARTILLERY"
-					threatScore = threatScore + 5 * unitCount
-                    
-                -- 3. Direct Combat Threats (Threats to friendly troops)
-                elseif firstUnit:HasAttribute("Tanks") or firstUnit:HasAttribute("IFV") or firstUnit:HasAttribute("APC") then
-                    threatClass = "ARMOR"
-					threatScore = threatScore + 10 * unitCount
-                    
-                -- 4. Unarmed/Supply (Soft targets)
-                elseif firstUnit:HasAttribute("Unarmed vehicles") then
-                    threatClass = "LOGISTICS"
+                    threatScore = threatScore + 30 * unitCount
                 end
                 
             elseif firstUnit:IsShip() then 
-				threatClass = "NAVAL"
-                
-                -- 1. Strategic Naval Assets
-                if firstUnit:HasAttribute("Aircraft Carriers") then
-                    threatClass = "CARRIER"
-					threatScore = 50 * unitCount
-                    
-                -- 2. Subsurface Threats
-                elseif firstUnit:HasAttribute("Submarines") then
-                    threatClass = "SUBMARINE"
-					threatScore = 5 * unitCount
-                    
-                -- 3. Surface Combatants (Cruisers, Destroyers, Frigates - often carry heavy SAMs)
-                elseif firstUnit:HasAttribute("Armed ships") then
-                    threatClass = "WARSHIP"
-					threatScore = 20 * unitCount
-                    
-                -- 4. Unarmed/Transport Ships
-                elseif firstUnit:HasAttribute("Unarmed ships") then
-                    threatClass = "LOGISTICS_NAVAL"
-					threatScore = 1 * unitCount
-                end
-				
+                primaryType = "Naval"
+                threatScore = 15 * unitCount
             end
         end
 
@@ -706,14 +503,13 @@ local function ProcessIntelData(intelObject, detectorSide, targetSide, timeNow)
             id = zoneName,
             detectedBy = detectorSide,
             coalition = targetSide,
-            type = threatClass,
-            category = (firstUnit and firstUnit:IsAir()) and "Air" or "Ground",
+            type = primaryType,
             count = unitCount,
-			location = { lat = latNum, long = lonNum },
+            latitude = latNum,
+            longitude = lonNum,
             altitude_ft = alt_ft,
             speed_kts = math.floor(speed),
             heading = math.floor(heading),
-			threat = threatClass,
             threat_score = math.floor(threatScore),
             timestamp = timeNow
         }
@@ -725,212 +521,24 @@ local function ProcessIntelData(intelObject, detectorSide, targetSide, timeNow)
 end
 
 SCHEDULER:New(nil, function()
-	local timeNow = timer.getTime()
+
+    local timeNow = timer.getTime()
+
+    -- 1. Gather Red Intel (Red sensors detecting Blue units)
     local redJsonArray = ProcessIntelData(RedIntel, "RED", "BLUE", timeNow)
-    SendToNode("ISR", "RED", redJsonArray)
+    WriteJSONSafe(redJsonArray, FILE_ISR_RED)
+
 end, {}, 30, SCHEDULER_ISR_FREQ_RED)
 
 SCHEDULER:New(nil, function()
-	local timeNow = timer.getTime()
+
+    local timeNow = timer.getTime()
+	
+    -- 2. Gather Blue Intel (Blue sensors detecting Red units)
     local blueJsonArray = ProcessIntelData(BlueIntel, "BLUE", "RED", timeNow)
-    SendToNode("ISR", "BLUE", blueJsonArray)
+    WriteJSONSafe(blueJsonArray, FILE_ISR_BLUE)
+
 end, {}, 35, SCHEDULER_ISR_FREQ_BLUE)
-
--- ======================================================================
--- CSAR
---
--- Logic related to csar mission
--- ======================================================================
-
-if MODULE_CSAR then	-- activate module CSAR
-
-	menuCSARblue = nil
-	menuCSARred = nil
-	
-	local function launchFlare(unitFlaring) unitFlaring:FlareRed() end
-
-	local function radioTransmit(unitTransmiting, freq)
-		unitTransmiting:GetRadio():NewUnitTransmission(__CSAR_SOS, "SOS signal transmiting", 10, freq or 44.00, radio.modulation.FM, true):Broadcast(true)
-	end
-
-	local function attemptRescue(rescuedGroup, menuPath, rescueCoalitionStr)
-		local playerDCSUnit = world.getPlayer()
-		if playerDCSUnit then
-			local playerMooseUnit = UNIT:Find(playerDCSUnit)
-			local timeInZone = 0
-			local rescueTimer = TIMER:New(function(self)
-				local dist3D = playerMooseUnit:GetCoordinate():Get3DDistance(rescuedGroup:GetCoordinate())
-				local speedKMH = playerMooseUnit:GetVelocityKMH()
-				if dist3D <= 50 and speedKMH <= 10 then
-					timeInZone = timeInZone + 1
-					if timeInZone == 5 then messageToAll("Pilot boarding... hold steady!", 5) end
-					if timeInZone >= 10 then
-						messageToAll("Pilot successfully rescued! Get them back to base.", 10)
-						if menuPath ~= nil then missionCommands.removeItemForCoalition(rescueCoalitionStr == "red" and coalition.side.RED or coalition.side.BLUE, menuPath) end
-						
-						-- Send "Rescued" event to Node.js
-						PushEvent(rescueCoalitionStr, {
-							type = "rescued",
-							coalition = rescueCoalitionStr,
-							name = rescuedGroup:GetName()
-						})
-
-						rescuedGroup:Destroy()
-						self:Stop()
-					end
-				else
-					if timeInZone > 5 then
-						messageToAll("Rescue aborted! You moved out of the zone or exceeded speed limits.", 5)
-						self:Stop()
-					end
-				end
-			end)
-			rescueTimer:Start(1, 1)
-		end
-	end
-
-	local function InitializeDownedPilot(SpawnGroup, coalStr)
-		local _unit = SpawnGroup:GetFirstUnit()
-		local freq = math.random(30, 59) + (0.01 * math.random(0, 99))
-		radioTransmit(_unit, freq)
-		
-		local unitCoord = _unit:GetCoordinate()
-		local lat, lon = unitCoord:GetLLDDM()
-		local approxCoords = unitCoord:ToStringLLDDM()
-		local limitedCoords = string.gsub(approxCoords, "%.%d+", "")
-		
-		local dcsCoalition = coalStr == "red" and coalition.side.RED or coalition.side.BLUE
-		local menuCSAR = coalStr == "red" and menuCSARred or menuCSARblue
-
-		if menuCSAR == nil then
-			menuCSAR = missionCommands.addSubMenuForCoalition(dcsCoalition, "CSAR", nil)
-			if coalStr == "red" then menuCSARred = menuCSAR else menuCSARblue = menuCSAR end
-		end
-
-		missionCommands.addCommandForCoalition(dcsCoalition, limitedCoords.." / FM "..string.format("%.2f", freq)..": Launch flare", menuCSAR, function() launchFlare(_unit) end, nil)
-		
-		local f10CommandPath = nil
-		f10CommandPath = missionCommands.addCommandForCoalition(dcsCoalition, limitedCoords.." / FM "..string.format("%.2f", freq)..": Attempt rescue", menuCSAR, function() attemptRescue(SpawnGroup, f10CommandPath, coalStr) end, nil)
-
-		-- Notify Node.js that the pilot is on the ground
-		PushEvent(coalStr, {
-			type = "csar",
-			coalition = coalStr,
-			name = SpawnGroup:GetName(),
-			lat = lat,
-			lon = lon
-		})
-	end
-
-	BLUE_LIFE_RAFT = SPAWN:New(BLUE_RAFT):InitLimit(100, 100):OnSpawnGroup(function(grp) InitializeDownedPilot(grp, "blue") end)
-	BLUE_DOWNED_PILOT = SPAWN:New(BLUE_PILOT):InitLimit(100, 100):OnSpawnGroup(function(grp) InitializeDownedPilot(grp, "blue") end)
-	RED_LIFE_RAFT = SPAWN:New(RED_RAFT):InitLimit(100, 100):OnSpawnGroup(function(grp) InitializeDownedPilot(grp, "red") end)
-	RED_DOWNED_PILOT = SPAWN:New(RED_PILOT):InitLimit(100, 100):OnSpawnGroup(function(grp) InitializeDownedPilot(grp, "red") end)
-	
-	local CSAR_EventHandler = {}
-	function CSAR_EventHandler:onEvent(Event)
-		local chuteObject = nil
-		local isBailout = false
-		
-		-- Fighter Jets (Ejection Seats)
-		if Event.id == world.event.S_EVENT_EJECTION then
-			if Event.target then
-				chuteObject = Event.target
-				isBailout = true
-			end
-			
-		-- Heavy Aircraft / Helis (Manual Bailouts)
-		elseif Event.id == world.event.S_EVENT_BIRTH then
-			if Event.initiator and Event.initiator:isExist() then
-				local successName, unitName = pcall(function() return Event.initiator:getName() end)
-				if successName and unitName then
-					if string.find(unitName, BLUE_RAFT) or string.find(unitName, BLUE_PILOT) or string.find(unitName, RED_RAFT) or string.find(unitName, RED_PILOT) then
-						return -- Stop processing this event immediately!
-					end
-				end
-				local success, typeName = pcall(function() return Event.initiator:getTypeName() end)
-				if success and typeName and type(typeName) == "string" then
-					local lowerName = string.lower(typeName)
-					if string.find(lowerName, "parachute") or string.find(lowerName, "paratrooper") or string.find(lowerName, "pilot") then
-						chuteObject = Event.initiator
-						isBailout = true
-					end
-				end
-			end
-		end
-		
-		-- Execute Rescue Spawn Logic
-		if isBailout and chuteObject then
-			local rawVec3 = chuteObject:getPoint()
-			local parachuteCoord = COORDINATE:NewFromVec3(rawVec3)
-			local altMeters = parachuteCoord:GetY()
-			local ejectCoalition = chuteObject:getCoalition()
-			
-			local staggerDelay = math.random(0, 15)
-			local fallTime = math.max(altMeters / 5.5, 5) + staggerDelay 
-			local maxDrift = math.min(altMeters * 0.5, 3000) 
-			local spawnCoord = parachuteCoord:GetRandomCoordinateInRadius(maxDrift, 100)
-			
-			messageToAll("EJECTION DETECTED! Surface ETA: " .. math.floor(fallTime) .. " seconds.", 15)
-			
-			timer.scheduleFunction(function()
-				local surface = spawnCoord:GetSurfaceType()
-				local isWater = (surface == land.SurfaceType.WATER or surface == land.SurfaceType.SHALLOW_WATER)
-				
-				if isWater then
-					if ejectCoalition == coalition.side.BLUE then BLUE_LIFE_RAFT:SpawnFromCoordinate(spawnCoord)
-					elseif ejectCoalition == coalition.side.RED then RED_LIFE_RAFT:SpawnFromCoordinate(spawnCoord) end
-				else
-					if ejectCoalition == coalition.side.BLUE then BLUE_DOWNED_PILOT:SpawnFromCoordinate(spawnCoord)
-					elseif ejectCoalition == coalition.side.RED then RED_DOWNED_PILOT:SpawnFromCoordinate(spawnCoord) end
-				end
-			end, nil, timer.getTime() + fallTime)
-			
-		end	
-	end
-	world.addEventHandler(CSAR_EventHandler)
-	
-end	-- module CSAR
-
--- ======================================================================
--- Event handlers
--- ======================================================================
-
-local EventCatcher = EVENTHANDLER:New()
-EventCatcher:HandleEvent(EVENTS.Dead)
-EventCatcher:HandleEvent(EVENTS.Crash)
-
-function EventCatcher:OnEventDead(EventData)
-    if EventData.IniGroup and EventData.IniCoalition then
-        local coal = (EventData.IniCoalition == coalition.side.RED) and "red" or "blue"
-        PushEvent(coal, {
-            type = "destroyed",
-            coalition = coal,
-            groupName = EventData.IniGroup:GetName()
-        })
-    end
-end
-
-function EventCatcher:OnEventCrash(EventData)
-    self:OnEventDead(EventData)
-end
-
-local function PushEvent(coalitionStr, eventData)
-    local q = (string.lower(coalitionStr) == "red") and AEM_Events_Red or AEM_Events_Blue
-    table.insert(q, eventData)
-end
-
-local function FlushEvents()
-    if #AEM_Events_Red > 0 then
-        SendToNode("EVENTS", "RED", AEM_Events_Red)
-        AEM_Events_Red = {} 
-    end
-    if #AEM_Events_Blue > 0 then
-        SendToNode("EVENTS", "BLUE", AEM_Events_Blue)
-        AEM_Events_Blue = {}
-    end
-end
-SCHEDULER:New(nil, FlushEvents, {}, 10, 30)
 
 -- ======================================================================
 -- Field command
@@ -942,7 +550,7 @@ SCHEDULER:New(nil, FlushEvents, {}, 10, 30)
 AEM_Spawners = {}
 
 -- 1. Spawn Task Executor
-local function SpawnAndTask(action, spawnTemplate, spawnAirbase, coalitionStr)
+local function SpawnAndTask(action, spawnTemplate, spawnAirbase)
     
     local SpawnObj = AEM_Spawners[spawnTemplate]
     
@@ -959,34 +567,21 @@ local function SpawnAndTask(action, spawnTemplate, spawnAirbase, coalitionStr)
     -- Setup the callback *before* calling SpawnAtAirbase
     SpawnObj:OnSpawnGroup(function(NewGroup)
         
-		NewGroup:CommandSetUnlimitedFuel(UNLIMITED_FUEL)
+		-- NewGroup:CommandSetUnlimitedFuel(true)
 		
         local groupName = NewGroup:GetName()
-        messageToAll(string.format("AEM: Executing Order - %s launched from %s", action.unit_type, action.airbase), 15)
+        trigger.action.outText(string.format("AEM: Executing Order - %s launched from %s", action.unit_type, action.airbase), 15)
         
         local FlightGroup = FLIGHTGROUP:New(NewGroup)
         local startCoord  = NewGroup:GetCoordinate()
-        local startLat, startLon = startCoord:GetLLDDM()
         
         local targetLat = action.target_area.lat
         local targetLon = action.target_area.long
         local targetCoord = COORDINATE:NewFromLLDD(targetLat, targetLon)
         local zoneName = action.target_name or ("TGT-"..groupName)
-		
-		PushEvent(string.lower(coalitionStr), {
-            type = "activated",
-            coalition = string.lower(coalitionStr),
-            staticUnits = action.unit_names, 
-            group = {
-                name = groupName,
-                type = action.unit_type,
-                category = "Air",
-				mission = {action.task},
-                lat = startLat,
-                lon = startLon,
-                airbase = action.airbase
-            }
-        })
+        
+        -- Radius default 20km
+        local TargetZone = ZONE_RADIUS:New(zoneName, targetCoord:GetVec2(), 20000)	--- TODO:
         
         local Mission = nil
         local taskType = action.task
@@ -1045,52 +640,6 @@ local function SpawnAndTask(action, spawnTemplate, spawnAirbase, coalitionStr)
 					self:AddMission(sweepMission)
 				end
 			end
-			
-		elseif taskType == "INTERCEPT" then
-		
-			-- Flight parameters for a high-speed intercept scramble
-			altitude = math.random(25000, 35000)
-			speed = 550 -- High speed for QRA interception
-			
-			local targetGroupName = action.reference_entity
-			local TargetGroup = targetGroupName and GROUP:FindByName(targetGroupName) or nil
-			
-			if TargetGroup and TargetGroup:IsAlive() then
-				-- Target exists, create direct intercept mission
-				local interceptMission = AUFTRAG:NewINTERCEPT(TargetGroup)
-				
-				FlightGroup:AddWaypoint(
-					targetCoord,
-					speed,
-					nil,
-					altitude,
-					true
-				)
-				
-				-- Assign immediately without intermediate waypoints so they vector straight to the threat
-				FlightGroup:AddMission(interceptMission)
-			else
-				-- Target was destroyed or disappeared before launch. Fallback to CAP at last known location.
-				env.info("AEM Commander: Intercept target " .. tostring(targetGroupName) .. " missing. Falling back to CAP.")
-				
-				-- Send them directly to the last known coordinates
-				FlightGroup:AddWaypoint(
-					targetCoord,
-					speed,
-					nil,
-					altitude,
-					true
-				)
-				
-				local fallbackMission = AUFTRAG:NewCAP(
-					ZONE_RADIUS:New(zoneName, targetCoord:GetVec2(), 60000),
-					altitude,
-					speed,
-					targetCoord
-				)
-				
-				FlightGroup:AddMission(fallbackMission)
-			end			
             
         elseif taskType == "CAS" then
 		
@@ -1201,8 +750,8 @@ local function SpawnAndTask(action, spawnTemplate, spawnAirbase, coalitionStr)
             -- Mission = AUFTRAG:NewCASENHANCED(TargetZone, 15000, 350)
 			
 			-- Flight parameters for a high-speed ingress
-			altitude = math.random(20000, 30000)
-			speed = 450
+			altitude = math.random(10000, 15000)
+			speed = 350
 			
 			-- Build a basic strike routing
 			local numWaypoints  = 3
@@ -1257,67 +806,100 @@ local function SpawnAndTask(action, spawnTemplate, spawnAirbase, coalitionStr)
         
     end)
     
-    -- Trigger the spawn
-	local takeoffMethod = SPAWN.Takeoff.Hot
-    if action.task == "INTERCEPT" then
-        takeoffMethod = SPAWN.Takeoff.Runway
-    end
-    SpawnObj:SpawnAtAirbase(spawnAirbase, takeoffMethod, nil)
+    -- Trigger the spawn, which will eventually call the OnSpawnGroup function above
+    SpawnObj:SpawnAtAirbase(spawnAirbase, SPAWN.Takeoff.Runway, nil) 
 end
 
-function ProcessAIOrders(actions, coalitionStr)
+-- 2. Generic Order Processor using Global Resource Pools
+local function ProcessOrderFile(filePath, resourcePool, coalition)
     
+    -- 1. CHECK IF FILE EXISTS
+    -- Attempt to open the file in read mode. If it fails, the file isn't there yet.
+    local file = io.open(filePath, "r")
+    if not file then 
+        return -- File does not exist, exit silently and wait for the next 60s cycle
+    end
+    file:close() -- Always close the file handle after checking!
+	
+    -- 2. READ AND PROCESS ORDERS
+    local actions = UTILS.ReadJSON(filePath)
     if not actions then return end
     
+    local ordersExecuted = false
+    
     for _, action in ipairs(actions) do
-        if action.action_type == "new" and action.unit_names then
+        if action.action_type == "new" then
             
-            local templateName = TEMPLATE_PREFIX..coalitionStr.." "..action.task.." "..action.unit_type
-            local Airbase = AIRBASE:FindByName(action.airbase)
+            -- Construct the Dictionary Key based on Airbase and Type
+            -- "AirbaseName|TypeName"
+            local poolKey = action.airbase .. "|" .. action.unit_type
+            local poolEntry = resourcePool[poolKey]
             
-            if Airbase and GROUP:FindByName(templateName) then
-                local staticsConsumed = 0
+            local templateName = TEMPLATE_PREFIX..coalition.." "..action.task.." "..action.unit_type
+            
+            -- VALIDATION CHAIN
+            -- 1. Check if we have resources in the pool
+            if poolEntry and poolEntry.count > 0 then
                 
-                -- Iterate EXACTLY through the IDs Gemini provided
-                for _, staticName in ipairs(action.unit_names) do
-                    local staticObj = STATIC:FindByName(staticName, false)
-                    if staticObj and staticObj:IsAlive() then
-                        staticObj:Destroy()
-                        staticsConsumed = staticsConsumed + 1
+                -- 2. Check if the Airbase exists in DCS
+                local Airbase = AIRBASE:FindByName(action.airbase)
+                if Airbase then
+                    
+                    -- 3. Check if Template Exists
+                    if GROUP:FindByName(templateName) then
+                        
+                        -- 4. CONSUME RESOURCE
+                        -- We iterate through the static_ids to find one that is still alive
+                        local validStatic = nil
+                        
+                        while #poolEntry.static_ids > 0 do
+                            local staticName = poolEntry.static_ids[1] -- Peek first item
+                            local staticObj = STATIC:FindByName(staticName, false)
+                            
+                            -- Remove it from the list regardless of state (we are consuming it or cleaning it)
+                            table.remove(poolEntry.static_ids, 1)
+                            poolEntry.count = poolEntry.count - 1
+                            
+                            if staticObj and staticObj:IsAlive() then
+                                validStatic = staticObj
+                                break -- We found a live one!
+                            end
+                            -- If static was nil (bombed?), loop continues to check the next one
+                        end
+                        
+                        if validStatic then
+                            -- Execute
+                            validStatic:Destroy() -- Consume the token
+                            SpawnAndTask(action, templateName, Airbase)
+                            ordersExecuted = true
+                        else
+                            env.info("AEM Commander: Pool had count but all statics were missing/dead for " .. poolKey)
+                        end
+                        
+                    else
+                        env.info("AEM Commander: Template not found " .. templateName)
                     end
-                end
-                
-                -- Spawn the flight if we successfully consumed the resources
-                if staticsConsumed > 0 then
-                    SpawnAndTask(action, templateName, Airbase, coalitionStr)
                 else
-                    env.info("AEM Commander: Requested static units were missing/dead.")
+                    env.info("AEM Commander: Airbase not found " .. action.airbase)
                 end
             else
-                env.info("AEM Commander: Missing airbase or template for " .. templateName)
-            end
-		elseif action.action_type == "existing" and action.group_name then
-            local ExistingGroup = GROUP:FindByName(action.group_name)
-            
-            if ExistingGroup and ExistingGroup:IsAlive() then
-                if action.task == "RTB" then
-                    local returnTask = ExistingGroup:TaskRouteToNearestAirbase()
-                    ExistingGroup:SetTask(returnTask, 1)
-                else
-					--- TODO: 
-                    local targetCoord = COORDINATE:NewFromLLDD(action.target_area.lat, action.target_area.long)
-                    local redirectTask = ExistingGroup:TaskRouteToVec2(targetCoord:GetVec2())
-                    ExistingGroup:SetTask(redirectTask, 1)
-                end
-            else
-                env.info("AEM Commander: Attempted to command non-existent or dead group: " .. tostring(action.group_name))
+                env.info("AEM Commander: No resources available in pool for " .. poolKey)
             end
         end
     end
+    
+    -- 3. DELETE THE FILE
+    -- Once parsed (even if no valid orders were executed due to validation failures), 
+    -- delete the file so the external app knows it was consumed and we don't process it again.
+    os.remove(filePath)
 end
 
--- ======================================================================
--- Done
--- ======================================================================
+-- 3. Scheduler to check Red and Blue orders
+SCHEDULER:New(nil, function()
 
-printBootStatus()
+    ProcessOrderFile(FILE_ORDERS_RED, AEM_Pool_Red, "RED")
+    -- ProcessOrderFile(FILE_ORDERS_BLUE, AEM_Pool_Blue, "BLUE") -- Ready for Blue AI
+
+end, {}, 5, SCHEDULER_TASKING_FREQ)
+
+trigger.action.outText("AEM Commander loaded", 15)
