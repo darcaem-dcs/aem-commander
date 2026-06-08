@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="aem-commander.png" alt="AEM Commander image" width="50%">
+</p>
+
 # AEM Commander - Autonomous Engagement Monitor
 
 `aem-commander` is a tool designed to connect the DCS World simulation environment with external Artificial Intelligence agents, enabling dynamic and automated decision-making in real-time.
