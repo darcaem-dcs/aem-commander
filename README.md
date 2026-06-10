@@ -81,5 +81,18 @@ RED_RAFT = "RED LIFE RAFT"
 RED_PILOT = "RED DOWNED PILOT"
 __CSAR_SOS = "morse-sos.ogg"
 ```
+
+## Building from source code
+
+Once you have [NodeJs installed](https://nodejs.org/en/download), you can build the app with the following commands (only tested on windows):
+```bash
+npm run package-win
+```
+```bash
+npm run package-mac
+```
+```bash
+npm run package-linux
+```
 ---
 *Note: As this is an early-stage development, advanced features, code robustness, and complex strategic capabilities will be expanded in future iterations as this technical foundation is consolidated.*
