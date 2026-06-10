@@ -282,6 +282,16 @@ function routeDCSMessage(msg) {
 					case 'captured':	// Zone has been captured
 						/// TODO:
 						break;
+						
+					case 'mission_completed':
+						if (event.status === 'SUCCESS') {
+							state[coal].aiLogs.push(`The ${event.task} mission by ${event.groupName} against ${event.targetName} was a SUCCESS.`);
+							
+							targets.removeTarget(event.targetName);
+						} else {
+							state[coal].aiLogs.push(`The ${event.task} mission by ${event.groupName} against ${event.targetName} FAILED. Assess if a re-strike is necessary.`);
+						}
+						break;
                 }
             }
             break;

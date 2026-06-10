@@ -1279,11 +1279,7 @@ local function SpawnAndTask(action, spawnTemplate, spawnAirbase, coalitionStr, p
 			end
         
 		elseif taskType == "STRIKE" then
-		
-			-- Use NewCASENHANCED for area search/destroy or NewBOMBING if strict point
-            -- Using NewCASENHANCED allows engaging targets in the zone area
-            -- Mission = AUFTRAG:NewCASENHANCED(TargetZone, 15000, 350)
-			
+
 			-- Flight parameters for a high-speed ingress
 			altitude = math.random(20000, 30000)
 			speed = 450
@@ -1321,8 +1317,37 @@ local function SpawnAndTask(action, spawnTemplate, spawnAirbase, coalitionStr, p
 				true
 			)
 			
+			-- RESOLVE THE TARGET OBJECT:
+			-- Find the enemy group by its tracking name if provided by your web application payload
+			local enemyGroupName = action.reference_entity
+			local enemyGroupObj = enemyGroupName and GROUP:FindByName(enemyGroupName)
+			
+			-- If a real group exists, pass it! MOOSE will automatically extract its unit coordinates
+			-- to strike and monitor its exact health state. Otherwise, fall back to coordinate bombing.
+			local strikeTarget = enemyGroupObj or targetCoord
+			
 			-- NewBOMBING is the standard MOOSE AUFTRAG for coordinate/point strikes
-			local strikeMission = AUFTRAG:NewBOMBING(targetCoord, altitude, speed)
+			local strikeMission = AUFTRAG:NewBOMBING(strikeTarget, altitude, speed)
+			
+			function strikeMission:OnAfterSuccess(From, Event, To)
+				PushEvent(string.lower(coalitionStr), {
+					type = "mission_completed",
+					task = "STRIKE",
+					status = "SUCCESS",
+					groupName = groupName,
+					targetName = enemyGroupName or "Coordinate Target"
+				})
+			end
+
+			function strikeMission:OnAfterFailed(From, Event, To)
+				PushEvent(string.lower(coalitionStr), {
+					type = "mission_completed",
+					task = "STRIKE",
+					status = "FAILED",
+					groupName = groupName,
+					targetName = enemyGroupName or "Coordinate Target"
+				})
+			end
 			
 			function FlightGroup:OnAfterPassingWaypoint(From, Event, To, Waypoint)
 				if Waypoint.uid == strikeTriggerWaypoint.uid then
