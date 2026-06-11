@@ -2,6 +2,11 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
     /**
+     * Obtains the local IPv4 address of the machine.
+     */
+    getLocalIp: () => ipcRenderer.invoke('get-local-ip'),
+	
+	/**
      * Opens a file dialog to select the Vertex AI JSON key file.
      */
     selectJsonFile: () => ipcRenderer.invoke('select-json-file'),

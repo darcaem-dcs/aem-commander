@@ -1332,6 +1332,7 @@ local function SpawnAndTask(action, spawnTemplate, spawnAirbase, coalitionStr, p
 			function strikeMission:OnAfterSuccess(From, Event, To)
 				PushEvent(string.lower(coalitionStr), {
 					type = "mission_completed",
+					coalition = string.lower(coalitionStr),
 					task = "STRIKE",
 					status = "SUCCESS",
 					groupName = groupName,
@@ -1342,6 +1343,7 @@ local function SpawnAndTask(action, spawnTemplate, spawnAirbase, coalitionStr, p
 			function strikeMission:OnAfterFailed(From, Event, To)
 				PushEvent(string.lower(coalitionStr), {
 					type = "mission_completed",
+					coalition = string.lower(coalitionStr),
 					task = "STRIKE",
 					status = "FAILED",
 					groupName = groupName,

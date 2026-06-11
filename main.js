@@ -1,6 +1,7 @@
 const {app, BrowserWindow, ipcMain, dialog} = require('electron')
 const path = require('path');
 const net = require('net');
+const os = require('os');
 
 let mainWindow;
 let processIntervalId = null;
@@ -351,6 +352,7 @@ function createWindow() {
             nodeIntegration: false
         }
     });
+	mainWindow.maximize();
 	mainWindow.setMenu(null);
     mainWindow.loadFile(path.join(__dirname, 'public', 'index.html'));
 }
@@ -522,6 +524,42 @@ ipcMain.handle('stop-monitor', () => {
     state.blue.forces = null;
     mainWindow.webContents.send('log-message', 'Operations suspended by user.', 'info');
     return true;
+});
+
+ipcMain.handle('get-local-ip', () => {
+    const nets = os.networkInterfaces();
+    let candidateIp = '127.0.0.1';
+
+    for (const name of Object.keys(nets)) {
+        const lowerName = name.toLowerCase();
+        
+        // Descartar adaptadores virtuales conocidos
+        if (lowerName.includes('virtual') || 
+            lowerName.includes('vmware') || 
+            lowerName.includes('vbox') || 
+            lowerName.includes('wsl') || 
+            lowerName.includes('vethernet') ||
+            lowerName.includes('loopback')) {
+            continue;
+        }
+
+        for (const net of nets[name]) {
+            // Buscamos solo IPv4 que no sean internas
+            if (net.family === 'IPv4' && !net.internal) {
+                // Si el nombre sugiere que es el adaptador principal (Wi-Fi o Ethernet), devolvemos esta IP
+                if (lowerName.includes('wi-fi') || lowerName.includes('ethernet') || lowerName.includes('wlan') || lowerName.includes('eth')) {
+                    return net.address;
+                }
+                
+                // Si no coincide el nombre exacto, lo guardamos como candidato por si acaso
+                if (candidateIp === '127.0.0.1') {
+                    candidateIp = net.address;
+                }
+            }
+        }
+    }
+    
+    return candidateIp;
 });
 
 app.whenReady().then(createWindow);
