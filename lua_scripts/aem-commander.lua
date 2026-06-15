@@ -2,8 +2,9 @@
 -- CUSTOM SETTINGS
 -------------------------------------------------------------------------
 
-HOST_IP = "192.168.1.43"
+HOST_IP = "192.168.1.41"
 HOST_PORT = 49080
+SOCKET_MAX_RETRIES = 2
 
 -------------------------------------------------------------------------
 -- AI Commander
@@ -123,6 +124,7 @@ package.cpath = package.cpath..";.\\LuaSocket\\?.dll;"
 
 local socket = require("socket")
 local tcp_conn = nil
+local AEM_Socket_Retries = 0
 
 local function AEM_ConnectTCP()
     tcp_conn = socket.tcp()
@@ -179,8 +181,20 @@ end
 local function AEM_NetworkLoop()
     
     if not tcp_conn then
+		if AEM_Socket_Retries >= SOCKET_MAX_RETRIES then
+            env.info("AEM Commander: max TCP retires reached (" .. SOCKET_MAX_RETRIES .. "). Stopping network loop.")
+            messageToAll("AEM Commander: HQ offline. Free flight.", 15)
+            return nil
+        end
+        AEM_Socket_Retries = AEM_Socket_Retries + 1
         AEM_ConnectTCP()
-        return timer.getTime() + 5 -- Retry
+        if not tcp_conn then
+            return timer.getTime() + 5 -- Reintentar en 5 segundos
+        end
+    end
+	
+	if tcp_conn then
+        AEM_Socket_Retries = 0
     end
 
 	-- Read new data
@@ -555,6 +569,9 @@ timer.scheduleFunction(ExportBorders, nil, timer.getTime() + 3)
 -- Updates the situation of enemy forces detected
 -- ======================================================================
 
+local RedActiveSet = SET_GROUP:New():FilterCoalitions("red"):FilterStart()
+local BlueActiveSet = SET_GROUP:New():FilterCoalitions("blue"):FilterStart()
+
 local BlueRecceSet = SET_GROUP:New():FilterPrefixes(BLUE_EW):FilterStart()
 local BlueIntel = DETECTION_AREAS:New(BlueRecceSet, 30000)
 BlueIntel:Start()
@@ -567,6 +584,50 @@ local RedSamSet = SET_GROUP:New():FilterPrefixes(RED_SAM):FilterStart()
 local BlueSamSet = SET_GROUP:New():FilterPrefixes(BLUE_SAM):FilterStart()
 
 local ContactTracks = {}
+
+-- Función auxiliar para extraer datos de todos los grupos vivos de un bando
+local function GetActiveForcesData(ActiveSet)
+    local active_forces = {}
+    
+    ActiveSet:ForEachGroupAlive(function(group)
+        local groupName = group:GetName()
+        local firstUnit = group:GetFirstUnitAlive()
+        
+        if firstUnit then
+            local unitType = firstUnit:GetTypeName()
+            local category = "Unknown"
+            
+            if group:IsAir() then category = "Air"
+            elseif group:IsGround() then category = "Ground"
+            elseif group:IsShip() then category = "Naval"
+            end
+
+            local coord = group:GetCoordinate()
+            local lat, lon = coord:GetLLDDM()
+            
+            -- ¿Están cerca de alguna base?
+            local nearestBase = coord:GetClosestAirbase()
+            local airbaseName = ""
+            if nearestBase and coord:Get2DDistance(nearestBase:GetCoordinate()) < 5000 then
+                airbaseName = nearestBase:GetName()
+            end
+
+            local entry = {
+                category = category,
+                count = group:CountAliveUnits(),
+                location = { lat = lat, long = lon },
+                airbase = airbaseName,
+                mission = GetMissionsFromName(groupName),
+                type = unitType,
+                id = groupName
+            }
+            
+            table.insert(active_forces, entry)
+        end
+    end)
+    
+    return active_forces
+end
 
 -- Helper function to calculate heading/speed
 local function GetTargetTelemetry(trackKey, currentCoord, timeNow)
@@ -805,6 +866,7 @@ local function GetKnownSAMs(SamSet, targetCoalitionStr, detectorSideStr, timeNow
 end
 
 SCHEDULER:New(nil, function()
+	
 	local timeNow = timer.getTime()
     -- Inteligencia dinámica (radares/EW rojos escaneando el espacio)
     local redJsonArray = ProcessIntelData(RedIntel, "RED", "BLUE", timeNow)
@@ -816,9 +878,14 @@ SCHEDULER:New(nil, function()
     end
     
     SendToNode("ISR", "RED", redJsonArray)
+	
+	local activeRed = GetActiveForcesData(RedActiveSet)
+    SendToNode("ACTIVE", "RED", activeRed)
+	
 end, {}, 30, SCHEDULER_ISR_FREQ_RED)
 
 SCHEDULER:New(nil, function()
+	
 	local timeNow = timer.getTime()
     -- Inteligencia dinámica (radares/EW azules escaneando el espacio)
     local blueJsonArray = ProcessIntelData(BlueIntel, "BLUE", "RED", timeNow)
@@ -830,6 +897,10 @@ SCHEDULER:New(nil, function()
     end
     
     SendToNode("ISR", "BLUE", blueJsonArray)
+	
+	local activeBlue = GetActiveForcesData(BlueActiveSet)
+    SendToNode("ACTIVE", "BLUE", activeBlue)
+	
 end, {}, 35, SCHEDULER_ISR_FREQ_BLUE)
 
 -- ======================================================================
@@ -1332,7 +1403,6 @@ local function SpawnAndTask(action, spawnTemplate, spawnAirbase, coalitionStr, p
 			function strikeMission:OnAfterSuccess(From, Event, To)
 				PushEvent(string.lower(coalitionStr), {
 					type = "mission_completed",
-					coalition = string.lower(coalitionStr),
 					task = "STRIKE",
 					status = "SUCCESS",
 					groupName = groupName,
@@ -1343,7 +1413,6 @@ local function SpawnAndTask(action, spawnTemplate, spawnAirbase, coalitionStr, p
 			function strikeMission:OnAfterFailed(From, Event, To)
 				PushEvent(string.lower(coalitionStr), {
 					type = "mission_completed",
-					coalition = string.lower(coalitionStr),
 					task = "STRIKE",
 					status = "FAILED",
 					groupName = groupName,
