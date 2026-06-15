@@ -1065,15 +1065,90 @@ end	-- module CSAR
 -- Field command
 --
 -- Receive strategic tasking from commander and generate tactical orders
+-- Includes Rendezvous (RV) Package Manager for coordinated strikes
 -- ======================================================================
 
 -- Global Spawner Registry to ensure persistence
 AEM_Spawners = {}
+AEM_Packages = AEM_Packages or {}
+
+-- Package Manager Scheduler (Monitors RV Points and Go/No-Go criteria)
+SCHEDULER:New(nil, function()
+    local timeNow = timer.getTime()
+    for pkgKey, pkg in pairs(AEM_Packages) do
+        
+        if pkg.state == "ASSEMBLY" or pkg.state == "PUSH" then
+            local allAtRV = true
+            local aliveCount = 0
+            local aliveTasks = {}
+
+            for _, grpData in ipairs(pkg.groups) do
+                if grpData.mooseGroup:IsAlive() then
+                    aliveCount = aliveCount + 1
+                    aliveTasks[grpData.task] = true 
+                    
+                    if pkg.state == "ASSEMBLY" then
+                        local currentCoord = grpData.mooseGroup:GetCoordinate()
+                        local dist = currentCoord:Get2DDistance(pkg.rvCoord)
+                        if dist > 15000 then
+                            allAtRV = false
+                        end
+                    end
+                end
+            end
+
+            local missingCriticalTask = false
+            local failedTaskName = ""
+            
+            for reqTask, _ in pairs(pkg.requiredTasks) do
+                if not aliveTasks[reqTask] then
+                    missingCriticalTask = true
+                    failedTaskName = reqTask
+                    break
+                end
+            end
+
+            if missingCriticalTask then
+                pkg.state = "ABORTED"
+                messageToAll("AEM Commander: Strike Package " .. pkgKey .. " ABORTED! Lost all " .. failedTaskName .. " cover. RTB ordered.", 15)
+                
+                for _, grpData in ipairs(pkg.groups) do
+                    if grpData.mooseGroup:IsAlive() then
+                        if grpData.rvMission then grpData.rvMission:Cancel() end
+                        if grpData.combatMission then grpData.combatMission:Cancel() end
+                        local returnTask = grpData.mooseGroup:TaskRouteToNearestAirbase()
+                        grpData.mooseGroup:SetTask(returnTask, 1)
+                    end
+                end
+                
+            elseif pkg.state == "ASSEMBLY" then
+                if (allAtRV and aliveCount > 0) or (timeNow > pkg.timeout and aliveCount > 0) then
+                    pkg.state = "PUSH"
+                    messageToAll("AEM Commander: Strike Package " .. pkgKey .. " assembled. PUSHING to target at " .. math.floor(pkg.pushSpeed) .. " kts!", 15)
+
+                    for _, grpData in ipairs(pkg.groups) do
+                        if grpData.mooseGroup:IsAlive() then
+                            if grpData.rvMission then
+                                grpData.rvMission:Cancel()
+                            end
+                            -- Sincronizamos la velocidad de ataque a la del miembro más lento (pkg.pushSpeed)
+                            grpData.flightGroup:AddWaypoint(grpData.targetCoord, pkg.pushSpeed, nil, grpData.altitude, true)
+                            grpData.flightGroup:AddMission(grpData.combatMission)
+                        end
+                    end
+                end
+            end
+            
+            if aliveCount == 0 then
+                pkg.state = "DEAD"
+            end
+        end
+    end
+end, {}, 5, 10)
 
 local function GetClosestParkingSpot(airbaseObj, targetCoord)
     local dcsAirbase = airbaseObj:GetDCSObject()
     if not dcsAirbase then return nil end
-    
     local parkings = dcsAirbase:getParking(false)
     if not parkings then return nil end
     
@@ -1087,14 +1162,12 @@ local function GetClosestParkingSpot(airbaseObj, targetCoord)
             local dx = targetVec3.x - pPos.x
             local dz = targetVec3.z - pPos.z
             local distSq = (dx * dx) + (dz * dz)
-            
             if distSq < minDist then
                 minDist = distSq
                 closestIndex = pData.Term_Index
             end
         end
     end
-    
     return closestIndex
 end
 
@@ -1113,11 +1186,17 @@ local function SpawnAndTask(action, spawnTemplate, spawnAirbase, coalitionStr, p
         SpawnObj:InitGrouping(action.unit_count)
     end
     
-    -- Setup the callback *before* calling SpawnAtAirbase
     SpawnObj:OnSpawnGroup(function(NewGroup)
         
-		NewGroup:CommandSetUnlimitedFuel(UNLIMITED_FUEL)
+        NewGroup:CommandSetUnlimitedFuel(UNLIMITED_FUEL)
 		
+		-- Forzar a que usen Chaff y Flares SOLO cuando detecten un misil en vuelo (para no gastarlos a lo tonto)
+        NewGroup:SetOption(AI.Option.Air.id.FLARE_USING, AI.Option.Air.val.FLARE_USING.AGAINST_FIRED_MISSILE)
+        NewGroup:SetOption(AI.Option.Air.id.CHAFF_USING, AI.Option.Air.val.CHAFF_USING.AGAINST_FIRED_MISSILE)
+        
+        -- Forzar a que usen sus Pods de ECM (si los llevan equipados en el Mission Editor)
+        NewGroup:SetOption(AI.Option.Air.id.ECM_USING, AI.Option.Air.val.ECM_USING.USE_IF_DETECTED_LOCK_BY_RADAR)
+        
         local groupName = NewGroup:GetName()
         messageToAll(string.format("AEM: Executing Order - %s launched from %s", action.unit_type, action.airbase), 15)
         
@@ -1129,8 +1208,8 @@ local function SpawnAndTask(action, spawnTemplate, spawnAirbase, coalitionStr, p
         local targetLon = action.target_area.long
         local targetCoord = COORDINATE:NewFromLLDD(targetLat, targetLon)
         local zoneName = action.target_name or ("TGT-"..groupName)
-		
-		PushEvent(string.lower(coalitionStr), {
+        
+        PushEvent(string.lower(coalitionStr), {
             type = "activated",
             coalition = string.lower(coalitionStr),
             staticUnits = action.unit_names, 
@@ -1138,311 +1217,151 @@ local function SpawnAndTask(action, spawnTemplate, spawnAirbase, coalitionStr, p
                 name = groupName,
                 type = action.unit_type,
                 category = "Air",
-				mission = {action.task},
+                mission = {action.task},
                 lat = startLat,
                 lon = startLon,
                 airbase = action.airbase
             }
         })
         
-        local Mission = nil
         local taskType = action.task
-		local altitude = 20000
-		local speed = 400
+        local altitude = 20000
+        local speed = 400
+        local combatMission = nil
         
         if taskType == "CAP" or taskType == "ESCORT" then
-		
-			-- Flight parameters
-			altitude = math.random(15000, 35000)
-			speed = 450 -- knots TAS-ish
-			
-			-- Build a simple fighter sweep route
-			local numWaypoints  = 3
-			local lateralOffset = 60000
-
-			local sweepWaypoint = nil
-
-			for i = 1, numWaypoints do
-				local bearing = startCoord:HeadingTo(targetCoord)
-				local distance = startCoord:Get2DDistance(targetCoord)
-				local step = distance * (i / (numWaypoints + 1))
-				local side = math.random(0, 1) == 1 and 1 or -1
-				local offset = side * math.random(lateralOffset * 0.4, lateralOffset)
-				local wpCoord = startCoord:Translate(step, bearing)
-				wpCoord = wpCoord:Translate(offset, bearing + 90 * side)
-
-				sweepWaypoint = FlightGroup:AddWaypoint(
-					wpCoord,
-					speed,
-					nil,
-					altitude,
-					false
-				)
-			end
-
-			-- Final sweep center point
-			FlightGroup:AddWaypoint(
-				targetCoord,
-				speed,
-				nil,
-				altitude,
-				true
-			)
-			
-			-- Fighter sweep mission
-			local sweepMission = AUFTRAG:NewCAP(
-				ZONE_RADIUS:New(zoneName, targetCoord:GetVec2(), 100000),
-				altitude,
-				speed,
-				targetCoord
-			)
-
-			function FlightGroup:OnAfterPassingWaypoint(From, Event, To, Waypoint)
-				if Waypoint.uid == sweepWaypoint.uid then
-					self:AddMission(sweepMission)
-				end
-			end
-			
-		elseif taskType == "INTERCEPT" then
-		
-			-- Flight parameters for a high-speed intercept scramble
-			altitude = math.random(25000, 35000)
-			speed = 550 -- High speed for QRA interception
-			
-			local targetGroupName = action.reference_entity
-			local TargetGroup = targetGroupName and GROUP:FindByName(targetGroupName) or nil
-			
-			if TargetGroup and TargetGroup:IsAlive() then
-				-- Target exists, create direct intercept mission
-				local interceptMission = AUFTRAG:NewINTERCEPT(TargetGroup)
-				
-				FlightGroup:AddWaypoint(
-					targetCoord,
-					speed,
-					nil,
-					altitude,
-					true
-				)
-				
-				-- Assign immediately without intermediate waypoints so they vector straight to the threat
-				FlightGroup:AddMission(interceptMission)
-			else
-				-- Target was destroyed or disappeared before launch. Fallback to CAP at last known location.
-				env.info("AEM Commander: Intercept target " .. tostring(targetGroupName) .. " missing. Falling back to CAP.")
-				
-				-- Send them directly to the last known coordinates
-				FlightGroup:AddWaypoint(
-					targetCoord,
-					speed,
-					nil,
-					altitude,
-					true
-				)
-				
-				local fallbackMission = AUFTRAG:NewCAP(
-					ZONE_RADIUS:New(zoneName, targetCoord:GetVec2(), 60000),
-					altitude,
-					speed,
-					targetCoord
-				)
-				
-				FlightGroup:AddMission(fallbackMission)
-			end			
+            altitude = math.random(18000, 28000)
+            speed = 420
+            -- Reducimos radio a 60km para no distraerse
+            combatMission = AUFTRAG:NewCAP(ZONE_RADIUS:New(zoneName, targetCoord:GetVec2(), 60000), altitude, speed, targetCoord)
+            
+            -- Si termina, orbita en lugar de volver a casa
+            function combatMission:OnAfterDone(From, Event, To)
+                local holdMission = AUFTRAG:NewORBIT(targetCoord, altitude, speed)
+                FlightGroup:AddMission(holdMission)
+            end
+            
+        elseif taskType == "INTERCEPT" then
+            altitude = math.random(25000, 35000)
+            speed = 550
+            local targetGroupName = action.reference_entity
+            local TargetGroup = targetGroupName and GROUP:FindByName(targetGroupName) or nil
+            
+            if TargetGroup and TargetGroup:IsAlive() then
+                combatMission = AUFTRAG:NewINTERCEPT(TargetGroup)
+            else
+                combatMission = AUFTRAG:NewCAP(ZONE_RADIUS:New(zoneName, targetCoord:GetVec2(), 50000), altitude, speed, targetCoord)
+            end          
             
         elseif taskType == "CAS" then
-		
-			-- Flight parameters
-			altitude = math.random(8000, 18000)
-			speed = 350
-			
-			-- Build a simple fighter sweep route
-			local numWaypoints  = 3
-			local lateralOffset = 40000
-
-			local casTriggerWaypoint = nil
-
-			for i = 1, numWaypoints do
-				local bearing = startCoord:HeadingTo(targetCoord)
-				local distance = startCoord:Get2DDistance(targetCoord)
-				local step = distance * (i / (numWaypoints + 1))
-				local side = math.random(0, 1) == 1 and 1 or -1
-				local offset = side * math.random(lateralOffset * 0.3, lateralOffset)
-				local wpCoord = startCoord:Translate(step, bearing)
-				wpCoord = wpCoord:Translate(offset, bearing + 90 * side)
-
-				casTriggerWaypoint = FlightGroup:AddWaypoint(
-					wpCoord,
-					speed,
-					nil,
-					altitude,
-					false
-				)
-			end
-
-			-- Final ingress point
-			FlightGroup:AddWaypoint(
-				targetCoord,
-				speed,
-				nil,
-				altitude,
-				true
-			)
-			
-			local casMission = AUFTRAG:NewCAS(
-				ZONE_RADIUS:New(zoneName, targetCoord:GetVec2(), 50000),
-				math.random(4000, 10000),
-				350,
-				targetCoord
-			)
-			
-			function FlightGroup:OnAfterPassingWaypoint(From, Event, To, Waypoint)
-				if Waypoint.uid == casTriggerWaypoint.uid then
-					self:AddMission(casMission)
-				end
-			end
+            altitude = math.random(8000, 15000)
+            speed = 320
+            combatMission = AUFTRAG:NewCAS(ZONE_RADIUS:New(zoneName, targetCoord:GetVec2(), 30000), altitude, speed, targetCoord)
             
         elseif taskType == "SEAD" then
-		
-			-- Flight parameters
-			altitude = math.random(18000, 26000)
-			speed = 420
-			
-			-- Build a simple fighter sweep route
-			local numWaypoints  = 3
-			local lateralOffset = 50000
-
-			local seadTriggerWaypoint = nil
-
-			for i = 1, numWaypoints do
-				local bearing = startCoord:HeadingTo(targetCoord)
-				local distance = startCoord:Get2DDistance(targetCoord)
-				local step = distance * (i / (numWaypoints + 1))
-				local side = math.random(0, 1) == 1 and 1 or -1
-				local offset = side * math.random(lateralOffset * 0.3, lateralOffset)
-				local wpCoord = startCoord:Translate(step, bearing)
-				wpCoord = wpCoord:Translate(offset, bearing + 90 * side)
-
-				seadTriggerWaypoint = FlightGroup:AddWaypoint(
-					wpCoord,
-					speed,
-					nil,
-					altitude,
-					false
-				)
-			end
-
-			-- Final approach
-			FlightGroup:AddWaypoint(
-				targetCoord,
-				speed,
-				nil,
-				altitude,
-				true
-			)
-			
-			local seadMission = AUFTRAG:NewSEAD(
-				ZONE_RADIUS:New(zoneName, targetCoord:GetVec2(), 100000),
-				altitude
-			)
-			
-			function FlightGroup:OnAfterPassingWaypoint(From, Event, To, Waypoint)
-				if Waypoint.uid == seadTriggerWaypoint.uid then
-					self:AddMission(seadMission)
-				end
-			end
+            altitude = math.random(18000, 24000)
+            speed = 400
+            -- Radio enfocado en el objetivo
+            combatMission = AUFTRAG:NewSEAD(ZONE_RADIUS:New(zoneName, targetCoord:GetVec2(), 60000), altitude)
+            
+            -- CRÍTICO: Si Skynet se apaga y la misión SEAD "termina", forzamos a que se queden orbitando sobre el Patriot
+            function combatMission:OnAfterDone(From, Event, To)
+                local holdMission = AUFTRAG:NewORBIT(targetCoord, altitude, speed)
+                FlightGroup:AddMission(holdMission)
+            end
         
-		elseif taskType == "STRIKE" then
-
-			-- Flight parameters for a high-speed ingress
-			altitude = math.random(20000, 30000)
-			speed = 450
-			
-			-- Build a basic strike routing
-			local numWaypoints  = 3
-			local lateralOffset = 30000
-
-			local strikeTriggerWaypoint = nil
-
-			for i = 1, numWaypoints do
-				local bearing = startCoord:HeadingTo(targetCoord)
-				local distance = startCoord:Get2DDistance(targetCoord)
-				local step = distance * (i / (numWaypoints + 1))
-				local side = math.random(0, 1) == 1 and 1 or -1
-				local offset = side * math.random(lateralOffset * 0.2, lateralOffset)
-				local wpCoord = startCoord:Translate(step, bearing)
-				wpCoord = wpCoord:Translate(offset, bearing + 90 * side)
-
-				strikeTriggerWaypoint = FlightGroup:AddWaypoint(
-					wpCoord,
-					speed,
-					nil,
-					altitude,
-					false
-				)
-			end
-
-			-- Final target waypoint
-			FlightGroup:AddWaypoint(
-				targetCoord,
-				speed,
-				nil,
-				altitude,
-				true
-			)
-			
-			-- RESOLVE THE TARGET OBJECT:
-			-- Find the enemy group by its tracking name if provided by your web application payload
-			local enemyGroupName = action.reference_entity
-			local enemyGroupObj = enemyGroupName and GROUP:FindByName(enemyGroupName)
-			
-			-- If a real group exists, pass it! MOOSE will automatically extract its unit coordinates
-			-- to strike and monitor its exact health state. Otherwise, fall back to coordinate bombing.
-			local strikeTarget = enemyGroupObj or targetCoord
-			
-			-- NewBOMBING is the standard MOOSE AUFTRAG for coordinate/point strikes
-			local strikeMission = AUFTRAG:NewBOMBING(strikeTarget, altitude, speed)
-			
-			function strikeMission:OnAfterSuccess(From, Event, To)
-				PushEvent(string.lower(coalitionStr), {
-					type = "mission_completed",
-					task = "STRIKE",
-					status = "SUCCESS",
-					groupName = groupName,
-					targetName = enemyGroupName or "Coordinate Target"
-				})
-			end
-
-			function strikeMission:OnAfterFailed(From, Event, To)
-				PushEvent(string.lower(coalitionStr), {
-					type = "mission_completed",
-					task = "STRIKE",
-					status = "FAILED",
-					groupName = groupName,
-					targetName = enemyGroupName or "Coordinate Target"
-				})
-			end
-			
-			function FlightGroup:OnAfterPassingWaypoint(From, Event, To, Waypoint)
-				if Waypoint.uid == strikeTriggerWaypoint.uid then
-					self:AddMission(strikeMission)
-				end
-			end
+        elseif taskType == "STRIKE" then
+            altitude = math.random(12000, 18000) -- Más bajo para mejor precisión
+            speed = math.random(320, 380) -- Más lentos para evitar overshoot
             
-        elseif taskType == "AWACS" then
-            -- NewAWACS(Coordinate, Altitude, Speed, Heading, Leg)
-            -- Mission = AUFTRAG:NewAWACS(targetCoord, 25000, 350)
+            local enemyGroupName = action.reference_entity
+            local enemyGroupObj = enemyGroupName and GROUP:FindByName(enemyGroupName)
+            local strikeTarget = enemyGroupObj or targetCoord
             
-        elseif taskType == "TANKER" then
-            -- NewTANKER(Coordinate, Altitude, Speed, Heading, Leg, RefuelSystem)
-            -- Mission = AUFTRAG:NewTANKER(targetCoord, 20000, 350)
+            combatMission = AUFTRAG:NewBOMBING(strikeTarget, altitude, speed)
+            
+            function combatMission:OnAfterSuccess(From, Event, To)
+                PushEvent(string.lower(coalitionStr), {
+                    type = "mission_completed",
+                    task = "STRIKE",
+                    status = "SUCCESS",
+                    groupName = groupName,
+                    targetName = enemyGroupName or "Coordinate Target"
+                })
+            end
+
+            function combatMission:OnAfterFailed(From, Event, To)
+                PushEvent(string.lower(coalitionStr), {
+                    type = "mission_completed",
+                    task = "STRIKE",
+                    status = "FAILED",
+                    groupName = groupName,
+                    targetName = enemyGroupName or "Coordinate Target"
+                })
+            end
         end
         
+        -- Package & Rendezvous Logic
+        if combatMission then
+            if taskType == "INTERCEPT" then
+                FlightGroup:AddWaypoint(targetCoord, speed, nil, altitude, true)
+                FlightGroup:AddMission(combatMission)
+            else
+                -- SISTEMA DE OLEADAS (WAVES)
+                local basePkgKey = action.target_name or string.format("TGT_%.0f_%.0f", targetLat, targetLon)
+                local pkgKey = basePkgKey
+                
+                local waveCounter = 1
+                -- Si el paquete ya hizo PUSH o lleva más de 2 minutos ensamblándose, creamos una nueva oleada
+                while AEM_Packages[pkgKey] and (AEM_Packages[pkgKey].state ~= "ASSEMBLY" or (timer.getTime() - AEM_Packages[pkgKey].creationTime > 120)) do
+                    waveCounter = waveCounter + 1
+                    pkgKey = basePkgKey .. "_Wave" .. waveCounter
+                end
+
+                if not AEM_Packages[pkgKey] then
+                    local bearingToStart = targetCoord:HeadingTo(startCoord)
+                    local totalDist = startCoord:Get2DDistance(targetCoord)
+                    local rvDist = math.max(20000, math.min(totalDist * 0.4, 60000))
+                    
+                    AEM_Packages[pkgKey] = {
+                        rvCoord = targetCoord:Translate(rvDist, bearingToStart),
+                        groups = {},
+                        requiredTasks = {},
+                        state = "ASSEMBLY",
+                        creationTime = timer.getTime(),
+                        timeout = timer.getTime() + 1800,
+                        pushSpeed = speed -- Inicializamos con la velocidad del primer grupo
+                    }
+                end
+                
+                -- Sincronizamos la velocidad del paquete a la del grupo más lento
+                if speed < AEM_Packages[pkgKey].pushSpeed then
+                    AEM_Packages[pkgKey].pushSpeed = speed
+                end
+                
+                local rvMission = AUFTRAG:NewORBIT(AEM_Packages[pkgKey].rvCoord, altitude, speed)
+                FlightGroup:AddWaypoint(AEM_Packages[pkgKey].rvCoord, speed, nil, altitude, true)
+                FlightGroup:AddMission(rvMission)
+                
+                table.insert(AEM_Packages[pkgKey].groups, {
+                    flightGroup = FlightGroup,
+                    mooseGroup = NewGroup,
+                    task = taskType,
+                    combatMission = combatMission,
+                    rvMission = rvMission,
+                    targetCoord = targetCoord,
+                    altitude = altitude,
+                    speed = speed
+                })
+                
+                AEM_Packages[pkgKey].requiredTasks[taskType] = true
+            end
+        end
     end)
     
-    -- Trigger the spawn
     if action.task == "INTERCEPT" then
         SpawnObj:SpawnAtAirbase(spawnAirbase, SPAWN.Takeoff.Runway, nil)
-	else
+    else
         if parkingIDs then
             SpawnObj:SpawnAtParkingSpot(spawnAirbase, parkingIDs, SPAWN.Takeoff.Cold)
         else
@@ -1463,13 +1382,12 @@ function ProcessAIOrders(actions, coalitionStr)
             
             if Airbase and GROUP:FindByName(templateName) then
                 local staticsConsumed = 0
-				local parkingIDs = {}
+                local parkingIDs = {}
                 
-                -- Iterate EXACTLY through the IDs Gemini provided
                 for _, staticName in ipairs(action.unit_names) do
                     local staticObj = STATIC:FindByName(staticName, false)
                     if staticObj and staticObj:IsAlive() then
-						local termID = GetClosestParkingSpot(Airbase, staticObj:GetCoordinate())
+                        local termID = GetClosestParkingSpot(Airbase, staticObj:GetCoordinate())
                         if termID then
                             table.insert(parkingIDs, termID)
                         end
@@ -1478,9 +1396,8 @@ function ProcessAIOrders(actions, coalitionStr)
                     end
                 end
                 
-                -- Spawn the flight if we successfully consumed the resources
                 if staticsConsumed > 0 then
-					timer.scheduleFunction(function(args)
+                    timer.scheduleFunction(function(args)
                         SpawnAndTask(args.action, args.templateName, args.Airbase, args.coalitionStr, args.parkingIDs)
                     end, {
                         action = action, 
@@ -1495,7 +1412,7 @@ function ProcessAIOrders(actions, coalitionStr)
             else
                 env.info("AEM Commander: Missing airbase or template for " .. templateName)
             end
-		elseif action.action_type == "existing" and action.group_name then
+        elseif action.action_type == "existing" and action.group_name then
             local ExistingGroup = GROUP:FindByName(action.group_name)
             
             if ExistingGroup and ExistingGroup:IsAlive() then
@@ -1503,7 +1420,6 @@ function ProcessAIOrders(actions, coalitionStr)
                     local returnTask = ExistingGroup:TaskRouteToNearestAirbase()
                     ExistingGroup:SetTask(returnTask, 1)
                 else
-					--- TODO: 
                     local targetCoord = COORDINATE:NewFromLLDD(action.target_area.lat, action.target_area.long)
                     local redirectTask = ExistingGroup:TaskRouteToVec2(targetCoord:GetVec2())
                     ExistingGroup:SetTask(redirectTask, 1)
