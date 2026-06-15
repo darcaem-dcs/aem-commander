@@ -742,48 +742,56 @@
             }
         });
 		
-		function getUnitIcon(category, missionData, color, isEnemy = false) {
-            let iconClass = "fa-solid fa-circle"; // Por defecto, un círculo
+		function getUnitIcon(category, missionData, color, isEnemy = false, heading = 0) {
+			let iconClass = "fa-solid fa-circle";
 
-            // Convertimos la misión a un texto único para buscar palabras clave fácilmente
-            let missionStr = Array.isArray(missionData) ? missionData.join(" ").toUpperCase() : String(missionData).toUpperCase();
+			let missionStr = Array.isArray(missionData) ? missionData.join(" ").toUpperCase() : String(missionData).toUpperCase();
 
-            // Lógica de asignación de iconos
-            if (category === "CSAR") {
-                iconClass = "fa-solid fa-parachute-box"; 
-            } else if (category === "Air") {
-                iconClass = "fa-solid fa-jet-fighter"; 
-            } else if (category === "Helo") {
-                iconClass = "fa-solid fa-helicopter";
-            } else if (category === "Ground") {
-                if (missionStr.includes("SAM")) {
-                    iconClass = "fa-solid fa-rocket";
-                } else if (missionStr.includes("EW") || missionStr.includes("RADAR")) {
-                    iconClass = "fa-solid fa-satellite-dish"; 
-                } else if (missionStr.includes("AAA")) {
-                    iconClass = "fa-solid fa-crosshairs";
+			// El icono de avión en FontAwesome (fa-jet-fighter) apunta hacia arriba (0° Norte por defecto).
+			// Nota: Si usas iconos como el del helicóptero que apuntan hacia la izquierda, podrías necesitar un offset de +90 grados.
+			let rotationAngle = heading;
+
+			if (category === "CSAR") {
+				iconClass = "fa-solid fa-parachute-box"; 
+			} else if (category === "Air") {
+				iconClass = "fa-solid fa-jet-fighter";
+				rotationAngle -= 90;
+			} else if (category === "Helo") {
+				iconClass = "fa-solid fa-helicopter";
+				rotationAngle += 90;
+			} else if (category === "Ground") {
+				if (missionStr.includes("SAM")) {
+					iconClass = "fa-solid fa-rocket";
+				} else if (missionStr.includes("EW") || missionStr.includes("RADAR")) {
+					iconClass = "fa-solid fa-satellite-dish"; 
+				} else if (missionStr.includes("AAA")) {
+					iconClass = "fa-solid fa-crosshairs";
 				} else if (missionStr.includes("ARMOR") || missionStr.includes("MBT") || missionStr.includes("IFV")) {
-                    iconClass = "fa-solid fa-shield-halved";
-                } else if (missionStr.includes("ARTILLERY") || missionStr.includes("MLRS")) {
-                    iconClass = "fa-solid fa-bullseye";
-                } else {
-                    iconClass = "fa-solid fa-truck";
-                }
-            } else if (category === "Naval") {
-                iconClass = "fa-solid fa-ship";
-            }
+					iconClass = "fa-solid fa-shield-halved";
+				} else if (missionStr.includes("ARTILLERY") || missionStr.includes("MLRS")) {
+					iconClass = "fa-solid fa-bullseye";
+				} else {
+					iconClass = "fa-solid fa-truck";
+				}
+			} else if (category === "Naval") {
+				iconClass = "fa-solid fa-ship";
+			}
 
-            const extraClass = isEnemy ? "enemy-icon" : "";
+			const extraClass = isEnemy ? "enemy-icon" : "";
 
-            // L.divIcon nos permite inyectar HTML y CSS directamente como un marcador
-            return L.divIcon({
-                html: '<div class="military-icon ' + extraClass + '" style="color: ' + color + ';"><i class="' + iconClass + '"></i></div>',
-                className: '',
-                iconSize: [24, 24],
-                iconAnchor: [12, 12],
-                popupAnchor: [0, -12]
-            });
-        }
+			// Aplicamos la rotación solo si hay rumbo válido y es una unidad móvil lógica
+			let rotationStyle = (heading !== undefined && category !== "Ground") 
+				? `transform: rotate(${rotationAngle}deg); transform-origin: center; display: inline-block;` 
+				: '';
+
+			return L.divIcon({
+				html: `<div class="military-icon ${extraClass}" style="color: ${color}; ${rotationStyle}"><i class="${iconClass}"></i></div>`,
+				className: '',
+				iconSize: [24, 24],
+				iconAnchor: [12, 12],
+				popupAnchor: [0, -12]
+			});
+		}
 
         function renderMap() {
             if (!map || !mapLayerGroup || !lastBattleState) return;
@@ -798,9 +806,6 @@
             // Definimos colores: Aliados vs Enemigos dependiendo de la pestaña actual
             const friendlyColor = currentMapView === 'red' ? '#dc3545' : '#0d6efd'; // Rojo o Azul
             const enemyColor = currentMapView === 'red' ? '#0d6efd' : '#dc3545'; // El opuesto
-			
-			
-			console.log(sideData);
 			
             if (sideData.territory && sideData.territory.border && sideData.territory.border.length > 0) {
                 const borderCoords = sideData.territory.border.map(point => [point.lat, point.long]);
@@ -838,27 +843,28 @@
             // 2. Dibujar Fuerzas Activas (Aliadas)
 			if (sideData.forces.activeGroups) {
                 sideData.forces.activeGroups.forEach(group => {
-                    let customIcon = getUnitIcon(group.category, group.mission, friendlyColor, false);
-                    
-                    let marker = L.marker([group.lat, group.lon], { icon: customIcon })
-                        .bindPopup('<b>' + group.name + '</b><br>Type: ' + group.type + '<br>Task: ' + group.mission);
-                    
-                    mapLayerGroup.addLayer(marker);
+					// Pasamos el heading al final
+					let customIcon = getUnitIcon(group.category, group.mission, friendlyColor, false, group.heading); 
+					
+					let marker = L.marker([group.lat, group.lon], { icon: customIcon })
+						.bindPopup('<b>' + group.name + '</b><br>Type: ' + group.type + '<br>Task: ' + group.mission);
+					
+					mapLayerGroup.addLayer(marker);
 					activeMarkers[group.name] = marker;
-                });
+				});
             }
 
             // 3. Dibujar Contactos ISR (Enemigos detectados)
 			if (sideData.forces.enemyGroups) {
                 sideData.forces.enemyGroups.forEach(enemy => {
-                    // Usamos getUnitIcon pasándole category y threat
-                    let customIcon = getUnitIcon(enemy.category, enemy.threat, enemyColor, true);
-                    
-                    let marker = L.marker([enemy.lat, enemy.lon], { icon: customIcon })
-                        .bindPopup('<b>ISR Contact</b><br>Target: ' + enemy.name + '<br>Class: ' + enemy.threat);
-                    
-                    mapLayerGroup.addLayer(marker);
-                });
+					// Pasamos el heading al final
+					let customIcon = getUnitIcon(enemy.category, enemy.threat, enemyColor, true, enemy.heading); 
+					
+					let marker = L.marker([enemy.lat, enemy.lon], { icon: customIcon })
+						.bindPopup('<b>ISR Contact</b><br>Target: ' + enemy.name + '<br>Class: ' + enemy.threat);
+					
+					mapLayerGroup.addLayer(marker);
+				});
             }
 
             if (!isMapCentered && mapLayerGroup.getLayers().length > 0) {

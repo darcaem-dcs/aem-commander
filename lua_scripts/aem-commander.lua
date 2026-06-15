@@ -2,7 +2,7 @@
 -- CUSTOM SETTINGS
 -------------------------------------------------------------------------
 
-HOST_IP = "192.168.1.41"
+HOST_IP = "192.168.1.43"
 HOST_PORT = 49080
 SOCKET_MAX_RETRIES = 2
 
@@ -604,8 +604,9 @@ local function GetActiveForcesData(ActiveSet)
 
             local coord = group:GetCoordinate()
             local lat, lon = coord:GetLLDDM()
-            
-            -- ¿Están cerca de alguna base?
+            local heading = firstUnit:GetHeading() -- Obtenemos el rumbo (0-360)
+
+            -- Determine Airbase Presence
             local nearestBase = coord:GetClosestAirbase()
             local airbaseName = ""
             if nearestBase and coord:Get2DDistance(nearestBase:GetCoordinate()) < 5000 then
@@ -619,7 +620,8 @@ local function GetActiveForcesData(ActiveSet)
                 airbase = airbaseName,
                 mission = GetMissionsFromName(groupName),
                 type = unitType,
-                id = groupName
+                id = groupName,
+                heading = math.floor(heading or 0) -- Añadimos el rumbo al JSON
             }
             
             table.insert(active_forces, entry)

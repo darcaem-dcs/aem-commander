@@ -222,7 +222,6 @@ function routeDCSMessage(msg) {
                 const event = msg.data[i];
                 const eventCoalition = event.coalition.toLowerCase();
                 
-                // Asegurarnos de que el evento pertenece a este bando
                 if (eventCoalition !== coal) continue; 
 
                 switch (event.type) {

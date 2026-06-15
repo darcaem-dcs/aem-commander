@@ -1,6 +1,6 @@
 class ActiveGroup {
 
-	constructor(name, type, category, mission, lat, lon, airbase, nUnits) {
+	constructor(name, type, category, mission, lat, lon, airbase, nUnits, heading) {
 		this.name = name;
 		this.type = type;
 		this.category = category;
@@ -9,6 +9,7 @@ class ActiveGroup {
 		this.lon = lon;
 		this.airbase = airbase;
 		this.nUnits = nUnits;
+		this.heading = heading;
 	}
 	
 	toJson() {
@@ -20,7 +21,8 @@ class ActiveGroup {
 			lat: this.lat,
 			lon: this.lon,
 			airbase: this.airbase,
-			nUnits: this.nUnits
+			nUnits: this.nUnits,
+			heading: this.heading
 		};
 	}
 
@@ -54,13 +56,14 @@ class AvailableUnit {
 
 class EnemyDetected {
 
-	constructor(name, type, category, lat, lon, threat) {
+	constructor(name, type, category, lat, lon, threat, heading) {
 		this.name = name;
 		this.type = type;
 		this.category = category;
 		this.lat = lat;
 		this.lon = lon;
 		this.threat = threat;
+		this.heading = heading;
 	}
 
 }
@@ -81,7 +84,7 @@ class CoalitionArmedForces {
 	updateActiveGroups(dataArray) {
         this.activeGroups = dataArray.map(item => new ActiveGroup(
             item.id, item.type, item.category, item.mission, 
-            item.location.lat, item.location.long, item.airbase, item.count
+            item.location.lat, item.location.long, item.airbase, item.count, item.heading
         ));
     }
 
@@ -102,7 +105,7 @@ class CoalitionArmedForces {
     updateISR(dataArray) {
         this.enemyGroups = dataArray.map(item => new EnemyDetected(
             item.id, item.type, item.category, 
-            item.location.lat, item.location.long, item.threat
+            item.location.lat, item.location.long, item.threat, item.heading
         ));
     }
 	
@@ -123,10 +126,10 @@ class CoalitionArmedForces {
 		return false;
 	}
 	
-	addActiveGroup(name, type, category, mission, lat, lon, airbase, units) {
+	addActiveGroup(name, type, category, mission, lat, lon, airbase, units, heading = 0) {
 		if (!this.activeGroups) this.activeGroups = [];
 		this.activeGroups.push(new ActiveGroup(
-			name, type, category, mission, lat, lon, airbase, units));
+			name, type, category, mission, lat, lon, airbase, units, heading));
 	}
 	
 	removeActiveGroup(name) {
