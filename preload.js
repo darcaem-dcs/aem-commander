@@ -32,5 +32,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
 	/**
      * Listens for battlefield state updates to draw on the Leaflet map
      */
-    onUpdateMap: (callback) => ipcRenderer.on('update-map', (event, state) => callback(state))
+    onUpdateMap: (callback) => ipcRenderer.on('update-map', (event, state) => callback(state)),
+	
+	/**
+     * Obtains the application version from package.json
+     */
+    getAppVersion: () => ipcRenderer.invoke('get-app-version')
 });

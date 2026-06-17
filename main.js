@@ -565,4 +565,8 @@ ipcMain.handle('get-local-ip', () => {
     return candidateIp;
 });
 
+ipcMain.handle('get-app-version', () => {
+    return app.getVersion();
+});
+
 app.whenReady().then(createWindow);

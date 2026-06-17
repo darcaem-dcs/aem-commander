@@ -432,7 +432,7 @@
 
     <div class="card">
 		<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-            <h1 style="margin: 0;">Autonomous Engagement Monitor</h1>
+            <h1 style="margin: 0;">Autonomous Engagement Monitor <span id="appVersion" style="font-size: 0.5em; color: var(--text-muted); vertical-align: middle; font-weight: normal;"></span></h1>
             <button id="themeToggle" class="btn-icon" title="Toggle Dark/Light Mode">
                 <i class="fa-solid fa-moon"></i>
             </button>
@@ -618,6 +618,8 @@
             try {
                 const ip = await window.electronAPI.getLocalIp();
                 document.getElementById('localIpDisplay').innerText = ip;
+				const version = await window.electronAPI.getAppVersion();
+				document.getElementById('appVersion').innerText = 'v' + version;
             } catch (e) {
                 console.error("No se pudo obtener la IP local", e);
             }
