@@ -1116,8 +1116,10 @@ SCHEDULER:New(nil, function()
                     if grpData.mooseGroup:IsAlive() then
                         if grpData.rvMission then grpData.rvMission:Cancel() end
                         if grpData.combatMission then grpData.combatMission:Cancel() end
-                        local returnTask = grpData.mooseGroup:TaskRouteToNearestAirbase()
-                        grpData.mooseGroup:SetTask(returnTask, 1)
+                        local dcsGroup = grpData.mooseGroup:GetDCSObject()
+						if dcsGroup then
+							dcsGroup:getController():setCommand({id = 10})
+						end
                     end
                 end
                 
@@ -1192,7 +1194,6 @@ local function SpawnAndTask(action, spawnTemplate, spawnAirbase, coalitionStr, p
 		
 		-- Forzar a que usen Chaff y Flares SOLO cuando detecten un misil en vuelo (para no gastarlos a lo tonto)
         NewGroup:SetOption(AI.Option.Air.id.FLARE_USING, AI.Option.Air.val.FLARE_USING.AGAINST_FIRED_MISSILE)
-        NewGroup:SetOption(AI.Option.Air.id.CHAFF_USING, AI.Option.Air.val.CHAFF_USING.AGAINST_FIRED_MISSILE)
         
         -- Forzar a que usen sus Pods de ECM (si los llevan equipados en el Mission Editor)
         NewGroup:SetOption(AI.Option.Air.id.ECM_USING, AI.Option.Air.val.ECM_USING.USE_IF_DETECTED_LOCK_BY_RADAR)
@@ -1242,63 +1243,13 @@ local function SpawnAndTask(action, spawnTemplate, spawnAirbase, coalitionStr, p
             end
             
         elseif taskType == "INTERCEPT" then
-            altitude = math.random(25000, 35000)
-            speed = 550
-            local targetGroupName = action.reference_entity
-            local TargetGroup = targetGroupName and GROUP:FindByName(targetGroupName) or nil
-            
-            if TargetGroup and TargetGroup:IsAlive() then
-                combatMission = AUFTRAG:NewINTERCEPT(TargetGroup)
-            else
-                combatMission = AUFTRAG:NewCAP(ZONE_RADIUS:New(zoneName, targetCoord:GetVec2(), 50000), altitude, speed, targetCoord)
-            end          
-            
+			combatMission = missionIntercept(zoneName, targetCoord, action.reference_entity)
         elseif taskType == "CAS" then
-            altitude = math.random(8000, 15000)
-            speed = 320
-            combatMission = AUFTRAG:NewCAS(ZONE_RADIUS:New(zoneName, targetCoord:GetVec2(), 30000), altitude, speed, targetCoord)
-            
+            combatMission = missionCAS(zoneName, targetCoord)
         elseif taskType == "SEAD" then
-            altitude = math.random(18000, 24000)
-            speed = 400
-            -- Radio enfocado en el objetivo
-            combatMission = AUFTRAG:NewSEAD(ZONE_RADIUS:New(zoneName, targetCoord:GetVec2(), 60000), altitude)
-            
-            -- CRÍTICO: Si Skynet se apaga y la misión SEAD "termina", forzamos a que se queden orbitando sobre el Patriot
-            function combatMission:OnAfterDone(From, Event, To)
-                local holdMission = AUFTRAG:NewORBIT(targetCoord, altitude, speed)
-                FlightGroup:AddMission(holdMission)
-            end
-        
+			combatMission = missionSEAD(zoneName, targetCoord, FlightGroup)
         elseif taskType == "STRIKE" then
-            altitude = math.random(12000, 18000) -- Más bajo para mejor precisión
-            speed = math.random(320, 380) -- Más lentos para evitar overshoot
-            
-            local enemyGroupName = action.reference_entity
-            local enemyGroupObj = enemyGroupName and GROUP:FindByName(enemyGroupName)
-            local strikeTarget = enemyGroupObj or targetCoord
-            
-            combatMission = AUFTRAG:NewBOMBING(strikeTarget, altitude, speed)
-            
-            function combatMission:OnAfterSuccess(From, Event, To)
-                PushEvent(string.lower(coalitionStr), {
-                    type = "mission_completed",
-                    task = "STRIKE",
-                    status = "SUCCESS",
-                    groupName = groupName,
-                    targetName = enemyGroupName or "Coordinate Target"
-                })
-            end
-
-            function combatMission:OnAfterFailed(From, Event, To)
-                PushEvent(string.lower(coalitionStr), {
-                    type = "mission_completed",
-                    task = "STRIKE",
-                    status = "FAILED",
-                    groupName = groupName,
-                    targetName = enemyGroupName or "Coordinate Target"
-                })
-            end
+			combatMission = missionStrike(targetCoord, action.reference_entity, groupName, coalitionStr)
         end
         
         -- Package & Rendezvous Logic
@@ -1417,18 +1368,126 @@ function ProcessAIOrders(actions, coalitionStr)
             
             if ExistingGroup and ExistingGroup:IsAlive() then
                 if action.task == "RTB" then
-                    local returnTask = ExistingGroup:TaskRouteToNearestAirbase()
-                    ExistingGroup:SetTask(returnTask, 1)
+                    local dcsGroup = ExistingGroup:GetDCSObject()
+					if dcsGroup then
+						dcsGroup:getController():setCommand({id = 10})
+					end
                 else
-                    local targetCoord = COORDINATE:NewFromLLDD(action.target_area.lat, action.target_area.long)
-                    local redirectTask = ExistingGroup:TaskRouteToVec2(targetCoord:GetVec2())
-                    ExistingGroup:SetTask(redirectTask, 1)
-                end
+					local targetCoord = COORDINATE:NewFromLLDD(action.target_area.lat, action.target_area.long)
+					local zoneName = action.target_name or ("TGT-"..action.group_name)
+					
+					local FlightGroup = FLIGHTGROUP:New(ExistingGroup)
+					local combatMission = nil
+					local taskType = action.task
+				
+					if taskType == "CAP" or taskType == "ESCORT" then
+						combatMission = missionCAP(zoneName, targetCoord, FlightGroup)
+					elseif taskType == "INTERCEPT" then
+						combatMission = missionIntercept(zoneName, targetCoord, action.reference_entity)
+					elseif taskType == "CAS" then
+						combatMission = missionCAS(zoneName, targetCoord)
+					elseif taskType == "SEAD" then
+						combatMission = missionSEAD(zoneName, targetCoord, FlightGroup)
+					elseif taskType == "STRIKE" then
+						combatMission = missionStrike(targetCoord, action.reference_entity, action.group_name, coalitionStr)
+					end
+					
+					-- Si logramos crear una misión válida, la asignamos
+					if combatMission then
+						-- ClearTasks cancela rutas previas
+						ExistingGroup:ClearTasks() 
+						FlightGroup:AddMission(combatMission)
+					else
+						-- Fallback por si la tarea no se reconoce (Ej: TRANSPORT)
+						local redirectTask = ExistingGroup:TaskRouteToVec2(targetCoord:GetVec2())
+						ExistingGroup:SetTask(redirectTask, 1)
+					end
+					
+				end				
             else
                 env.info("AEM Commander: Attempted to command non-existent or dead group: " .. tostring(action.group_name))
             end
         end
     end
+end
+
+function missionCAP(zoneName, targetCoord, flightGroup)
+	local altitude = math.random(18000, 28000)
+	local speed = 420
+	local combatMission = AUFTRAG:NewCAP(ZONE_RADIUS:New(zoneName, targetCoord:GetVec2(), 60000), altitude, speed, targetCoord)
+						
+	-- Hold over the target instead of RTB if task ends for any reasson
+	function combatMission:OnAfterDone(From, Event, To)
+		local holdMission = AUFTRAG:NewORBIT(targetCoord, altitude, speed)
+		flightGroup:AddMission(holdMission)
+	end
+	
+	return combatMission
+end
+
+function missionIntercept(zoneName, targetCoord, targetGroupName)
+	local altitude = math.random(25000, 35000)
+    local speed = 550
+    local TargetGroup = targetGroupName and GROUP:FindByName(targetGroupName) or nil
+	local combatMission
+    if TargetGroup and TargetGroup:IsAlive() then
+        combatMission = AUFTRAG:NewINTERCEPT(TargetGroup)
+    else
+		combatMission = AUFTRAG:NewCAP(ZONE_RADIUS:New(zoneName, targetCoord:GetVec2(), 50000), altitude, speed, targetCoord)
+    end 
+	return combatMission
+end
+
+function missionCAS(zoneName, targetCoord)
+	local altitude = math.random(8000, 15000)
+    local speed = 320
+    return AUFTRAG:NewCAS(ZONE_RADIUS:New(zoneName, targetCoord:GetVec2(), 30000), altitude, speed, targetCoord)
+end
+
+function missionSEAD(zoneName, targetCoord, flightGroup)
+	local altitude = math.random(18000, 24000)
+	local speed = 400
+	local combatMission = AUFTRAG:NewSEAD(ZONE_RADIUS:New(zoneName, targetCoord:GetVec2(), 60000), altitude)
+				
+	-- Orbit over the target instead of RTB if task ends, for example,
+	-- because SAM radars are switched off momentarily
+	function combatMission:OnAfterDone(From, Event, To)
+		local holdMission = AUFTRAG:NewORBIT(targetCoord, altitude, speed)
+		flightGroup:AddMission(holdMission)
+	end
+	
+	return combatMission
+end
+
+function missionStrike(targetCoord, enemyGroupName, ownGroupName, coalitionStr)
+	local altitude = math.random(12000, 18000)
+    local speed = math.random(320, 380)
+	local enemyGroupObj = enemyGroupName and GROUP:FindByName(enemyGroupName)
+    local strikeTarget = enemyGroupObj or targetCoord
+    
+	local combatMission = AUFTRAG:NewBOMBING(strikeTarget, altitude, speed)
+            
+    function combatMission:OnAfterSuccess(From, Event, To)
+        PushEvent(string.lower(coalitionStr), {
+			type = "mission_completed",
+            task = "STRIKE",
+            status = "SUCCESS",
+            groupName = ownGroupName,
+            targetName = enemyGroupName or "Coordinate Target"
+        })
+    end
+
+    function combatMission:OnAfterFailed(From, Event, To)
+		PushEvent(string.lower(coalitionStr), {
+			type = "mission_completed",
+            task = "STRIKE",
+            status = "FAILED",
+            groupName = ownGroupName,
+            targetName = enemyGroupName or "Coordinate Target"
+        })
+    end
+	
+	return combatMission
 end
 
 -- ======================================================================

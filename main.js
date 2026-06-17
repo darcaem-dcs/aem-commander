@@ -75,6 +75,10 @@ ${userContext}
 - **FORCE MULTIPLIERS:** Only task the minimum necessary force to achieve a task. For example, do not task 10 groups for a mission where 1-2 would suffice for the current threat level.
 - **GO/NO-GO LOGIC:** If available assets are insufficient to meet a high-priority threat safely (e.g., attacking a heavy SAM site without SEAD), you MUST choose NOT to deploy. Preserving the force is a valid strategic victory.
 - **RADAR MASKING (LOST CONTACTS):** If an enemy contact suddenly drops off the ISR report, DO NOT immediately order your interceptors to RTB. The enemy might be masking in terrain. Let your active fighters continue their sweep unless they are out of fuel or in immediate danger.
+- **ESCALATION AVOIDANCE & FALLBACK TACTICS:** If you detect an escalation spiral (the enemy continuously launching interceptors to counter yours) or if your forces are severely outnumbered, DO NOT attempt to match them fighter-for-fighter. Instead, you MUST execute one of the following fallback strategies:
+  1. **Retreat and Lure (Baiting):** Use the 'existing' action_type to order your outnumbered flights to fall back towards your own territory. Lure enemy fighters into your SAM (Surface-to-Air Missile) umbrellas.
+  2. **Rely on Ground Defenses:** Stop spawning new CAP or INTERCEPT flights. Conserve your points and let your automated ground defenses (SAMs and AAA) deal with the incoming enemy air threats.
+  3. **Asymmetric Strike (Counter-Air):** If the enemy is committing all resources to air-to-air combat, exploit the gap. Spawn STRIKE, SEAD, or CAS flights to attack their vulnerable ground targets or airbases to cripple their infrastructure.
 
 ## 5. TASKS
 - "INTERCEPT": Use to INTERCEPT enemy aircraft entering our territory or that might be a threat to our active forces. When tasking INTERCEPT, the expected interception coordinates must be declared in "target_area" and the name of the enemy group from the ISR report must be declared in "reference_entity".
