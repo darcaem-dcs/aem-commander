@@ -2,7 +2,7 @@
 -- CUSTOM SETTINGS
 -------------------------------------------------------------------------
 
-HOST_IP = "192.168.1.43"
+HOST_IP = "192.168.1.41"
 HOST_PORT = 49080
 SOCKET_MAX_RETRIES = 2
 
@@ -295,10 +295,9 @@ local function GetMissionsFromName(groupName)
     if string.find(upperName, "SAM") then table.insert(missions, "SAM") end
     if string.find(upperName, "AAA") then table.insert(missions, "AAA") end
     if string.find(upperName, "TRANSPORT") then table.insert(missions, "TRANSPORT") end
-    if string.find(upperName, "ASSAULT") then table.insert(missions, "ASSAULT") end
-    if string.find(upperName, "SECURE") then table.insert(missions, "SECURE") end
-    if string.find(upperName, "FIRE_SUPPORT") then table.insert(missions, "FIRE_SUPPORT") end
-    if string.find(upperName, "DEFEND") then table.insert(missions, "DEFEND") end
+    if string.find(upperName, "MBT") then table.insert(missions, "MBT") end
+    if string.find(upperName, "ARMOR") then table.insert(missions, "ARMOR") end
+    if string.find(upperName, "ARTILLERY") then table.insert(missions, "ARTILLERY") end
     
     -- Default if no keywords matched
     if #missions == 0 then table.insert(missions, "Idle") end
@@ -327,6 +326,49 @@ local function GetCategoryFromDCSStatic(staticObj)
     end
     
     return "Unknown" -- Fallback assumption
+end
+
+-- ======================================================================
+-- Performance Optimization: Cached Airbases
+-- ======================================================================
+local AEM_CachedAirbases = nil
+
+local function GetFastAirbasePresence(vec3)
+    if not vec3 then return "" end
+    
+    -- Build the cache only once
+    if not AEM_CachedAirbases then
+        AEM_CachedAirbases = {}
+        if world and world.getAirbases then
+            for _, airbase in pairs(world.getAirbases()) do
+                if airbase and airbase:isExist() then
+                    local point = airbase:getPoint()
+                    table.insert(AEM_CachedAirbases, {
+                        name = airbase:getName(),
+                        x = point.x,
+                        z = point.z
+                    })
+                end
+            end
+        end
+    end
+
+    local closestName = ""
+    local minDistSq = 25000000 -- 5000m squared (equivalent to your 5km check)
+
+    -- Ultra-fast native Lua distance check
+    for _, base in ipairs(AEM_CachedAirbases) do
+        local dx = vec3.x - base.x
+        local dz = vec3.z - base.z
+        local distSq = (dx * dx) + (dz * dz) -- 2D distance calculation
+        
+        if distSq < minDistSq then
+            minDistSq = distSq
+            closestName = base.name
+        end
+    end
+
+    return closestName
 end
 
 function ExportOrderOfBattle()
@@ -402,12 +444,10 @@ function ExportOrderOfBattle()
             local category = GetCategoryFromDCSStatic(static)
             
             local coord = static:GetCoordinate()
-            local nearestBase = coord:GetClosestAirbase()
-            local airbaseName = ""
-            
-            if nearestBase and coord:Get2DDistance(nearestBase:GetCoordinate()) < 5000 then
-                airbaseName = nearestBase:GetName()
-            end
+			
+			-- Determine Airbase Presence (Optimized)
+			local rawPoint = coord:GetVec3()
+            local airbaseName = GetFastAirbasePresence(rawPoint)
 			
 			local staticMissions = GetMissionsFromName(staticName)
             table.sort(staticMissions)
@@ -442,7 +482,6 @@ function ExportOrderOfBattle()
     for _, res in pairs(AEM_Pool_Red) do table.insert(available_red_list, res) end
     for _, res in pairs(AEM_Pool_Blue) do table.insert(available_blue_list, res) end
 
-    -- 3. WRITE TO JSON FILES
 	SendToNode("ACTIVE", "RED", active_red)
     SendToNode("ACTIVE", "BLUE", active_blue)
     SendToNode("AVAILABLE", "RED", available_red_list)
@@ -451,7 +490,6 @@ function ExportOrderOfBattle()
     messageToAll("AEM: Order of Battle Exported", 15)
 end
 
--- Run periodically each 30s
 timer.scheduleFunction(ExportOrderOfBattle, nil, timer.getTime() + 1)
 
 -- ======================================================================
@@ -607,12 +645,9 @@ local function GetActiveForcesData(ActiveSet)
             local lat, lon = coord:GetLLDDM()
             local heading = firstUnit:GetHeading() -- Obtenemos el rumbo (0-360)
 
-            -- Determine Airbase Presence
-            local nearestBase = coord:GetClosestAirbase()
-            local airbaseName = ""
-            if nearestBase and coord:Get2DDistance(nearestBase:GetCoordinate()) < 5000 then
-                airbaseName = nearestBase:GetName()
-            end
+			-- Determine Airbase Presence (Optimized)
+            local rawPoint = coord:GetVec3()
+            local airbaseName = GetFastAirbasePresence(rawPoint)
 
             local entry = {
                 category = category,
@@ -1175,8 +1210,8 @@ local function GetClosestParkingSpot(airbaseObj, targetCoord)
 end
 
 -- 1. Spawn Task Executor
-local function SpawnAndTask(action, spawnTemplate, spawnAirbase, coalitionStr, parkingIDs, spawnCoord)
-
+local function SpawnAndTask(action, spawnTemplate, spawnAirbase, coalitionStr, parkingIDs)
+    
     local SpawnObj = AEM_Spawners[spawnTemplate]
     
     if not SpawnObj then
@@ -1192,13 +1227,17 @@ local function SpawnAndTask(action, spawnTemplate, spawnAirbase, coalitionStr, p
     SpawnObj:OnSpawnGroup(function(NewGroup)
         
         NewGroup:CommandSetUnlimitedFuel(UNLIMITED_FUEL)
+		
+		-- Forzar a que usen Chaff y Flares SOLO cuando detecten un misil en vuelo (para no gastarlos a lo tonto)
         NewGroup:SetOption(AI.Option.Air.id.FLARE_USING, AI.Option.Air.val.FLARE_USING.AGAINST_FIRED_MISSILE)
+        
+        -- Forzar a que usen sus Pods de ECM (si los llevan equipados en el Mission Editor)
         NewGroup:SetOption(AI.Option.Air.id.ECM_USING, AI.Option.Air.val.ECM_USING.USE_IF_DETECTED_LOCK_BY_RADAR)
         
         local groupName = NewGroup:GetName()
-		local baseNameLog = action.airbase ~= "" and action.airbase or "field deployment"
-        messageToAll(string.format("AEM: Executing Order - %s launched from %s", action.unit_type, baseNameLog), 15)
+        messageToAll(string.format("AEM: Executing Order - %s launched from %s", action.unit_type, action.airbase), 15)
         
+        local FlightGroup = FLIGHTGROUP:New(NewGroup)
         local startCoord  = NewGroup:GetCoordinate()
         local startLat, startLon = startCoord:GetLLDDM()
         
@@ -1214,7 +1253,7 @@ local function SpawnAndTask(action, spawnTemplate, spawnAirbase, coalitionStr, p
             group = {
                 name = groupName,
                 type = action.unit_type,
-                category = NewGroup:IsAir() and "Air" or (NewGroup:IsGround() and "Ground" or "Naval"),
+                category = "Air",
                 mission = {action.task},
                 lat = startLat,
                 lon = startLon,
@@ -1223,130 +1262,99 @@ local function SpawnAndTask(action, spawnTemplate, spawnAirbase, coalitionStr, p
         })
         
         local taskType = action.task
-		
-		if NewGroup:IsGround() or NewGroup:IsShip() then
-            -- Las unidades terrestres simplemente avanzan a la coordenada objetivo.
-            local speedMPS = 15 -- Aprox 54 km/h (velocidad estándar de avance)
-            local routeTask = NewGroup:TaskRouteToVec2(targetCoord:GetVec2(), speedMPS)
-            NewGroup:SetTask(routeTask, 1)
+        local altitude = 20000
+        local speed = 400
+        local combatMission = nil
+        
+        if taskType == "CAP" or taskType == "ESCORT" then
+            altitude = math.random(18000, 28000)
+            speed = 420
+            -- Reducimos radio a 60km para no distraerse
+            combatMission = AUFTRAG:NewCAP(ZONE_RADIUS:New(zoneName, targetCoord:GetVec2(), 60000), altitude, speed, targetCoord)
             
-        else
-			local FlightGroup = FLIGHTGROUP:New(NewGroup)
-			local altitude = 20000
-			local speed = 400
-			local combatMission = nil
-			
-			if taskType == "CAP" or taskType == "ESCORT" then
-				altitude = math.random(18000, 28000)
-				speed = 420
-				-- Reducimos radio a 60km para no distraerse
-				combatMission = AUFTRAG:NewCAP(ZONE_RADIUS:New(zoneName, targetCoord:GetVec2(), 60000), altitude, speed, targetCoord)
-				
-				-- Si termina, orbita en lugar de volver a casa
-				function combatMission:OnAfterDone(From, Event, To)
-					local holdMission = AUFTRAG:NewORBIT(targetCoord, altitude, speed)
-					FlightGroup:AddMission(holdMission)
-				end
-				
-			elseif taskType == "INTERCEPT" then
-				combatMission = missionIntercept(zoneName, targetCoord, action.reference_entity)
-			elseif taskType == "CAS" then
-				combatMission = missionCAS(zoneName, targetCoord)
-			elseif taskType == "SEAD" then
-				combatMission = missionSEAD(zoneName, targetCoord, FlightGroup)
-			elseif taskType == "STRIKE" then
-				combatMission = missionStrike(targetCoord, action.reference_entity, groupName, coalitionStr)
-			end
-			
-			-- Package & Rendezvous Logic
-			if combatMission then
-				if taskType == "INTERCEPT" then
-					FlightGroup:AddWaypoint(targetCoord, speed, nil, altitude, true)
-					FlightGroup:AddMission(combatMission)
-				else
-					-- SISTEMA DE OLEADAS (WAVES)
-					local basePkgKey = action.target_name or string.format("TGT_%.0f_%.0f", targetLat, targetLon)
-					local pkgKey = basePkgKey
-					
-					local waveCounter = 1
-					-- Si el paquete ya hizo PUSH o lleva más de 2 minutos ensamblándose, creamos una nueva oleada
-					while AEM_Packages[pkgKey] and (AEM_Packages[pkgKey].state ~= "ASSEMBLY" or (timer.getTime() - AEM_Packages[pkgKey].creationTime > 120)) do
-						waveCounter = waveCounter + 1
-						pkgKey = basePkgKey .. "_Wave" .. waveCounter
-					end
-
-					if not AEM_Packages[pkgKey] then
-						local bearingToStart = targetCoord:HeadingTo(startCoord)
-						local totalDist = startCoord:Get2DDistance(targetCoord)
-						local rvDist = math.max(20000, math.min(totalDist * 0.4, 60000))
-						
-						AEM_Packages[pkgKey] = {
-							rvCoord = targetCoord:Translate(rvDist, bearingToStart),
-							groups = {},
-							requiredTasks = {},
-							state = "ASSEMBLY",
-							creationTime = timer.getTime(),
-							timeout = timer.getTime() + 1800,
-							pushSpeed = speed -- Inicializamos con la velocidad del primer grupo
-						}
-					end
-					
-					-- Sincronizamos la velocidad del paquete a la del grupo más lento
-					if speed < AEM_Packages[pkgKey].pushSpeed then
-						AEM_Packages[pkgKey].pushSpeed = speed
-					end
-					
-					local rvMission = AUFTRAG:NewORBIT(AEM_Packages[pkgKey].rvCoord, altitude, speed)
-					FlightGroup:AddWaypoint(AEM_Packages[pkgKey].rvCoord, speed, nil, altitude, true)
-					FlightGroup:AddMission(rvMission)
-					
-					table.insert(AEM_Packages[pkgKey].groups, {
-						flightGroup = FlightGroup,
-						mooseGroup = NewGroup,
-						task = taskType,
-						combatMission = combatMission,
-						rvMission = rvMission,
-						targetCoord = targetCoord,
-						altitude = altitude,
-						speed = speed
-					})
-					
-					AEM_Packages[pkgKey].requiredTasks[taskType] = true
-				end
-				
-			else
-				
-				-- Fallback si es TRANSPORT aéreo u otra tarea no cubierta
-				local routeTask = NewGroup:TaskRouteToVec2(targetCoord:GetVec2(), 200)
-                NewGroup:SetTask(routeTask, 1)
-			
-			end
-			
-		end
-    end)
-	
-	local templateGroup = GROUP:FindByName(spawnTemplate)
-	if templateGroup and (templateGroup:IsGround() or templateGroup:IsShip()) then
-        -- Si es tierra o mar, aparece exactamente donde estaba el estático original
-        if spawnCoord then
-            SpawnObj:SpawnFromCoordinate(spawnCoord)
-        else
-            SpawnObj:Spawn()
-        end
-    else    
-		if action.task == "INTERCEPT" then
-			SpawnObj:SpawnAtAirbase(spawnAirbase, SPAWN.Takeoff.Runway, nil)
-		else
-			if parkingIDs then
-				SpawnObj:SpawnAtParkingSpot(spawnAirbase, parkingIDs, SPAWN.Takeoff.Cold)
-			elseif spawnAirbase then
-				SpawnObj:SpawnAtAirbase(spawnAirbase, SPAWN.Takeoff.Hot, nil)
-			else
-                -- Fallback por si un avión spawnea sin base aérea asociada (ej: helicópteros en FARP/Campañas)
-                if spawnCoord then SpawnObj:SpawnFromCoordinate(spawnCoord) else SpawnObj:Spawn() end
+            -- Si termina, orbita en lugar de volver a casa
+            function combatMission:OnAfterDone(From, Event, To)
+                local holdMission = AUFTRAG:NewORBIT(targetCoord, altitude, speed)
+                FlightGroup:AddMission(holdMission)
             end
-		end
-	end
+            
+        elseif taskType == "INTERCEPT" then
+			combatMission = missionIntercept(zoneName, targetCoord, action.reference_entity)
+        elseif taskType == "CAS" then
+            combatMission = missionCAS(zoneName, targetCoord)
+        elseif taskType == "SEAD" then
+			combatMission = missionSEAD(zoneName, targetCoord, FlightGroup)
+        elseif taskType == "STRIKE" then
+			combatMission = missionStrike(targetCoord, action.reference_entity, groupName, coalitionStr)
+        end
+        
+        -- Package & Rendezvous Logic
+        if combatMission then
+            if taskType == "INTERCEPT" then
+                FlightGroup:AddWaypoint(targetCoord, speed, nil, altitude, true)
+                FlightGroup:AddMission(combatMission)
+            else
+                -- SISTEMA DE OLEADAS (WAVES)
+                local basePkgKey = action.target_name or string.format("TGT_%.0f_%.0f", targetLat, targetLon)
+                local pkgKey = basePkgKey
+                
+                local waveCounter = 1
+                -- Si el paquete ya hizo PUSH o lleva más de 2 minutos ensamblándose, creamos una nueva oleada
+                while AEM_Packages[pkgKey] and (AEM_Packages[pkgKey].state ~= "ASSEMBLY" or (timer.getTime() - AEM_Packages[pkgKey].creationTime > 120)) do
+                    waveCounter = waveCounter + 1
+                    pkgKey = basePkgKey .. "_Wave" .. waveCounter
+                end
+
+                if not AEM_Packages[pkgKey] then
+                    local bearingToStart = targetCoord:HeadingTo(startCoord)
+                    local totalDist = startCoord:Get2DDistance(targetCoord)
+                    local rvDist = math.max(20000, math.min(totalDist * 0.4, 60000))
+                    
+                    AEM_Packages[pkgKey] = {
+                        rvCoord = targetCoord:Translate(rvDist, bearingToStart),
+                        groups = {},
+                        requiredTasks = {},
+                        state = "ASSEMBLY",
+                        creationTime = timer.getTime(),
+                        timeout = timer.getTime() + 1800,
+                        pushSpeed = speed -- Inicializamos con la velocidad del primer grupo
+                    }
+                end
+                
+                -- Sincronizamos la velocidad del paquete a la del grupo más lento
+                if speed < AEM_Packages[pkgKey].pushSpeed then
+                    AEM_Packages[pkgKey].pushSpeed = speed
+                end
+                
+                local rvMission = AUFTRAG:NewORBIT(AEM_Packages[pkgKey].rvCoord, altitude, speed)
+                FlightGroup:AddWaypoint(AEM_Packages[pkgKey].rvCoord, speed, nil, altitude, true)
+                FlightGroup:AddMission(rvMission)
+                
+                table.insert(AEM_Packages[pkgKey].groups, {
+                    flightGroup = FlightGroup,
+                    mooseGroup = NewGroup,
+                    task = taskType,
+                    combatMission = combatMission,
+                    rvMission = rvMission,
+                    targetCoord = targetCoord,
+                    altitude = altitude,
+                    speed = speed
+                })
+                
+                AEM_Packages[pkgKey].requiredTasks[taskType] = true
+            end
+        end
+    end)
+    
+    if action.task == "INTERCEPT" then
+        SpawnObj:SpawnAtAirbase(spawnAirbase, SPAWN.Takeoff.Runway, nil)
+    else
+        if parkingIDs then
+            SpawnObj:SpawnAtParkingSpot(spawnAirbase, parkingIDs, SPAWN.Takeoff.Cold)
+        else
+            SpawnObj:SpawnAtAirbase(spawnAirbase, SPAWN.Takeoff.Hot, nil)
+        end
+    end
 end
 
 function ProcessAIOrders(actions, coalitionStr)
@@ -1357,31 +1365,19 @@ function ProcessAIOrders(actions, coalitionStr)
         if action.action_type == "new" and action.unit_names then
             
             local templateName = TEMPLATE_PREFIX..coalitionStr.." "..action.task.." "..action.unit_type
-			local Airbase = nil
-            if action.airbase and action.airbase ~= "" then
-                Airbase = AIRBASE:FindByName(action.airbase)
-            end
+            local Airbase = AIRBASE:FindByName(action.airbase)
             
-            if GROUP:FindByName(templateName) then
+            if Airbase and GROUP:FindByName(templateName) then
                 local staticsConsumed = 0
                 local parkingIDs = {}
-				local spawnCoord = nil
                 
                 for _, staticName in ipairs(action.unit_names) do
                     local staticObj = STATIC:FindByName(staticName, false)
                     if staticObj and staticObj:IsAlive() then
-					
-						if not spawnCoord then
-                            spawnCoord = staticObj:GetCoordinate()
+                        local termID = GetClosestParkingSpot(Airbase, staticObj:GetCoordinate())
+                        if termID then
+                            table.insert(parkingIDs, termID)
                         end
-						
-						if Airbase then
-							local termID = GetClosestParkingSpot(Airbase, staticObj:GetCoordinate())
-							if termID then
-								table.insert(parkingIDs, termID)
-							end
-						end
-						
                         staticObj:Destroy()
                         staticsConsumed = staticsConsumed + 1
                     end
@@ -1389,14 +1385,13 @@ function ProcessAIOrders(actions, coalitionStr)
                 
                 if staticsConsumed > 0 then
                     timer.scheduleFunction(function(args)
-                        SpawnAndTask(args.action, args.templateName, args.Airbase, args.coalitionStr, args.parkingIDs, args.spawnCoord)
+                        SpawnAndTask(args.action, args.templateName, args.Airbase, args.coalitionStr, args.parkingIDs)
                     end, {
                         action = action, 
                         templateName = templateName, 
                         Airbase = Airbase, 
                         coalitionStr = coalitionStr, 
-                        parkingIDs = parkingIDs,
-                        spawnCoord = spawnCoord
+                        parkingIDs = parkingIDs
                     }, timer.getTime() + 1.0)
                 else
                     env.info("AEM Commander: Requested static units were missing/dead.")
@@ -1416,39 +1411,34 @@ function ProcessAIOrders(actions, coalitionStr)
                 else
 					local targetCoord = COORDINATE:NewFromLLDD(action.target_area.lat, action.target_area.long)
 					local zoneName = action.target_name or ("TGT-"..action.group_name)
-					local taskType = action.task
 					
-					if ExistingGroup:IsGround() or ExistingGroup:IsShip() then
-                        -- Route ground unit to target coordinates
-                        local routeTask = ExistingGroup:TaskRouteToVec2(targetCoord:GetVec2(), 15)
-                        ExistingGroup:SetTask(routeTask, 1)
-                    else
-						local FlightGroup = FLIGHTGROUP:New(ExistingGroup)
-						local combatMission = nil
-						
-						if taskType == "CAP" or taskType == "ESCORT" then
-							combatMission = missionCAP(zoneName, targetCoord, FlightGroup)
-						elseif taskType == "INTERCEPT" then
-							combatMission = missionIntercept(zoneName, targetCoord, action.reference_entity)
-						elseif taskType == "CAS" then
-							combatMission = missionCAS(zoneName, targetCoord)
-						elseif taskType == "SEAD" then
-							combatMission = missionSEAD(zoneName, targetCoord, FlightGroup)
-						elseif taskType == "STRIKE" then
-							combatMission = missionStrike(targetCoord, action.reference_entity, action.group_name, coalitionStr)
-						end
-						
-						-- Si logramos crear una misión válida, la asignamos
-						if combatMission then
-							-- ClearTasks cancela rutas previas
-							ExistingGroup:ClearTasks() 
-							FlightGroup:AddMission(combatMission)
-						else
-							-- Fallback por si la tarea no se reconoce (Ej: TRANSPORT)
-							local redirectTask = ExistingGroup:TaskRouteToVec2(targetCoord:GetVec2())
-							ExistingGroup:SetTask(redirectTask, 1)
-						end
+					local FlightGroup = FLIGHTGROUP:New(ExistingGroup)
+					local combatMission = nil
+					local taskType = action.task
+				
+					if taskType == "CAP" or taskType == "ESCORT" then
+						combatMission = missionCAP(zoneName, targetCoord, FlightGroup)
+					elseif taskType == "INTERCEPT" then
+						combatMission = missionIntercept(zoneName, targetCoord, action.reference_entity)
+					elseif taskType == "CAS" then
+						combatMission = missionCAS(zoneName, targetCoord)
+					elseif taskType == "SEAD" then
+						combatMission = missionSEAD(zoneName, targetCoord, FlightGroup)
+					elseif taskType == "STRIKE" then
+						combatMission = missionStrike(targetCoord, action.reference_entity, action.group_name, coalitionStr)
 					end
+					
+					-- Si logramos crear una misión válida, la asignamos
+					if combatMission then
+						-- ClearTasks cancela rutas previas
+						ExistingGroup:ClearTasks() 
+						FlightGroup:AddMission(combatMission)
+					else
+						-- Fallback por si la tarea no se reconoce (Ej: TRANSPORT)
+						local redirectTask = ExistingGroup:TaskRouteToVec2(targetCoord:GetVec2())
+						ExistingGroup:SetTask(redirectTask, 1)
+					end
+					
 				end				
             else
                 env.info("AEM Commander: Attempted to command non-existent or dead group: " .. tostring(action.group_name))
