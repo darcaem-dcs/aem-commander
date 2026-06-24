@@ -407,7 +407,7 @@ CRITICAL: Your final response MUST be a valid JSON object matching the contract 
 				const aiRawResponse = await ai.sendChatUpdate(prompt, forces, targets, territory);
 				const jsonOutput = JSON.parse(aiRawResponse);
 				if (jsonOutput && jsonOutput.actions) {
-					mainWindow.webContents.send('log-message', `Red Commander Journal: ${jsonOutput.mission_log}`, 'success');
+					mainWindow.webContents.send('log-message', `Commander of ${forces.coalition} Journal: ${jsonOutput.mission_log}`, 'success');
 					sendOrdersToDCS(side.toUpperCase(), jsonOutput.actions);
 					jsonOutput.actions.forEach(action => {
                         if (action.action_type === 'new' && action.unit_names) {
@@ -516,9 +516,36 @@ ipcMain.handle('select-and-start', async (event, authMethod, authCredential, mod
 	const intervalMs = intervalTime * 1000;
 	
 	if (processIntervalId) clearInterval(processIntervalId);
-    processIntervalId = setInterval(() => {
-        if (state.red.forces) processCommander('red');
-        if (state.blue.forces) processCommander('blue');
+    
+    let isProcessing = false;
+    processIntervalId = setInterval(async () => {
+        // Prevent overlapping if the API takes longer than the interval time
+        if (isProcessing) {
+            console.log("Previous commander cycle still running. Skipping this interval.");
+            return;
+        }
+        
+        isProcessing = true;
+        try {
+            // Run Red Commander first
+            if (state.red.forces) {
+                await processCommander('red');
+            }
+            
+            // If both commanders are active, add a delay (e.g., 10 seconds) to prevent 429 burst limits
+            if (state.red.forces && state.blue.forces) {
+                await new Promise(resolve => setTimeout(resolve, 10000));
+            }
+            
+            // Run Blue Commander second
+            if (state.blue.forces) {
+                await processCommander('blue');
+            }
+        } catch (err) {
+            console.error("Error in commander execution loop:", err);
+        } finally {
+            isProcessing = false;
+        }
     }, intervalMs);
 	
 	return true;
