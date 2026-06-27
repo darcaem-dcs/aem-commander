@@ -244,7 +244,7 @@ function routeDCSMessage(msg) {
                     const isStatic = staticThreats.includes(item.threat);
                     
                     if (isStatic) {
-                        if (distKm < 40) multiplier = 0.2; // SAM/Artillería muy pegado a la frontera
+                        if (distKm < 20) multiplier = 0.5; // SAM/Artillería muy pegado a la frontera
                         else multiplier = 0;               // SAM defensivo lejano (no amenaza nuestra postura)
                     } else {
                         // Unidades móviles (CAP, STRIKE, HELO, ARMOR...)
