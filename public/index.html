@@ -453,14 +453,14 @@
                 <div class="config-column">
                     <h3>Authentication</h3>
                     
-                    <label>Authentication Method:</label>
+                    <label>Authentication method:</label>
                     <div style="display: flex; gap: 20px; margin-bottom: 5px;">
-                        <label style="font-weight: normal;"><input type="radio" name="authOpt" value="apikey" checked> API Key (Google AI Studio)</label>
-                        <label style="font-weight: normal;"><input type="radio" name="authOpt" value="vertex"> Service Account JSON (Vertex AI)</label>
+                        <label style="font-weight: normal;"><input type="radio" name="authOpt" value="apikey" checked> API key (Google AI Studio)</label>
+                        <label style="font-weight: normal;"><input type="radio" name="authOpt" value="vertex"> Service account JSON (Vertex AI)</label>
                     </div>
 
                     <div id="authApiKeySection">
-                        <label for="apiKey">Gemini API Key:</label>
+                        <label for="apiKey">Gemini API key:</label>
                         <input type="password" id="apiKey" class="input-field" placeholder="Paste your Google AI Studio key here...">
                         <p style="font-size: 0.8em; color: var(--text-muted); margin-top: 5px;">
                             Get your key at <a href="https://aistudio.google.com/app/apikey" target="_blank">Google AI Studio</a>.
@@ -468,7 +468,7 @@
                     </div>
 
                     <div id="authVertexSection" style="display: none;">
-                        <label>Vertex AI Service Account JSON:</label>
+                        <label>Vertex AI service account JSON:</label>
                         <div style="display: flex; gap: 10px;">
                             <input type="text" id="vertexJsonPath" class="input-field" placeholder="Select your vertex-key.json..." readonly>
                             <button id="btnSelectJson" class="btn-stop" style="margin: 0;">Browse...</button>
@@ -480,25 +480,49 @@
                     <h3>Application Settings</h3>
 
                     <div>
-                        <label for="aiModel">AI Model (Optional):</label>
+                        <label for="aiModel">AI model (optional):</label>
                         <input type="text" id="aiModel" class="input-field" placeholder="gemini-3-flash-preview">
                         <p style="font-size: 0.8em; color: var(--text-muted); margin-top: 5px;">Default: gemini-3-flash-preview.</p>
                     </div>
 
                     <div>
-                        <label for="intervalTime">Refresh Interval (seconds):</label>
+                        <label for="intervalTime">Refresh interval (seconds):</label>
                         <input type="number" id="intervalTime" class="input-field" value="300" min="60">
                         <p style="font-size: 0.8em; color: var(--text-muted); margin-top: 5px;">Time between AI commander checks. Default: 300s, min: 60s.</p>
                     </div>
-
-                    <div>
-                        <label>Commanders to Create:</label>
+					
+					<div>
+                        <label>Commanders to create:</label>
                         <div style="display: flex; gap: 20px; margin-top: 5px;">
                             <label style="font-weight: normal;"><input type="radio" name="commanderOpt" value="both" checked> Both</label>
                             <label style="font-weight: normal;"><input type="radio" name="commanderOpt" value="red"> Red Only</label>
                             <label style="font-weight: normal;"><input type="radio" name="commanderOpt" value="blue"> Blue Only</label>
                         </div>
                     </div>
+
+                    <div style="margin-top: 15px;">
+                        <label>Commander Aggressiveness (Chance of offensive action per cycle):</label>
+                        <div style="display: flex; gap: 25px; margin-top: 8px;">
+                            <div style="flex: 1;">
+                                <span style="font-size: 0.85em; color: var(--accent-red); font-weight: bold;">Red Coalition:</span>
+								<input type="range" id="aggressivenessRed" min="0" max="100" value="33" style="width: 100%; accent-color: var(--accent-red);">
+                                <span id="valAggRed" style="font-size: 0.85em; font-family: monospace; font-weight: bold;">33%</span>
+                            </div>
+                            <div style="flex: 1;">
+                                <span style="font-size: 0.85em; color: var(--accent-blue); font-weight: bold;">Blue Coalition:</span>
+                                <input type="range" id="aggressivenessBlue" min="0" max="100" value="10" style="width: 100%; accent-color: var(--accent-blue);">
+                                <span id="valAggBlue" style="font-size: 0.85em; font-family: monospace; font-weight: bold;">10%</span>
+                            </div>
+                        </div>
+                    </div>
+					
+					<div style="margin-top: 20px;">
+						<label>Enable reactive escalation system (threat counter):</label>
+                        <label style="font-weight: normal; display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="checkbox" id="enableEscalation" checked style="width: 18px; height: 18px; accent-color: var(--accent-blue);">When enabled, commanders start in a defensive posture and unlock offensive missions only if territory is violated or losses are sustained. Threat counter will slowly decrease over time.
+                        </label>
+                    </div>
+					
                 </div>
 
             </div>
@@ -577,6 +601,10 @@
         const themeIcon = themeToggle.querySelector('i');
 		const validationErrorMsg = document.getElementById('validationErrorMsg');
         const validationErrorText = document.getElementById('validationErrorText');
+		const aggRedSlider = document.getElementById('aggressivenessRed');
+        const aggBlueSlider = document.getElementById('aggressivenessBlue');
+        const valAggRedLabel = document.getElementById('valAggRed');
+        const valAggBlueLabel = document.getElementById('valAggBlue');
 		
 		let map;
 		let mapLayerGroup;
@@ -584,6 +612,9 @@
         let currentMapView = 'red';
 		let isMapCentered = false;
 		let activeMarkers = {}
+		
+		aggRedSlider.addEventListener('input', (e) => { valAggRedLabel.innerText = e.target.value + '%'; });
+        aggBlueSlider.addEventListener('input', (e) => { valAggBlueLabel.innerText = e.target.value + '%'; });
 		
 		const prefersDarkScheme = window.matchMedia("(prefers-color-scheme: dark)");
         let currentTheme = localStorage.getItem("theme");
@@ -677,7 +708,12 @@
 			const instructionsRed = inputInstructionsRed.value;
 			const instructionsBlue = inputInstructionsBlue.value;
 			
-            const selectedPath = await window.electronAPI.selectAndStart(authMethod, authCredential, model, commanderSide, instructionsRed, instructionsBlue, intervalTime);
+			const aggRed = parseInt(document.getElementById('aggressivenessRed').value, 10);
+            const aggBlue = parseInt(document.getElementById('aggressivenessBlue').value, 10);
+			
+			const enableEscalation = document.getElementById('enableEscalation').checked;
+			
+			const selectedPath = await window.electronAPI.selectAndStart(authMethod, authCredential, model, commanderSide, instructionsRed, instructionsBlue, intervalTime, aggRed, aggBlue, enableEscalation);
             
             if (selectedPath) {
                 statusText.innerText = `Running (${intervalTime}s Cycle)`;

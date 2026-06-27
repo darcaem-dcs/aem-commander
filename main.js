@@ -77,6 +77,7 @@ ${userContext}
   1. **Retreat and Lure:** Lure enemy fighters into your SAM umbrellas.
   2. **Rely on Ground Defenses:** Stop spawning air assets and let SAM/AAA deal with the threat.
   3. **Asymmetric Strike:** Spawn STRIKE, SEAD, or CAS to attack vulnerable enemy infrastructure while they focus on Air-to-Air.
+- **MAXIMUM SIMULTANEOUS GOALS (STRICT LIMIT):** You are ABSOLUTELY FORBIDDEN from pursuing more than 2 strategic goals at the same time. Prioritize the top 2 highest priority goals from the list. Even if you have ample available reserves, completely ignore any lower-priority goals until one of your top 2 goals is completely resolved or achieved. Focus your intelligence checks and deployments strictly on a maximum of 2 active objectives to maintain economy of force.
 
 ## 5. TASKS
 
@@ -107,7 +108,7 @@ ${userContext}
 # OUTPUT CONTRACT
 Return ONLY a valid JSON object. No conversational text.
 {
-  "mission_log": "Strategic summary and assessment of history.",
+  "mission_log": "Strategic summary and assessment of history. Do not mention vehicle names or types that do not explicitly exist in your available_assets list.",
   "actions": [
     {
       "action_type": "new|existing",
@@ -217,6 +218,7 @@ function routeDCSMessage(msg) {
             break;
         case "ISR":
             state[coal].forces.updateISR(msg.data);
+            state[coal].isrThreatScore = msg.data.reduce((sum, item) => sum + (item.threat_score || 0), 0);
             break;
         case "GOALS":
             state[coal].targets.updateGoals(msg.data);
@@ -254,6 +256,7 @@ function routeDCSMessage(msg) {
                         break;
                         
                     case 'destroyed':
+						state[coal].eventThreatBonus = (state[coal].eventThreatBonus || 0) + 20;
                         if (!forces.activeUnitDestroyed(event.groupName)) {
                             state[coal].aiLogs.push(`All units from ${event.groupName} have been destroyed, this group has been destroyed`);
                         } else {
@@ -263,6 +266,7 @@ function routeDCSMessage(msg) {
                         
                     case 'csar':
                         if (eventCoalition === forces.coalition) {
+							state[coal].eventThreatBonus = (state[coal].eventThreatBonus || 0) + 30;
                             targets.addTarget(`csar-${event.name}`, 999, 'csar', event.lat, event.lon, null);
                             state[coal].aiLogs.push('One of our pilots has ejected safely and needs to be rescued. A new csar mission has been added to the targets list');
                         } else {
@@ -382,6 +386,41 @@ async function processCommander(side) {
         return;
     }
 	
+	let restrictionPrompt = "";
+    
+    // Chequeo opcional del Sistema de Escalada (Threat Counter)
+    if (state.escalationEnabled) {
+        const totalThreat = (cState.isrThreatScore || 0) + (cState.eventThreatBonus || 0);
+        
+        if (totalThreat < 40) {
+            // POSTURA VERDE: Defensiva Pura
+            restrictionPrompt += `\n\nCURRENT THEATER THREST POSTURE: [GREEN - LOW THREAT (Score: ${Math.round(totalThreat)})]. The situation is stable. You are strictly in a DEFENSIVE POSTURE. You are ABSOLUTELY FORBIDDEN from launching any new offensive missions (such as "STRIKE", "SEAD", "CAS", "ASSAULT", or "TRANSPORT"). You may ONLY launch or redirect units for defensive tasks ("CAP", "INTERCEPT", "DEFEND", "RTB"). Do not cross the border under any circumstance unless explicitly intercepting an active intruder.`;
+            mainWindow.webContents.send('log-message', `Commander of ${forces.coalition}: Posture is GREEN (Threat Score: ${Math.round(totalThreat)} < 40). Only defensive actions authorized.`, 'info');
+        } else if (totalThreat >= 40 && totalThreat <= 80) {
+            // POSTURA AMARILLA: Escaramuza / Reactiva
+            restrictionPrompt += `\n\nCURRENT THEATER THREAT POSTURE: [YELLOW - MEDIUM THREAT (Score: ${Math.round(totalThreat)})]. Enemy activity or recent friendly losses have escalated the tension. You are in a REACTIVE POSTURE. You are authorized to launch close support missions ("CAS", "SEAD") to suppress localized border threats or assist friendly flights. However, you are STILL FORBIDDEN from launching deep strategic infrastructure strikes ("STRIKE") or mass ground invasions ("ASSAULT").`;
+            mainWindow.webContents.send('log-message', `Commander of ${forces.coalition}: Posture is YELLOW (Threat Score: ${Math.round(totalThreat)}). Specialized support authorized. Strategic strikes locked.`, 'info');
+        } else {
+            // POSTURA ROJA: Guerra Total
+            mainWindow.webContents.send('log-message', `Commander of ${forces.coalition}: Posture is RED (Threat Score: ${Math.round(totalThreat)} > 80). ALL CONSTRAINTS LIFTED. FULL THEATER WAR DECLARED.`, 'success');
+        }
+        
+        // Decaimiento acumulativo: Restamos 5 puntos por ciclo para enfriar el trauma de bajas si no pasa nada
+        if (cState.eventThreatBonus > 0) {
+            cState.eventThreatBonus = Math.max(0, cState.eventThreatBonus - 5);
+        }
+    }
+	
+	const roll = Math.random() * 100;
+    
+    if (roll > cState.aggressiveness) {
+        // El chequeo falló: Bloqueamos misiones ofensivas en esta iteración
+        restrictionPrompt += `\n\nCRITICAL TEMPORARY THREAT POSTURE RESTRICTION FOR THIS CYCLE: Strategic offensive operations are currently ON HOLD due to headquarters command. You are STRICTLY FORBIDDEN from launching or tasking any new offensive, strike, or assault missions (such as "STRIKE", "SEAD", "CAS", "ASSAULT", or "TRANSPORT"). You may ONLY issue defensive, protective, or support orders (such as "CAP", "INTERCEPT", "DEFEND", or "RTB") to maintain the front line or preserve active units. Do not open new offensive fronts during this interval.`;
+        mainWindow.webContents.send('log-message', `Commander of ${forces.coalition}: Threat posture check on hold (Roll: ${Math.round(roll)}% > Aggressiveness Threshold: ${cState.aggressiveness}%). Only defensive operations allowed for this cycle.`, 'info');
+    } else {
+        mainWindow.webContents.send('log-message', `Commander of ${forces.coalition}: Full multi-domain offensive operations authorized for this cycle (Roll: ${Math.round(roll)}% <= Aggressiveness Threshold: ${cState.aggressiveness}%).`, 'info');
+    }
+	
 	if (forces.session == null) {
 		
 		try {
@@ -404,7 +443,7 @@ You are the active Theater Commander.
 6. When you have gathered enough intelligence, issue your final orders.
 
 CRITICAL: Your final response MUST be a valid JSON object matching the contract exactly. Absolutely no conversational text, no markdown blocks, and no narrative reasoning outside the JSON. If no action is needed, return {"mission_log": "Idle", "actions": []}.`;
-				const aiRawResponse = await ai.sendChatUpdate(prompt, forces, targets, territory);
+				const aiRawResponse = await ai.sendChatUpdate(prompt + restrictionPrompt, forces, targets, territory);
 				const jsonOutput = JSON.parse(aiRawResponse);
 				if (jsonOutput && jsonOutput.actions) {
 					mainWindow.webContents.send('log-message', `Commander of ${forces.coalition} Journal: ${jsonOutput.mission_log}`, 'success');
@@ -452,7 +491,7 @@ ${logForAI.length > 0 ? logForAI.join('.\n') : "ISR contacts updated. Review new
 
 CRITICAL: Output ONLY valid JSON matching the contract exactly. No conversational text.`;
 			
-			const aiRawResponse = await ai.sendChatUpdate(updatePrompt, forces, targets, territory);
+			const aiRawResponse = await ai.sendChatUpdate(updatePrompt + restrictionPrompt, forces, targets, territory);
             const jsonOutput = ai.aiSanitizeJson(aiRawResponse);
 			
 			if (jsonOutput && jsonOutput.actions && jsonOutput.actions.length > 0) {
@@ -496,21 +535,29 @@ ipcMain.handle('select-json-file', async (event) => {
     return filePaths[0];
 });
 
-ipcMain.handle('select-and-start', async (event, authMethod, authCredential, modelName, commanderSide, instructionsRed, instructionsBlue, intervalTime) => {
-
+ipcMain.handle('select-and-start', async (event, authMethod, authCredential, modelName, commanderSide, instructionsRed, instructionsBlue, intervalTime, aggRed, aggBlue, enableEscalation) => {
+	
 	authMethodGlobal = authMethod;
     authCredentialGlobal = authCredential;
 	currentModelName = modelName;
+	
+	state.escalationEnabled = enableEscalation;
 	
     if (commanderSide === 'red' || commanderSide === 'both') {
         state.red.forces = new CoalitionArmedForces('red', instructionsRed);
         state.red.targets = new CoalitionTargets('red');
         state.red.territory = new CoalitionTerritory('red');
+		state.red.aggressiveness = aggRed;
+		state.red.isrThreatScore = 0;
+		state.red.eventThreatBonus = 0;
     }
     if (commanderSide === 'blue' || commanderSide === 'both') {
         state.blue.forces = new CoalitionArmedForces('blue', instructionsBlue);
         state.blue.targets = new CoalitionTargets('blue');
         state.blue.territory = new CoalitionTerritory('blue');
+		state.blue.aggressiveness = aggBlue;
+		state.blue.isrThreatScore = 0;
+		state.blue.eventThreatBonus = 0;
     }
 	
 	const intervalMs = intervalTime * 1000;
