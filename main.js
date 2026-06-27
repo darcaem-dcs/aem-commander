@@ -218,7 +218,47 @@ function routeDCSMessage(msg) {
             break;
         case "ISR":
             state[coal].forces.updateISR(msg.data);
-            state[coal].isrThreatScore = msg.data.reduce((sum, item) => sum + (item.threat_score || 0), 0);
+			
+			const territory = state[coal].territory;
+            let calculatedThreat = 0;
+			
+			msg.data.forEach(item => {
+                let baseScore = item.threat_score || 0;
+                let multiplier = 0;
+                
+                // 1. ¿Está dentro de nuestro territorio?
+                let isInside = false;
+                if (territory && territory.border && territory.border.length > 0) {
+                    const check = territory.isTargetInFriendlyTerritory(item.location.lat, item.location.long);
+                    isInside = check.is_friendly_territory;
+                }
+                
+                if (isInside) {
+                    multiplier = 2.0; // Amenaza crítica: Han cruzado la frontera
+                } else {
+                    // 2. Si está fuera, calculamos la distancia a nuestra frontera en km
+                    let distKm = getDistanceToBorder(item.location.lat, item.location.long, territory ? territory.border : null);
+                    
+                    // 3. Diferenciamos unidades estáticas/defensivas vs móviles/ofensivas
+                    const staticThreats = ["SAM", "AAA", "ARTILLERY", "EW", "RADAR"];
+                    const isStatic = staticThreats.includes(item.threat);
+                    
+                    if (isStatic) {
+                        if (distKm < 40) multiplier = 0.2; // SAM/Artillería muy pegado a la frontera
+                        else multiplier = 0;               // SAM defensivo lejano (no amenaza nuestra postura)
+                    } else {
+                        // Unidades móviles (CAP, STRIKE, HELO, ARMOR...)
+                        if (distKm < 30) multiplier = 1.0;       // Peligrosamente cerca (inminente)
+                        else if (distKm < 80) multiplier = 0.5;  // Aproximándose a la frontera
+                        else if (distKm < 150) multiplier = 0.1; // Lejos, probablemente patrullando su espacio
+                        else multiplier = 0;                     // Demasiado lejos
+                    }
+                }
+                
+                calculatedThreat += (baseScore * multiplier);
+            });
+            
+            state[coal].isrThreatScore = calculatedThreat;
             break;
         case "GOALS":
             state[coal].targets.updateGoals(msg.data);
@@ -313,6 +353,29 @@ function routeDCSMessage(msg) {
 	
 	triggerMapUpdate();
 	
+}
+
+// Helper: Haversine distance formula (returns kilometers)
+function getDistanceKm(lat1, lon1, lat2, lon2) {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+}
+
+// Helper: Find shortest distance from a point to any point on the border polygon
+function getDistanceToBorder(lat, lon, border) {
+    if (!border || border.length === 0) return 0;
+    let minDist = Infinity;
+    for (let pt of border) {
+        let d = getDistanceKm(lat, lon, pt.lat, pt.long);
+        if (d < minDist) minDist = d;
+    }
+    return minDist;
 }
 
 function triggerMapUpdate() {

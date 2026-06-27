@@ -298,7 +298,7 @@ local function GetMissionsFromName(groupName)
     if string.find(upperName, "ASSAULT") then table.insert(missions, "ASSAULT") end
     if string.find(upperName, "SECURE") then table.insert(missions, "SECURE") end
     if string.find(upperName, "FIRE_SUPPORT") then table.insert(missions, "FIRE_SUPPORT") end
-	if string.find(upperName, "CSAR") then table.insert(mission, "CSAR") end
+	if string.find(upperName, "CSAR") then table.insert(missions, "CSAR") end
     
     -- Default if no keywords matched
     if #missions == 0 then table.insert(missions, "Idle") end
@@ -774,7 +774,7 @@ local function ProcessIntelData(intelObject, detectorSide, targetSide, timeNow)
                 local baseThreat = 10 
                 
                 -- Speed Modifiers
-                if speed > 400 then baseThreat = baseThreat + 15      -- Fast Jet
+                if speed > 400 then baseThreat = baseThreat + 10      -- Fast Jet
                 elseif speed > 250 then baseThreat = baseThreat + 5   -- Subsonic/Cruising
                 else baseThreat = baseThreat - 5 end                  -- Helo/Slow Prop
                 
@@ -782,39 +782,39 @@ local function ProcessIntelData(intelObject, detectorSide, targetSide, timeNow)
                 if alt_ft < 3000 and speed > 350 then 
                     baseThreat = baseThreat + 20 -- Fast & Low (Strike Profile!)
                 elseif alt_ft > 25000 then
-                    baseThreat = baseThreat + 10 -- High Altitude (Fighter/Bomber)
+                    baseThreat = baseThreat + 5 -- High Altitude (Fighter/Bomber)
                 end
                 
                 -- Attribute Modifiers (If the radar was able to identify the exact type)
                 if firstUnit:HasAttribute("Fighters") then baseThreat = baseThreat + 10 end
                 if firstUnit:HasAttribute("Bombers") then baseThreat = baseThreat + 15 end
                 
-                threatScore = baseThreat * unitCount
+                threatScore = baseThreat
                 
             elseif firstUnit:IsGround() then 
 				threatClass = "GROUND"
-				threatScore = 5 * unitCount
+				threatScore = 1 * unitCount
                 
                 -- 1. Anti-Air Threats (Highest priority for aviation safety)
                 if firstUnit:HasAttribute("Air Defence") then
                     -- Distinguish between flak/guns and missile systems
                     if firstUnit:HasAttribute("AAA") then
                         threatClass = "AAA"
-						threatScore = threatScore + 15 * unitCount
+						threatScore = threatScore + 15
                     else
                         threatClass = "SAM"
-						threatScore = threatScore + 30 * unitCount
+						threatScore = threatScore + 30
                     end
                     
                 -- 2. Indirect Fire Threats (Massive threat to stationary goals/bases)
                 elseif firstUnit:HasAttribute("Artillery") or firstUnit:HasAttribute("MLRS") then
                     threatClass = "ARTILLERY"
-					threatScore = threatScore + 5 * unitCount
+					threatScore = threatScore + 5
                     
                 -- 3. Direct Combat Threats (Threats to friendly troops)
                 elseif firstUnit:HasAttribute("Tanks") or firstUnit:HasAttribute("IFV") or firstUnit:HasAttribute("APC") then
                     threatClass = "ARMOR"
-					threatScore = threatScore + 10 * unitCount
+					threatScore = threatScore + 10
                     
                 -- 4. Unarmed/Supply (Soft targets)
                 elseif firstUnit:HasAttribute("Unarmed vehicles") then
@@ -827,17 +827,17 @@ local function ProcessIntelData(intelObject, detectorSide, targetSide, timeNow)
                 -- 1. Strategic Naval Assets
                 if firstUnit:HasAttribute("Aircraft Carriers") then
                     threatClass = "CARRIER"
-					threatScore = 50 * unitCount
+					threatScore = 50
                     
                 -- 2. Subsurface Threats
                 elseif firstUnit:HasAttribute("Submarines") then
                     threatClass = "SUBMARINE"
-					threatScore = 5 * unitCount
+					threatScore = 10
                     
                 -- 3. Surface Combatants (Cruisers, Destroyers, Frigates - often carry heavy SAMs)
                 elseif firstUnit:HasAttribute("Armed ships") then
                     threatClass = "WARSHIP"
-					threatScore = 20 * unitCount
+					threatScore = 30
                     
                 -- 4. Unarmed/Transport Ships
                 elseif firstUnit:HasAttribute("Unarmed ships") then
