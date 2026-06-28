@@ -84,6 +84,19 @@ MODULE_DEBUG = true
 -------------------------------------------------------------------------
 
 -- ======================================================================
+-- F10 menu
+-- ======================================================================
+
+local function switchDebug()
+	MODULE_DEBUG = ~MODULE_DEBUG
+	trigger.action.outText("AEM Commander debug messages " .. ("activated" and MODULE_DEBUG or "deactivated"), t)
+end
+
+local menuAEM = missionCommands.addSubMenu("AEM Commander", nil)
+missionCommands.addCommand("Show debug messages", menuAEM, function() switchDebug() end, nil)
+
+
+-- ======================================================================
 -- Log
 -- ======================================================================
 
