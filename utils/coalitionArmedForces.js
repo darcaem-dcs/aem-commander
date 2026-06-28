@@ -56,7 +56,7 @@ class AvailableUnit {
 
 class EnemyDetected {
 
-	constructor(name, type, category, lat, lon, threat, heading) {
+	constructor(name, type, category, lat, lon, threat, heading, threat_score) {
 		this.name = name;
 		this.type = type;
 		this.category = category;
@@ -64,6 +64,7 @@ class EnemyDetected {
 		this.lon = lon;
 		this.threat = threat;
 		this.heading = heading;
+		this.threat_score = threat_score || 0;
 	}
 
 }
@@ -105,7 +106,8 @@ class CoalitionArmedForces {
     updateISR(dataArray) {
         this.enemyGroups = dataArray.map(item => new EnemyDetected(
             item.id, item.type, item.category, 
-            item.location.lat, item.location.long, item.threat, item.heading
+            item.location.lat, item.location.long, item.threat, item.heading,
+            item.threat_score || 0
         ));
     }
 	
