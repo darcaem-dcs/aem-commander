@@ -895,7 +895,7 @@ local function GetKnownSAMs(SamSet, targetCoalitionStr, detectorSideStr, timeNow
                 speed_kts = 0,
                 heading = 0,
                 threat = "SAM",
-                threat_score = 30 * unitCount, -- Misma escala de puntos que en ProcessIntelData
+                threat_score = 30 + unitCount, -- Misma escala de puntos que en ProcessIntelData
                 timestamp = timeNow
             })
         end

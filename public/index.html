@@ -899,7 +899,7 @@
 					let customIcon = getUnitIcon(enemy.category, enemy.threat, enemyColor, true, enemy.heading); 
 					
 					let marker = L.marker([enemy.lat, enemy.lon], { icon: customIcon })
-						.bindPopup('<b>ISR Contact</b><br>Target: ' + enemy.name + '<br>Class: ' + enemy.threat);
+						.bindPopup('<b>ISR Contact</b><br>Target: ' + enemy.name + '<br>Class: ' + enemy.threat + '<br>Threat: ' + enemy.threat_score);
 					
 					mapLayerGroup.addLayer(marker);
 				});

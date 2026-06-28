@@ -217,9 +217,7 @@ function routeDCSMessage(msg) {
             state[coal].forces.updateAvailableUnits(msg.data);
             break;
         case "ISR":
-            state[coal].forces.updateISR(msg.data);
-			
-			const territory = state[coal].territory;
+            const territory = state[coal].territory;
             let calculatedThreat = 0;
 			
 			msg.data.forEach(item => {
@@ -255,10 +253,12 @@ function routeDCSMessage(msg) {
                     }
                 }
                 
+				item.threat_score = Math.round(baseScore * multiplier);
                 calculatedThreat += (baseScore * multiplier);
             });
             
             state[coal].isrThreatScore = calculatedThreat;
+			state[coal].forces.updateISR(msg.data);
             break;
         case "GOALS":
             state[coal].targets.updateGoals(msg.data);
