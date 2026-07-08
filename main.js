@@ -317,8 +317,16 @@ function routeDCSMessage(msg) {
         });
 		
         // Only save if a file was loaded/created
-        if (stateChanged && currentPersistenceFile) {
+		if (stateChanged && currentPersistenceFile) {
+            if (!persistentState.mission_info) persistentState.mission_info = {};
+            const now = new Date().toISOString();
+            persistentState.mission_info.updated_at = now;
+            
             fs.writeFileSync(currentPersistenceFile, JSON.stringify(persistentState, null, 2));
+            
+            if (mainWindow) {
+                mainWindow.webContents.send('persistence-updated', now);
+            }
         }
     }
 	
@@ -855,7 +863,8 @@ ipcMain.handle('select-persistence-file', async (event) => {
         return { 
             success: true, 
             fileName: path.basename(filePath),
-            missionName: parsedState.mission_info.mission_name 
+            missionName: parsedState.mission_info.mission_name ,
+			updatedAt: parsedState.mission_info.updated_at || parsedState.mission_info.created_at
         };
     } catch (err) {
         return { success: false, error: err.message };
@@ -884,7 +893,12 @@ ipcMain.handle('create-new-persistence-file', async (event, intendedMissionName)
     currentPersistenceFile = filePath;
     persistentState = blankState;
 
-    return { success: true, fileName: path.basename(filePath), missionName: intendedMissionName };
+    return { 
+		success: true, 
+		fileName: path.basename(filePath), 
+		missionName: intendedMissionName,
+		updatedAt: blankState.mission_info.created_at
+	};
 });
 
 app.whenReady().then(createWindow);

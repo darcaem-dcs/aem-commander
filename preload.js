@@ -40,6 +40,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getAppVersion: () => ipcRenderer.invoke('get-app-version'),
 	
 	/**
+     * Listens for backend notifications when the persistence file is written to disk.
+     */
+    onPersistenceUpdated: (callback) => ipcRenderer.on('persistence-updated', (event, timestamp) => callback(timestamp)),
+	
+	/**
      * Persistence file handlers
      */
     selectPersistenceFile: () => ipcRenderer.invoke('select-persistence-file'),
