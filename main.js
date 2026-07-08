@@ -18,18 +18,19 @@ let authCredentialGlobal = null;
 // Persistence
 let currentPersistenceFile = null;
 let persistentState = { units: {} };
+let activeDeployments = {};
 
 function loadState() {
-    if (fs.existsSync(STATE_FILE)) {
+    if (fs.existsSync(currentPersistenceFile)) {
         try {
-            persistentState = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+            persistentState = JSON.parse(fs.readFileSync(currentPersistenceFile, 'utf8'));
         } catch (e) {
             console.error("Error reading state.json:", e);
         }
     }
 }
 function saveState() {
-    fs.writeFileSync(STATE_FILE, JSON.stringify(persistentState, null, 2));
+    fs.writeFileSync(currentPersistenceFile, JSON.stringify(persistentState, null, 2));
 }
 
 // Commanders
@@ -203,6 +204,7 @@ const tcpServer = net.createServer((socket) => {
 		
 		persistentState = { units: {} };
 		currentPersistenceFile = null;
+		activeDeployments = {};
         
         if (mainWindow) {
             mainWindow.webContents.send('log-message', 'DCS Mission ended. Operations suspended automatically.', 'success');
@@ -230,6 +232,7 @@ const tcpServer = net.createServer((socket) => {
 		
 		persistentState = { units: {} };
 		currentPersistenceFile = null;
+		activeDeployments = {};
         
         if (mainWindow) {
             mainWindow.webContents.send('log-message', 'Error. Operations suspended automatically.', 'error');
@@ -285,13 +288,34 @@ function routeDCSMessage(msg) {
 	if (msg.type === "EVENTS") {
         let stateChanged = false;
         msg.data.forEach(event => {
+            // 1. Check out statics when a flight is activated
+            if (event.type === 'activated' && event.group?.name && event.staticUnits) {
+                // Store the array of static names under the active group's name
+                activeDeployments[event.group.name] = [...event.staticUnits];
+            }
+
+            // 2. Handle combat deaths
             if (event.type === 'destroyed' && event.groupName) {
-                // Ensure units object exists
                 if (!persistentState.units) persistentState.units = {}; 
-                persistentState.units[event.groupName] = { status: "destroyed" };
-                stateChanged = true;
+                
+                // Did the commander spawn this group?
+                if (activeDeployments[event.groupName] && activeDeployments[event.groupName].length > 0) {
+                    
+                    // Pop exactly ONE static unit from the ledger for this death
+                    const consumedStatic = activeDeployments[event.groupName].pop();
+                    persistentState.units[consumedStatic] = { status: "destroyed" };
+                    stateChanged = true;
+                    console.log(`Commander unit destroyed. Flagged static reserve '${consumedStatic}' as dead.`);
+                    
+                } else {
+                    // Regular map unit (not spawned by commander)
+                    persistentState.units[event.groupName] = { status: "destroyed" };
+                    stateChanged = true;
+                    console.log(`Regular map unit destroyed. Flagged group '${event.groupName}' as dead.`);
+                }
             }
         });
+		
         // Only save if a file was loaded/created
         if (stateChanged && currentPersistenceFile) {
             fs.writeFileSync(currentPersistenceFile, JSON.stringify(persistentState, null, 2));
@@ -762,6 +786,7 @@ ipcMain.handle('stop-monitor', () => {
     state.blue.forces = null;
 	persistentState = { units: {} };
 	currentPersistenceFile = null;
+	activeDeployments = {};
     mainWindow.webContents.send('log-message', 'Operations suspended by user.', 'info');
     return true;
 });
