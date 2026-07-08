@@ -34,6 +34,7 @@ SOCKET_MAX_RETRIES = 2
 --	passed to AI Commander
 --
 -------------------------------------------------------------------------
+MISSION_NAME = "Syria sandbox"
 
 RED_EW = "RED EW"
 RED_SAM = "RED SAM"
@@ -149,6 +150,7 @@ local function AEM_ConnectTCP()
     else
         tcp_conn:settimeout(0)
         env.info("AEM Commander: TCP Connection established successfully!")
+		SendToNode("INIT", "ALL", { mission_name = MISSION_NAME })
     end
 end
 
@@ -1403,7 +1405,22 @@ function ProcessAIOrders(actions, coalitionStr)
     if not actions then return end
     
     for _, action in ipairs(actions) do
-        if action.action_type == "new" and action.unit_names then
+		if action.action_type == "persistence_destroy" and action.unit_names then
+            for _, unitName in ipairs(action.unit_names) do
+                -- First check if it's a Static Object
+                local staticObj = STATIC:FindByName(unitName, false)
+                if staticObj then
+                    staticObj:Destroy()
+                else
+                    -- If not static, check if it's a standard Group
+                    local groupObj = GROUP:FindByName(unitName)
+                    if groupObj then
+                        groupObj:Destroy()
+                    end
+                end
+            end
+            env.info("AEM Commander: Persistence state applied. Destroyed " .. #action.unit_names .. " entities.")
+		elseif action.action_type == "new" and action.unit_names then
             
             local templateName = TEMPLATE_PREFIX..coalitionStr.." "..action.task.." "..action.unit_type
 			

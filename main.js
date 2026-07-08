@@ -2,6 +2,7 @@ const {app, BrowserWindow, ipcMain, dialog} = require('electron')
 const path = require('path');
 const net = require('net');
 const os = require('os');
+const fs = require('fs');
 
 let mainWindow;
 let processIntervalId = null;
@@ -13,6 +14,23 @@ const ai = new AiHelper();
 let currentModelName = 'gemini-3.1-flash';
 let authMethodGlobal = 'apikey';
 let authCredentialGlobal = null;
+
+// Persistence
+let currentPersistenceFile = null;
+let persistentState = { units: {} };
+
+function loadState() {
+    if (fs.existsSync(STATE_FILE)) {
+        try {
+            persistentState = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+        } catch (e) {
+            console.error("Error reading state.json:", e);
+        }
+    }
+}
+function saveState() {
+    fs.writeFileSync(STATE_FILE, JSON.stringify(persistentState, null, 2));
+}
 
 // Commanders
 const CoalitionArmedForces = require('./utils/coalitionArmedForces.js');
@@ -132,6 +150,24 @@ const tcpServer = net.createServer((socket) => {
     dcsSocket = socket;
     console.log("DCS World connected to AEM Commander.");
     let buffer = '';
+	
+	loadState();
+	
+	// Send the kill list to DCS immediately upon connection
+    const destroyedUnits = Object.keys(persistentState.units).filter(
+        name => persistentState.units[name].status === "destroyed"
+    );
+	if (destroyedUnits.length > 0) {
+        const payload = JSON.stringify({
+            type: "ORDERS",
+            coalition: "ALL", // We use ALL to let Lua handle it globally
+            actions: [{
+                action_type: "persistence_destroy",
+                unit_names: destroyedUnits
+            }]
+        });
+        socket.write(payload + "\n");
+    }
 
     socket.on('data', (data) => {
         buffer += data.toString();
@@ -164,6 +200,9 @@ const tcpServer = net.createServer((socket) => {
 		state.blue.aiLogs = [];
 		state.blue.targets = null;
 		state.blue.territory = null;
+		
+		persistentState = { units: {} };
+		currentPersistenceFile = null;
         
         if (mainWindow) {
             mainWindow.webContents.send('log-message', 'DCS Mission ended. Operations suspended automatically.', 'success');
@@ -188,6 +227,9 @@ const tcpServer = net.createServer((socket) => {
 		state.blue.aiLogs = [];
 		state.blue.targets = null;
 		state.blue.territory = null;
+		
+		persistentState = { units: {} };
+		currentPersistenceFile = null;
         
         if (mainWindow) {
             mainWindow.webContents.send('log-message', 'Error. Operations suspended automatically.', 'error');
@@ -207,6 +249,55 @@ function sendOrdersToDCS(coalition, actions) {
 
 function routeDCSMessage(msg) {
     const coal = msg.coalition.toLowerCase();
+	
+	if (msg.type === "INIT") {
+        const incomingMission = msg.data.mission_name;
+        
+        if (currentPersistenceFile) {
+            if (incomingMission !== persistentState.mission_info?.mission_name) {
+                mainWindow.webContents.send('log-message', `WARNING: Loaded save file is for '${persistentState.mission_info?.mission_name}', but DCS loaded '${incomingMission}'.`, 'error');
+            } else {
+                mainWindow.webContents.send('log-message', `Persistence verified for mission: ${incomingMission}`, 'success');
+            }
+            
+            // Send the kill list to DCS now that we verified the mission
+            const destroyedUnits = Object.keys(persistentState.units).filter(
+                name => persistentState.units[name].status === "destroyed"
+            );
+            if (destroyedUnits.length > 0) {
+                const payload = JSON.stringify({
+                    type: "ORDERS",
+                    coalition: "ALL", 
+                    actions: [{
+                        action_type: "persistence_destroy",
+                        unit_names: destroyedUnits
+                    }]
+                });
+                sendOrdersToDCS("ALL", [{ action_type: "persistence_destroy", unit_names: destroyedUnits }]);
+            }
+        } else {
+            mainWindow.webContents.send('log-message', `DCS Mission '${incomingMission}' connected without a persistence file.`, 'info');
+        }
+        return; // INIT doesn't need to go to AI commanders
+    }
+	
+	// We process destroyed events HERE so it works even if AI commanders are offline.
+	if (msg.type === "EVENTS") {
+        let stateChanged = false;
+        msg.data.forEach(event => {
+            if (event.type === 'destroyed' && event.groupName) {
+                // Ensure units object exists
+                if (!persistentState.units) persistentState.units = {}; 
+                persistentState.units[event.groupName] = { status: "destroyed" };
+                stateChanged = true;
+            }
+        });
+        // Only save if a file was loaded/created
+        if (stateChanged && currentPersistenceFile) {
+            fs.writeFileSync(currentPersistenceFile, JSON.stringify(persistentState, null, 2));
+        }
+    }
+	
     if (!state[coal].forces) return;
 
     switch (msg.type) {
@@ -669,6 +760,8 @@ ipcMain.handle('stop-monitor', () => {
     }
 	state.red.forces = null; 
     state.blue.forces = null;
+	persistentState = { units: {} };
+	currentPersistenceFile = null;
     mainWindow.webContents.send('log-message', 'Operations suspended by user.', 'info');
     return true;
 });
@@ -711,6 +804,62 @@ ipcMain.handle('get-local-ip', () => {
 
 ipcMain.handle('get-app-version', () => {
     return app.getVersion();
+});
+
+ipcMain.handle('select-persistence-file', async (event) => {
+    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+        title: 'Load Mission Persistence File',
+        properties: ['openFile'],
+        filters: [{ name: 'AEM State Files', extensions: ['json'] }]
+    });
+    
+    if (canceled) return null;
+    const filePath = filePaths[0];
+    
+    try {
+        const fileContent = fs.readFileSync(filePath, 'utf8');
+        const parsedState = JSON.parse(fileContent);
+        
+        if (!parsedState.mission_info || !parsedState.units) {
+            throw new Error("Invalid AEM Commander state file format.");
+        }
+        
+        currentPersistenceFile = filePath;
+        persistentState = parsedState;
+        
+        return { 
+            success: true, 
+            fileName: path.basename(filePath),
+            missionName: parsedState.mission_info.mission_name 
+        };
+    } catch (err) {
+        return { success: false, error: err.message };
+    }
+});
+
+ipcMain.handle('create-new-persistence-file', async (event, intendedMissionName) => {
+    const safeName = intendedMissionName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+        title: 'Create New Persistence File',
+        defaultPath: `aem_state_${safeName}.json`,
+        filters: [{ name: 'JSON', extensions: ['json'] }]
+    });
+
+    if (canceled) return null;
+
+    const blankState = {
+        mission_info: {
+            mission_name: intendedMissionName,
+            created_at: new Date().toISOString()
+        },
+        units: {}
+    };
+
+    fs.writeFileSync(filePath, JSON.stringify(blankState, null, 2));
+    currentPersistenceFile = filePath;
+    persistentState = blankState;
+
+    return { success: true, fileName: path.basename(filePath), missionName: intendedMissionName };
 });
 
 app.whenReady().then(createWindow);

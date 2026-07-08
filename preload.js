@@ -37,5 +37,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
 	/**
      * Obtains the application version from package.json
      */
-    getAppVersion: () => ipcRenderer.invoke('get-app-version')
+    getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+	
+	/**
+     * Persistence file handlers
+     */
+    selectPersistenceFile: () => ipcRenderer.invoke('select-persistence-file'),
+    createNewPersistenceFile: (missionName) => ipcRenderer.invoke('create-new-persistence-file', missionName)
 });
