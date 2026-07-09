@@ -494,15 +494,13 @@
 					<div style="margin-top: 20px;">
 						<label for="aiModel">AI model:</label>
 						<select id="aiModel" class="input-field" style="cursor: pointer;">
-							<option value="gemini-3.1-flash" selected>Gemini 3.1 Flash (Default, Fast & Cost-Effective)</option>
-							<option value="gemini-3.1-pro">Gemini 3.1 Pro (Advanced Reasoning, Slower)</option>
-							<option value="gemini-3.1-flash-8b">Gemini 3.1 Flash-8B (Ultra-Lightweight)</option>
-							
-							<option value="gemini-3.0-flash">Gemini 3.0 Flash</option>
-							<option value="gemini-3.0-pro">Gemini 3.0 Pro</option>
+							<option value="gemini-3.5-flash" selected>Gemini 3.5 Flash (Default, Fast & Smart)</option>
+							<option value="gemini-3.1-pro-preview">Gemini 3.1 Pro Preview (Best Strategy, Slower)</option>
+							<option value="gemini-3.1-flash-lite">Gemini 3.1 Flash-Lite (Fastest, Cost-Effective)</option>
+							<option value="gemini-3-flash-preview">Gemini 3 Flash Preview (Experimental / Unstable)</option>
 						</select>
 						<p style="font-size: 0.8em; color: var(--text-muted); margin-top: 5px;">
-							Pro models generate better strategy but cost more and take longer to process.
+							Flash offers the best balance for DCS. Pro models generate better strategy but cost more and take longer to process.
 						</p>
 					</div>
 					
@@ -559,13 +557,9 @@
 					Load a previous state to persist destroyed units, or create a new tracking file.
 				</p>
 				
-				<div style="display: flex; gap: 10px; align-items: center; margin-bottom: 15px;">
-					<button id="btnLoadPersistence" style="padding: 6px 12px; font-family: inherit; cursor: pointer;">
-						<i class="fa-solid fa-folder-open" style="margin-right: 5px;"></i> Load Save File
-					</button>
-					<button id="btnNewPersistence" style="padding: 6px 12px; font-family: inherit; cursor: pointer;">
-						<i class="fa-solid fa-file-circle-plus" style="margin-right: 5px;"></i> Create New Save
-					</button>
+				<div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px;">
+					<button id="btnLoadPersistence" class="btn-stop" style="margin: 0; padding: 8px 16px;"><i class="fa-solid fa-folder-open"></i> Load save file</button>
+					<button id="btnNewPersistence" class="btn-stop" style="margin: 0; padding: 8px 16px;"><i class="fa-solid fa-file-circle-plus"></i> Create new save</button>
 				</div>
 				
 				<div id="persistenceInfo" style="display: none; padding: 12px; background: var(--bg-banner); border-radius: 6px; border: 1px solid var(--accent-blue); font-family: inherit;">
@@ -844,7 +838,7 @@
                 }
             }
 
-			const model = aiModelInput.value.trim() || 'gemini-3-flash-preview';
+			const model = aiModelInput.value.trim() || 'gemini-3.5-flash';
 			const intervalTime = Math.max(parseInt(document.getElementById('intervalTime').value, 10) || 300, 60);
             const commanderSide = document.querySelector('input[name="commanderOpt"]:checked').value;
 			const instructionsRed = inputInstructionsRed.value;

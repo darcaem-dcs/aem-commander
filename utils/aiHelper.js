@@ -276,7 +276,8 @@ module.exports = function() {
             
         } catch (err) {
             console.error("Gemini API Error:", err);
-            return null;
+            // Throw the error up to main.js so it gets pushed to the Electron UI log
+            throw new Error(`API Request Failed: ${err.message || "Unknown communication error."}`);
         }
     }
 	
