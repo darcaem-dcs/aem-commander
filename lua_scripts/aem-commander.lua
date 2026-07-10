@@ -1,9 +1,21 @@
 -------------------------------------------------------------------------
 -- CUSTOM SETTINGS
+--
+-- MISSION_NAME: Name of the mission for the persistence file
+--
+-- HOST_IP: IP address where the AEM Commander app is running. It is 
+-- designed to run on the same machine as DCS (127.0.0.1) or on a
+-- different machine in the same LAN. Port 49080 must be available
+-- and not blocked by firewalls.
+--
+-- SOCKET_MAX_RETRIES: Number of times the script will try to connect to
+-- the AEM Commander companion app. If failed, network loop will stop so
+-- the mission can continue to be player without external AI control.
 -------------------------------------------------------------------------
 
-HOST_IP = "192.168.1.42"
-HOST_PORT = 49080
+MISSION_NAME = "Syria sandbox"  -- SET YOUR MISSION NAME HERE
+
+HOST_IP = "192.168.1.44"        -- CHANGE TO 127.0.0.1 or your LAN IP !!!
 SOCKET_MAX_RETRIES = 2
 
 -------------------------------------------------------------------------
@@ -33,8 +45,9 @@ SOCKET_MAX_RETRIES = 2
 --	SCHEDULER_ISR_FREQ_*: seconds passed between each ISR update data 
 --	passed to AI Commander
 --
+--  UNLIMITED_FUEL: AI spawned flights will have unlimited fuel
+--
 -------------------------------------------------------------------------
-MISSION_NAME = "Syria sandbox"
 
 RED_EW = "RED EW"
 RED_SAM = "RED SAM"
@@ -58,7 +71,8 @@ UNLIMITED_FUEL = true
 --	*_RAFT: late activation group name for the water template
 --	*_PILOT: late activation group name for the ground template
 --	SINKING_SHIP: not used yet
---	__CSAR_SOS: filename that will be used as beacon
+--	__CSAR_SOS: filename that will be used as beacon. Add the file to
+--  the mission by placing a "sound for country" trigger
 --
 -------------------------------------------------------------------------
 
@@ -67,7 +81,7 @@ BLUE_RAFT = "BLUE LIFE RAFT"
 BLUE_PILOT = "BLUE DOWNED PILOT"
 RED_RAFT = "RED LIFE RAFT"
 RED_PILOT = "RED DOWNED PILOT"
-__CSAR_SOS = "morse-sos.ogg"
+__CSAR_SOS = "morse-sos.ogg"        -- ADD YOUR OWN SOUND FILE
 
 -------------------------------------------------------------------------
 -- Debug messages
@@ -83,6 +97,8 @@ MODULE_DEBUG = true
 -- // Code: DO NOT EDIT BEYOND THIS POINT //
 --
 -------------------------------------------------------------------------
+
+HOST_PORT = 49080
 
 -- ======================================================================
 -- F10 menu
@@ -970,10 +986,15 @@ if MODULE_CSAR then	-- activate module CSAR
 	local function launchFlare(unitFlaring) unitFlaring:FlareRed() end
 
 	local function radioTransmit(unitTransmiting, freq)
-		unitTransmiting:GetRadio():NewUnitTransmission(__CSAR_SOS, "SOS signal transmiting", 10, freq or 44.00, radio.modulation.FM, true):Broadcast(true)
+        local success, err = pcall(function()
+			unitTransmiting:GetRadio():NewUnitTransmission(__CSAR_SOS, "SOS signal transmiting", 10, freq or 44.00, radio.modulation.FM, true):Broadcast(true)
+		end)
+		if not success then
+			env.info("AEM Commander CSAR Warning: Failed to broadcast SOS. Is the audio file '" .. tostring(__CSAR_SOS) .. "' embedded in the Mission Editor? Error: " .. tostring(err))
+		end
 	end
 
-	local function attemptRescue(rescuedGroup, menuPath, rescueCoalitionStr)
+	local function attemptRescue(rescuedGroup, menuPathFlare, menuPathRescue, rescueCoalitionStr)
 		local playerDCSUnit = world.getPlayer()
 		if playerDCSUnit then
 			local playerMooseUnit = UNIT:Find(playerDCSUnit)
@@ -986,7 +1007,11 @@ if MODULE_CSAR then	-- activate module CSAR
 					if timeInZone == 5 then messageToAll("Pilot boarding... hold steady!", 5) end
 					if timeInZone >= 10 then
 						messageToAll("Pilot successfully rescued! Get them back to base.", 10)
-						if menuPath ~= nil then missionCommands.removeItemForCoalition(rescueCoalitionStr == "red" and coalition.side.RED or coalition.side.BLUE, menuPath) end
+                        
+                        -- Delete all CSAR menu items for the coalition that performed the rescue
+                        local dcsCoalition = rescueCoalitionStr == "red" and coalition.side.RED or coalition.side.BLUE
+                        if menuPathFlare ~= nil then missionCommands.removeItemForCoalition(dcsCoalition, menuPathFlare) end
+						if menuPathRescue ~= nil then missionCommands.removeItemForCoalition(dcsCoalition, menuPathRescue) end
 						
 						-- Send "Rescued" event to Node.js
 						PushEvent(rescueCoalitionStr, {
@@ -1027,16 +1052,16 @@ if MODULE_CSAR then	-- activate module CSAR
 			if coalStr == "red" then menuCSARred = menuCSAR else menuCSARblue = menuCSAR end
 		end
 
-		missionCommands.addCommandForCoalition(dcsCoalition, limitedCoords.." / FM "..string.format("%.2f", freq)..": Launch flare", menuCSAR, function() launchFlare(_unit) end, nil)
-		
+        local f10CommandPathFlare = missionCommands.addCommandForCoalition(dcsCoalition, limitedCoords.." / FM "..string.format("%.2f", freq)..": Launch flare", menuCSAR, function() launchFlare(_unit) end, nil)
 		local f10CommandPath = nil
-		f10CommandPath = missionCommands.addCommandForCoalition(dcsCoalition, limitedCoords.." / FM "..string.format("%.2f", freq)..": Attempt rescue", menuCSAR, function() attemptRescue(SpawnGroup, f10CommandPath, coalStr) end, nil)
+		f10CommandPath = missionCommands.addCommandForCoalition(dcsCoalition, limitedCoords.." / FM "..string.format("%.2f", freq)..": Attempt rescue", menuCSAR, function() attemptRescue(SpawnGroup, f10CommandPathFlare, f10CommandPathRescue, coalStr) end, nil)
 
 		-- Notify Node.js that the pilot is on the ground
 		PushEvent(coalStr, {
 			type = "csar",
 			coalition = coalStr,
 			name = SpawnGroup:GetName(),
+
 			lat = lat,
 			lon = lon
 		})
