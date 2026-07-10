@@ -139,21 +139,6 @@ local socket = require("socket")
 local tcp_conn = nil
 local AEM_Socket_Retries = 0
 
-local function AEM_ConnectTCP()
-    tcp_conn = socket.tcp()
-    tcp_conn:settimeout(0.5) 
-	local success, err = tcp_conn:connect(HOST_IP, HOST_PORT)
-	if not success then
-        messageToAll("AEM Commander: failed to init connection with HQ", 15)
-        env.info("AEM Commander failed to init TCP: " .. tostring(err))
-        tcp_conn = nil
-    else
-        tcp_conn:settimeout(0)
-        env.info("AEM Commander: TCP Connection established successfully!")
-		SendToNode("INIT", "ALL", { mission_name = MISSION_NAME })
-    end
-end
-
 local function SendToNode(dataType, coalitionStr, payload)
     if not tcp_conn then return end
 
@@ -176,6 +161,21 @@ local function SendToNode(dataType, coalitionStr, payload)
     else
 		messageToAll("AEM Commander: failed to send intelligence to HQ", 15)
         env.info("AEM Commander: Error encoding JSON for " .. dataType)
+    end
+end
+
+local function AEM_ConnectTCP()
+    tcp_conn = socket.tcp()
+    tcp_conn:settimeout(0.5) 
+	local success, err = tcp_conn:connect(HOST_IP, HOST_PORT)
+	if not success then
+        messageToAll("AEM Commander: failed to init connection with HQ", 15)
+        env.info("AEM Commander failed to init TCP: " .. tostring(err))
+        tcp_conn = nil
+    else
+        tcp_conn:settimeout(0)
+        env.info("AEM Commander: TCP Connection established successfully!")
+		SendToNode("INIT", "ALL", { mission_name = MISSION_NAME })
     end
 end
 
