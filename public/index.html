@@ -699,7 +699,7 @@
 		
 		function formatTime(isoString) {
 			if (!isoString) return "Never";
-			return new Date(isoString).toLocaleTimeString();
+			return new Date(isoString).toLocaleString();
 		}
 		
 		window.electronAPI.onPersistenceUpdated((timestamp) => {
