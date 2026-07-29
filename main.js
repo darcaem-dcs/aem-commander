@@ -6,7 +6,11 @@ const fs = require('fs');
 
 let mainWindow;
 let processIntervalId = null;
+
+// DCS connection
 let dcsSocket = null;
+let tcpServer = null;
+let isListening = false;
 
 // Gemini
 const AiHelper = require('./utils/aiHelper.js');
@@ -147,101 +151,129 @@ Return ONLY a valid JSON object. No conversational text.
 }
 `;
 
-const tcpServer = net.createServer((socket) => {
-    dcsSocket = socket;
-    console.log("DCS World connected to AEM Commander.");
-    let buffer = '';
-	
-	loadState();
-	
-	// Send the kill list to DCS immediately upon connection
-    const destroyedUnits = Object.keys(persistentState.units).filter(
-        name => persistentState.units[name].status === "destroyed"
-    );
-	if (destroyedUnits.length > 0) {
-        const payload = JSON.stringify({
-            type: "ORDERS",
-            coalition: "ALL", // We use ALL to let Lua handle it globally
-            actions: [{
-                action_type: "persistence_destroy",
-                unit_names: destroyedUnits
-            }]
-        });
-        socket.write(payload + "\n");
+function startServer() {
+    // Prevent trying to start multiple servers on the same port
+    if (isListening) {
+        console.log("Server is already running.");
+        return;
     }
 
-    socket.on('data', (data) => {
-        buffer += data.toString();
-        let lines = buffer.split('\n');
-        buffer = lines.pop();
+    tcpServer = net.createServer((socket) => {
+        dcsSocket = socket;
+        console.log("DCS World connected to AEM Commander.");
+        let buffer = '';
         
-        for (let line of lines) {
-            if(line.trim() === '') continue;
-            try {
-                let msg = JSON.parse(line);
-                routeDCSMessage(msg);
-            } catch(e) { console.error("Error parsing JSON from DCS", e); }
+        loadState();
+        
+        // Send the kill list to DCS immediately upon connection
+        const destroyedUnits = Object.keys(persistentState.units).filter(
+            name => persistentState.units[name].status === "destroyed"
+        );
+        if (destroyedUnits.length > 0) {
+            const payload = JSON.stringify({
+                type: "ORDERS",
+                coalition: "ALL", // We use ALL to let Lua handle it globally
+                actions: [{
+                    action_type: "persistence_destroy",
+                    unit_names: destroyedUnits
+                }]
+            });
+            socket.write(payload + "\n");
         }
+
+        socket.on('data', (data) => {
+            buffer += data.toString();
+            let lines = buffer.split('\n');
+            buffer = lines.pop();
+            
+            for (let line of lines) {
+                if(line.trim() === '') continue;
+                try {
+                    let msg = JSON.parse(line);
+                    routeDCSMessage(msg);
+                } catch(e) { console.error("Error parsing JSON from DCS", e); }
+            }
+        });
+
+        socket.on('close', () => {
+            console.log("DCS World disconnected.");
+            dcsSocket = null;
+            
+            if (processIntervalId) {
+                clearInterval(processIntervalId);
+                processIntervalId = null;
+            }
+            
+            state.red.forces = null; 
+            state.red.aiLogs = [];
+            state.red.targets = null;
+            state.red.territory = null;
+            state.blue.forces = null;
+            state.blue.aiLogs = [];
+            state.blue.targets = null;
+            state.blue.territory = null;
+            
+            persistentState = { units: {} };
+            currentPersistenceFile = null;
+            activeDeployments = {};
+            
+            if (mainWindow) {
+                mainWindow.webContents.send('log-message', 'DCS Mission ended. Operations suspended automatically.', 'success');
+            }
+            
+        });
+        
+        socket.on('error', (err) => {
+            console.log(err);
+            dcsSocket = null;
+            
+            if (processIntervalId) {
+                clearInterval(processIntervalId);
+                processIntervalId = null;
+            }
+            
+            state.red.forces = null; 
+            state.red.aiLogs = [];
+            state.red.targets = null;
+            state.red.territory = null;
+            state.blue.forces = null;
+            state.blue.aiLogs = [];
+            state.blue.targets = null;
+            state.blue.territory = null;
+            
+            persistentState = { units: {} };
+            currentPersistenceFile = null;
+            activeDeployments = {};
+            
+            if (mainWindow) {
+                mainWindow.webContents.send('log-message', 'Error. Operations suspended automatically.', 'error');
+            }
+            
+        });
+        
     });
 
-    socket.on('close', () => {
-        console.log("DCS World disconnected.");
-        dcsSocket = null;
-		
-		if (processIntervalId) {
-            clearInterval(processIntervalId);
-            processIntervalId = null;
-        }
-		
-        state.red.forces = null; 
-		state.red.aiLogs = [];
-		state.red.targets = null;
-		state.red.territory = null;
-        state.blue.forces = null;
-		state.blue.aiLogs = [];
-		state.blue.targets = null;
-		state.blue.territory = null;
-		
-		persistentState = { units: {} };
-		currentPersistenceFile = null;
-		activeDeployments = {};
-        
-        if (mainWindow) {
-            mainWindow.webContents.send('log-message', 'DCS Mission ended. Operations suspended automatically.', 'success');
-        }
-		
+    tcpServer.listen(49080, '0.0.0.0', () => {
+        isListening = true;
+        console.log('TCP Server listening on port 49080');
     });
-	
-	socket.on('error', (err) => {
-        console.log(err);
-        dcsSocket = null;
-		
-		if (processIntervalId) {
-            clearInterval(processIntervalId);
-            processIntervalId = null;
-        }
-        
-        state.red.forces = null; 
-		state.red.aiLogs = [];
-		state.red.targets = null;
-		state.red.territory = null;
-        state.blue.forces = null;
-		state.blue.aiLogs = [];
-		state.blue.targets = null;
-		state.blue.territory = null;
-		
-		persistentState = { units: {} };
-		currentPersistenceFile = null;
-		activeDeployments = {};
-        
-        if (mainWindow) {
-            mainWindow.webContents.send('log-message', 'Error. Operations suspended automatically.', 'error');
-        }
-		
+
+    // Handle errors (like port already in use)
+    tcpServer.on('error', (err) => {
+        console.error('Server error:', err);
+        isListening = false;
     });
-	
-});
-tcpServer.listen(49080, '0.0.0.0');
+}
+
+function stopServer() {
+    if (tcpServer && isListening) {
+        tcpServer.close(() => {
+            isListening = false;
+            tcpServer = null;
+            console.log('TCP Server stopped.');
+        });
+    }
+}
 
 function sendOrdersToDCS(coalition, actions) {
     if(dcsSocket) {
@@ -724,6 +756,8 @@ ipcMain.handle('select-json-file', async (event) => {
 
 ipcMain.handle('select-and-start', async (event, authMethod, authCredential, modelName, commanderSide, instructionsRed, instructionsBlue, intervalTime, aggRed, aggBlue, enableEscalation) => {
 	
+    startServer();
+
 	authMethodGlobal = authMethod;
     authCredentialGlobal = authCredential;
 	currentModelName = modelName;
@@ -796,6 +830,7 @@ ipcMain.handle('stop-monitor', () => {
 	currentPersistenceFile = null;
 	activeDeployments = {};
     mainWindow.webContents.send('log-message', 'Operations suspended by user.', 'info');
+    stopServer();
     return true;
 });
 

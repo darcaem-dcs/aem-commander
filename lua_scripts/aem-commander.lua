@@ -1469,10 +1469,16 @@ function ProcessAIOrders(actions, coalitionStr)
                 if staticObj then
                     staticObj:Destroy()
                 else
-                    -- If not static, check if it's a standard Group
-                    local groupObj = GROUP:FindByName(unitName)
-                    if groupObj then
-                        groupObj:Destroy()
+                    -- Next check if it's a specific Unit
+                    local unitObj = UNIT:FindByName(unitName)
+                    if unitObj then
+                        unitObj:Destroy()
+                    else
+                        -- Finally, check if it's a standard Group
+                        local groupObj = GROUP:FindByName(unitName)
+                        if groupObj then
+                            groupObj:Destroy()
+                        end
                     end
                 end
             end
