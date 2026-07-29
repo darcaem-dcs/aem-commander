@@ -16,7 +16,7 @@
 
 MISSION_NAME = "Syria sandbox"  -- SET YOUR MISSION NAME HERE
 
-HOST_IP = "192.168.1.44"        -- CHANGE TO 127.0.0.1 or your LAN IP !!!
+HOST_IP = "192.168.1.42"        -- CHANGE TO 127.0.0.1 or your LAN IP !!!
 SOCKET_MAX_RETRIES = 2
 
 -------------------------------------------------------------------------
@@ -193,6 +193,7 @@ local function AEM_ConnectTCP()
     else
         tcp_conn:settimeout(0)
         env.info("AEM Commander: TCP Connection established successfully!")
+		messageToAll("AEM Commander: connection with HQ established", 15)
 		SendToNode("INIT", "ALL", { mission_name = MISSION_NAME })
     end
 end
@@ -284,24 +285,53 @@ end
 
 SCHEDULER:New(nil, FlushEvents, {}, 10, 30)
 
-local EventCatcher = EVENTHANDLER:New()
-EventCatcher:HandleEvent(EVENTS.Dead)
-EventCatcher:HandleEvent(EVENTS.Crash)
+local AEM_DeathHandler = {}
+function AEM_DeathHandler:onEvent(event)
+    -- Only listen for Dead or Crash events
+    if event.id == world.event.S_EVENT_DEAD or event.id == world.event.S_EVENT_CRASH then
+        if not event.initiator then return end
+        
+        -- Ignore missiles, bombs, and scenery objects
+        local success, category = pcall(function() return event.initiator:getCategory() end)
+        if not success or (category ~= Object.Category.UNIT and category ~= Object.Category.STATIC) then
+            return
+        end
+        
+        local targetName = nil
+        local coalStr = nil
 
-function EventCatcher:OnEventDead(EventData)
-    if EventData.IniGroup and EventData.IniCoalition then
-        local coal = (EventData.IniCoalition == coalition.side.RED) and "red" or "blue"
-        PushEvent(coal, {
-            type = "destroyed",
-            coalition = coal,
-            groupName = EventData.IniGroup:GetName()
-        })
+        pcall(function()
+            -- Get Coalition
+            local c = event.initiator:getCoalition()
+            if c == 1 then coalStr = "red"
+            elseif c == 2 then coalStr = "blue" end
+            
+            -- Try to get Group Name first
+            if event.initiator.getGroup then
+                local grp = event.initiator:getGroup()
+                if grp then
+                    targetName = grp:getName()
+                end
+            end
+            
+            -- Fallback to Unit Name (for statics/structures)
+            if not targetName then
+                targetName = event.initiator:getName()
+            end
+        end)
+
+        if targetName and coalStr then
+            env.info("AEM Commander: Target destroyed -> " .. tostring(targetName))
+            PushEvent(coalStr, {
+                type = "destroyed",
+                coalition = coalStr,
+                groupName = targetName
+            })
+            FlushEvents() -- Send to Node.js immediately
+        end
     end
 end
-
-function EventCatcher:OnEventCrash(EventData)
-    self:OnEventDead(EventData)
-end
+world.addEventHandler(AEM_DeathHandler)
 
 -- ======================================================================
 -- Order of Battle
