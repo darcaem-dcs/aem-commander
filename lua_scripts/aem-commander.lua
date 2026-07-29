@@ -11,6 +11,7 @@
 -- SOCKET_MAX_RETRIES: Number of times the script will try to connect to
 -- the AEM Commander companion app. If failed, network loop will stop so
 -- the mission can continue to be player without external AI control.
+--
 -------------------------------------------------------------------------
 
 MISSION_NAME = "Syria sandbox"  -- SET YOUR MISSION NAME HERE
@@ -71,6 +72,7 @@ UNLIMITED_FUEL = true
 --	*_RAFT: late activation group name for the water template
 --	*_PILOT: late activation group name for the ground template
 --	SINKING_SHIP: not used yet
+--
 --	__CSAR_SOS: filename that will be used as beacon. Add the file to
 --  the mission by placing a "sound for country" trigger
 --
@@ -86,7 +88,7 @@ __CSAR_SOS = "morse-sos.ogg"        -- ADD YOUR OWN SOUND FILE
 -------------------------------------------------------------------------
 -- Debug messages
 --
---	Show on screen messages
+--	Show on screen messages (can be switched ingame with F10 menu)
 --
 -------------------------------------------------------------------------
 
