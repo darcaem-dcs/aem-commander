@@ -784,6 +784,13 @@ ipcMain.handle('select-and-start', async (event, authMethod, authCredential, mod
 	currentModelName = modelName;
 	
 	state.escalationEnabled = enableEscalation;
+
+    if (currentPersistenceFile) {
+        if (!persistentState.mission_info) persistentState.mission_info = {};
+        persistentState.mission_info.instructionsRed = instructionsRed;
+        persistentState.mission_info.instructionsBlue = instructionsBlue;
+        saveState();
+    }
 	
     if (commanderSide === 'red' || commanderSide === 'both') {
         state.red.forces = new CoalitionArmedForces('red', instructionsRed);
@@ -920,7 +927,10 @@ ipcMain.handle('select-persistence-file', async (event) => {
             success: true, 
             fileName: path.basename(filePath),
             missionName: parsedState.mission_info.mission_name ,
-			updatedAt: parsedState.mission_info.updated_at || parsedState.mission_info.created_at
+			updatedAt: parsedState.mission_info.updated_at || parsedState.mission_info.created_at,
+            createdAt: parsedState.mission_info.created_at,
+            instructionsRed: parsedState.mission_info.instructionsRed || '',
+            instructionsBlue: parsedState.mission_info.instructionsBlue || ''
         };
     } catch (err) {
         return { success: false, error: err.message };
@@ -953,7 +963,8 @@ ipcMain.handle('create-new-persistence-file', async (event, intendedMissionName)
 		success: true, 
 		fileName: path.basename(filePath), 
 		missionName: intendedMissionName,
-		updatedAt: blankState.mission_info.created_at
+		updatedAt: blankState.mission_info.created_at,
+        createdAt: parsedState.mission_info.created_at
 	};
 });
 

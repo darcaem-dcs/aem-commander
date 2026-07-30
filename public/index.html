@@ -565,7 +565,8 @@
 				<div id="persistenceInfo" style="display: none; padding: 12px; background: var(--bg-banner); border-radius: 6px; border: 1px solid var(--accent-blue); font-family: inherit;">
 					<strong>Loaded Mission:</strong> <span id="loadedMissionName" style="color: var(--accent-blue); font-weight: bold;"></span>
 					<br><span style="font-size: 0.85em; color: var(--text-muted);" id="loadedFileName"></span>
-					<br><span style="font-size: 0.85em; color: var(--text-muted); font-weight: bold;" id="lastSavedTime"></span>
+					<br><span style="font-size: 0.85em; color: var(--text-muted);" id="createdTime"></span>
+                    <br><span style="font-size: 0.85em; color: var(--text-muted); font-weight: bold;" id="lastSavedTime"></span>
 				</div>
 			</div>
 
@@ -673,13 +674,17 @@
 		const btnCancelMissionName = document.getElementById('btnCancelMissionName');
 		const btnConfirmMissionName = document.getElementById('btnConfirmMissionName');
 		const lastSavedTime = document.getElementById('lastSavedTime');
+        const createdTime = document.getElementById('createdTime');
 		
 		btnLoadPersistence.addEventListener('click', async () => {
 			const result = await window.electronAPI.selectPersistenceFile();			
 			if (result && result.success) {
 				loadedMissionName.innerText = result.missionName;
 				loadedFileName.innerText = `File: ${result.fileName}`;
+				createdTime.innerText = `Created: ${formatTime(result.createdAt)}`;
 				lastSavedTime.innerText = `Last saved: ${formatTime(result.updatedAt)}`;
+                if (result.instructionsRed) inputInstructionsRed.value = result.instructionsRed;
+                if (result.instructionsBlue) inputInstructionsBlue.value = result.instructionsBlue;
 				persistenceInfo.style.display = 'block';
 				addLog(`Loaded state for mission: ${result.missionName}`, 'success');
 			} else if (result && !result.success) {
@@ -728,6 +733,7 @@
 			const result = await window.electronAPI.createNewPersistenceFile(missionName);
 			if (result && result.success) {
 				loadedMissionName.innerText = result.missionName;
+                createdTime.innerText = `Created: ${formatTime(result.createdAt)}`;
 				loadedFileName.innerText = `File: ${result.fileName}`;
 				lastSavedTime.innerText = `Last saved: ${formatTime(result.updatedAt)}`;
 				persistenceInfo.style.display = 'block';
