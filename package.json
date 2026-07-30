@@ -6,7 +6,7 @@
   "scripts": {
     "start": "electron .",
     "package-win": "electron-packager . aem-json-monitor --overwrite --asar=true --platform=win32 --arch=x64 --icon=./icon.ico --prune=true --out=release-builds --version-string.CompanyName=CE --version-string.FileDescription=AEMJsonMonitor --version-string.ProductName=\"AEM JSON Monitor\"",
-    "build-mac-windows": "electron-builder --mac --x64"
+    "package-mac": "electron-builder --mac --x64"
   },
   "build": {
     "appId": "com.darcaem.aem-commander",

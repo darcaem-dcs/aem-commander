@@ -12,12 +12,21 @@
 -- the AEM Commander companion app. If failed, network loop will stop so
 -- the mission can continue to be player without external AI control.
 --
+-- AUTO_CONNECT: opens connection with companion app automatically when
+-- mission starts, or adds an F10 menu option to connect manually.
+-- IP_RANGE_*: if not AUTO_CONNECT allows you to change the IP directly
+-- through the F10 menu before connecting.
+--
 -------------------------------------------------------------------------
 
 MISSION_NAME = "Syria sandbox"  -- SET YOUR MISSION NAME HERE
 
 HOST_IP = "192.168.1.42"        -- CHANGE TO 127.0.0.1 or your LAN IP !!!
 SOCKET_MAX_RETRIES = 2
+
+AUTO_CONNECT = false
+IP_RANGE_FROM = 40
+IP_RANGE_TO = 45
 
 -------------------------------------------------------------------------
 -- AI Commander
@@ -156,6 +165,7 @@ package.cpath = package.cpath..";.\\LuaSocket\\?.dll;"
 local socket = require("socket")
 local tcp_conn = nil
 local AEM_Socket_Retries = 0
+local menuConnectServer = nil
 
 local function SendToNode(dataType, coalitionStr, payload)
     if not tcp_conn then return end
@@ -195,6 +205,10 @@ local function AEM_ConnectTCP()
         env.info("AEM Commander: TCP Connection established successfully!")
 		messageToAll("AEM Commander: connection with HQ established", 15)
 		SendToNode("INIT", "ALL", { mission_name = MISSION_NAME })
+        if menuConnectServer ~= nil then
+            missionCommands.removeItem(menuConnectServer)
+            menuConnectServer = nil
+        end
     end
 end
 
@@ -258,7 +272,29 @@ local function AEM_NetworkLoop()
     return timer.getTime() + 0.1 -- Ejecuta este chequeo 10 veces por segundo
 end
 
-timer.scheduleFunction(AEM_NetworkLoop, nil, timer.getTime() + 1)
+if not AUTO_CONNECT then
+    timer.scheduleFunction(AEM_NetworkLoop, nil, timer.getTime() + 1)
+else
+    -- Helper function to replace the last number of the IP
+    local function setHostIP(newOctet)
+        -- Uses regex to capture everything up to the final dot in the IP string
+        local baseIP = string.match(HOST_IP, "^(.*%.)%d+$")
+        if baseIP then
+            HOST_IP = baseIP .. tostring(newOctet)
+            trigger.action.outText("AEM Commander HQ IP updated to: " .. HOST_IP, 10)
+        else
+            trigger.action.outText("AEM Commander Error: Malformed Base IP", 10)
+        end
+    end
+
+    menuConnectServer = missionCommands.addSubMenu("Connect to HQ", nil)
+    local menuConnectServerCmd1 = missionCommands.addCommand("Connect", menuConnectServer, function() timer.scheduleFunction(AEM_NetworkLoop, nil, timer.getTime() + 1) end, nil)
+    local menuChangeIP = missionCommands.addSubMenu("Change IP (Last Octet)", menuConnectServer)
+    for i = IP_RANGE_FROM, IP_RANGE_TO do
+        missionCommands.addCommand("Set IP to ." .. i, menuChangeIP, function() setHostIP(i) end, nil)
+    end
+    
+end
 
 -- ======================================================================
 -- Event handlers
