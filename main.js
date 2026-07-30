@@ -181,6 +181,11 @@ function startServer() {
             socket.write(payload + "\n");
         }
 
+        if (persistentState.eventThreatBonus) {
+            state.red.eventThreatBonus = persistentState.eventThreatBonus.red || 0;
+            state.blue.eventThreatBonus = persistentState.eventThreatBonus.blue || 0; 
+        }
+
         socket.on('data', (data) => {
             buffer += data.toString();
             let lines = buffer.split('\n');
@@ -354,7 +359,7 @@ function routeDCSMessage(msg) {
             const now = new Date().toISOString();
             persistentState.mission_info.updated_at = now;
             
-            fs.writeFileSync(currentPersistenceFile, JSON.stringify(persistentState, null, 2));
+            saveState();
             
             if (mainWindow) {
                 mainWindow.webContents.send('persistence-updated', now);
@@ -458,6 +463,11 @@ function routeDCSMessage(msg) {
                         } else {
                             state[coal].aiLogs.push(`A unit from ${event.groupName} has been destroyed`);
                         }
+                        if (currentPersistenceFile) {
+                            if (persistentState.eventThreatBonus == null) persistentState.eventThreatBonus = {};
+                            persistentState.eventThreatBonus[coal] = state[coal].eventThreatBonus;
+                            saveState();
+                        }
                         break;
                         
                     case 'csar':
@@ -465,6 +475,11 @@ function routeDCSMessage(msg) {
 							state[coal].eventThreatBonus = (state[coal].eventThreatBonus || 0) + 30;
                             targets.addTarget(`csar-${event.name}`, 999, 'csar', event.lat, event.lon, null);
                             state[coal].aiLogs.push('One of our pilots has ejected safely and needs to be rescued. A new csar mission has been added to the targets list');
+                            if (currentPersistenceFile) {
+                                if (persistentState.eventThreatBonus == null) persistentState.eventThreatBonus = {};
+                                persistentState.eventThreatBonus[coal] = state[coal].eventThreatBonus;
+                                saveState();
+                            }
                         } else {
                             targets.addTarget(`enemy csar-${event.name}`, 0.5, 'enemy-csar', event.lat, event.lon, null);
                             state[coal].aiLogs.push('An enemy pilot has ejected safely. A new enemy-csar mission has been added to the targets list');
@@ -627,6 +642,12 @@ async function processCommander(side) {
         // Decaimiento acumulativo: Restamos 5 puntos por ciclo para enfriar el trauma de bajas si no pasa nada
         if (cState.eventThreatBonus > 0) {
             cState.eventThreatBonus = Math.max(0, cState.eventThreatBonus - 5);
+        }
+
+        if (currentPersistenceFile) {
+            if (persistentState.eventThreatBonus == null) persistentState.eventThreatBonus = {};
+            persistentState.eventThreatBonus[side] = cState.eventThreatBonus;
+            saveState();
         }
     }
 	
