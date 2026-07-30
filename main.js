@@ -304,16 +304,30 @@ function routeDCSMessage(msg) {
             const destroyedUnits = Object.keys(persistentState.units).filter(
                 name => persistentState.units[name].status === "destroyed"
             );
+
+            const downedPilots = persistentState.csar ? Object.keys(persistentState.csar).map(name => ({ 
+                name: name, 
+                lat: persistentState.csar[name].lat, 
+                lon: persistentState.csar[name].lon, 
+                coalition: persistentState.csar[name].coalition 
+            })) : [];
+
+            if (downedPilots.length > 0) {
+                // Clear csar state; they will be re-registered by DCS when spawned to avoid ghost entries
+                persistentState.csar = {};
+                saveState();
+            }
+
+            const actions = [];
             if (destroyedUnits.length > 0) {
-                const payload = JSON.stringify({
-                    type: "ORDERS",
-                    coalition: "ALL", 
-                    actions: [{
-                        action_type: "persistence_destroy",
-                        unit_names: destroyedUnits
-                    }]
-                });
-                sendOrdersToDCS("ALL", [{ action_type: "persistence_destroy", unit_names: destroyedUnits }]);
+                actions.push({ action_type: "persistence_destroy", unit_names: destroyedUnits });
+            }
+            if (downedPilots.length > 0) {
+                actions.push({ action_type: "persistence_csar", pilots: downedPilots });
+            }
+
+            if (actions.length > 0) {
+                sendOrdersToDCS("ALL", actions);
             }
         } else {
             mainWindow.webContents.send('log-message', `DCS Mission '${incomingMission}' connected without a persistence file.`, 'info');
@@ -349,6 +363,23 @@ function routeDCSMessage(msg) {
                     stateChanged = true;
                     console.log(`Commander unit destroyed. Flagged static reserve '${consumedStatic}' as dead.`);
                     
+                }
+            }
+
+            // 3. Handle downed pilots persistence
+            if (event.type === 'csar') {
+                if (!persistentState.csar) persistentState.csar = {};
+                persistentState.csar[event.name] = { lat: event.lat, lon: event.lon, coalition: event.coalition.toLowerCase() };
+                stateChanged = true;
+                console.log(`Downed pilot recorded: '${event.name}'.`);
+            }
+            
+            // 4. Handle pilot rescues
+            if (event.type === 'rescued') {
+                if (persistentState.csar && persistentState.csar[event.name]) {
+                    delete persistentState.csar[event.name];
+                    stateChanged = true;
+                    console.log(`Pilot rescued. Removed '${event.name}' from tracking.`);
                 }
             }
         });

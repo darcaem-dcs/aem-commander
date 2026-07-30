@@ -1493,6 +1493,25 @@ function ProcessAIOrders(actions, coalitionStr)
                 end
             end
             env.info("AEM Commander: Persistence state applied. Destroyed " .. #action.unit_names .. " entities.")
+        elseif action.action_type == "persistence_csar" and action.pilots then
+            for _, pilot in ipairs(action.pilots) do
+                if pilot.lat and pilot.lon and MODULE_CSAR then
+                    local coord = COORDINATE:NewFromLLDD(pilot.lat, pilot.lon)
+                    local surface = coord:GetSurfaceType()
+                    local isWater = (surface == land.SurfaceType.WATER or surface == land.SurfaceType.SHALLOW_WATER)
+                    
+                    if pilot.coalition == "blue" then
+                        if isWater then BLUE_LIFE_RAFT:SpawnFromCoordinate(coord)
+                        else BLUE_DOWNED_PILOT:SpawnFromCoordinate(coord) end
+                    elseif pilot.coalition == "red" then
+                        if isWater then RED_LIFE_RAFT:SpawnFromCoordinate(coord)
+                        else RED_DOWNED_PILOT:SpawnFromCoordinate(coord) end
+                    end
+                end
+            end
+            if #action.pilots > 0 then
+                env.info("AEM Commander: Persistence state applied. Spawned " .. #action.pilots .. " CSAR targets.")
+            end
 		elseif action.action_type == "new" and action.unit_names then
             
             local templateName = TEMPLATE_PREFIX..coalitionStr.." "..action.task.." "..action.unit_type
