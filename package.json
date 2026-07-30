@@ -1,6 +1,6 @@
 {
   "name": "aem-commander",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Autonomous Engagement Monitor: DCS companion app that emulates the HQ issuing orders to armed forces.",
   "main": "main.js",
   "scripts": {
@@ -16,7 +16,7 @@
       "icon": "icon.png"
     }
   },
-  "keywords": [],
+  "keywords": ["DCS", "dynamic campaign"],
   "author": "Alfonso Escriche Martínez",
   "license": "MIT",
   "devDependencies": {

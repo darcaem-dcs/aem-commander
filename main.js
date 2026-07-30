@@ -330,8 +330,13 @@ function routeDCSMessage(msg) {
             if (event.type === 'destroyed' && event.groupName) {
                 if (!persistentState.units) persistentState.units = {}; 
                 
-                // Did the commander spawn this group?
-                if (activeDeployments[event.groupName] && activeDeployments[event.groupName].length > 0) {
+                // Mark the specific unit as dead for the persistence file
+                persistentState.units[event.unitName] = { status: "destroyed" };
+                stateChanged = true;
+                console.log(`Unit destroyed. Flagged '${event.unitName}' as dead.`);
+                
+                // Handle the AI Commander's reserve ledger using the group name
+                if (event.groupName && activeDeployments[event.groupName] && activeDeployments[event.groupName].length > 0) {
                     
                     // Pop exactly ONE static unit from the ledger for this death
                     const consumedStatic = activeDeployments[event.groupName].pop();
@@ -339,11 +344,6 @@ function routeDCSMessage(msg) {
                     stateChanged = true;
                     console.log(`Commander unit destroyed. Flagged static reserve '${consumedStatic}' as dead.`);
                     
-                } else {
-                    // Regular map unit (not spawned by commander)
-                    persistentState.units[event.groupName] = { status: "destroyed" };
-                    stateChanged = true;
-                    console.log(`Regular map unit destroyed. Flagged group '${event.groupName}' as dead.`);
                 }
             }
         });

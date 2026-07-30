@@ -297,7 +297,8 @@ function AEM_DeathHandler:onEvent(event)
             return
         end
         
-        local targetName = nil
+        local targetGroupName = nil
+        local targetUnitName = nil
         local coalStr = nil
 
         pcall(function()
@@ -310,22 +311,31 @@ function AEM_DeathHandler:onEvent(event)
             if event.initiator.getGroup then
                 local grp = event.initiator:getGroup()
                 if grp then
-                    targetName = grp:getName()
+                    targetGroupName = grp:getName()
                 end
             end
             
-            -- Fallback to Unit Name (for statics/structures)
-            if not targetName then
-                targetName = event.initiator:getName()
+            -- Fallback to Unit Name
+            targetUnitName = event.initiator:getName()
+
+            if not groupName and unitName then
+                -- Match everything up to the last dash followed by digits
+                local derivedGroup = string.match(unitName, "^(.*)-%d+$")
+                if derivedGroup then
+                    groupName = derivedGroup
+                else
+                    groupName = unitName -- Fallback for statics or un-numbered units
+                end
             end
         end)
 
-        if targetName and coalStr then
-            env.info("AEM Commander: Target destroyed -> " .. tostring(targetName))
+        if targetUnitName and coalStr then
+            env.info("AEM Commander: unit destroyed -> " .. tostring(targetUnitName))
             PushEvent(coalStr, {
                 type = "destroyed",
                 coalition = coalStr,
-                groupName = targetName
+                unitName = targetUnitName,
+                groupName = targetGroupName
             })
             FlushEvents() -- Send to Node.js immediately
         end
