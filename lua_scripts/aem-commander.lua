@@ -21,7 +21,7 @@
 
 MISSION_NAME = "Syria sandbox"  -- SET YOUR MISSION NAME HERE
 
-HOST_IP = "192.168.1.42"        -- CHANGE TO 127.0.0.1 or your LAN IP !!!
+HOST_IP = "192.168.1.40"        -- CHANGE TO 127.0.0.1 or your LAN IP !!!
 SOCKET_MAX_RETRIES = 2
 
 AUTO_CONNECT = false
@@ -143,7 +143,11 @@ local function printBootStatus()
 	env.info(" -> MODULE_DEBUG: " .. tostring(MODULE_DEBUG))
     
     -- Network info
-	env.info(" -> TCP BRIDGE: " .. tostring(HOST_IP) .. ":" .. tostring(HOST_PORT))
+    if AUTO_CONNECT then
+	    env.info(" -> TCP BRIDGE: " .. tostring(HOST_IP) .. ":" .. tostring(HOST_PORT))
+    else 
+	    env.info(" -> TCP BRIDGE MANUAL CONNECTION")
+    end
     
     -- Basic Settings
     env.info(" -> ISR UPDATE FREQ (RED): " .. tostring(SCHEDULER_ISR_FREQ_RED) .. "s")
@@ -209,6 +213,11 @@ local function AEM_ConnectTCP()
             missionCommands.removeItem(menuConnectServer)
             menuConnectServer = nil
         end
+
+        -- Scan battlefield and send initial report
+        timer.scheduleFunction(ExportOrderOfBattle, nil, timer.getTime() + 1)
+        timer.scheduleFunction(ExportGoals, nil, timer.getTime() + 2)
+        timer.scheduleFunction(ExportBorders, nil, timer.getTime() + 3)
     end
 end
 
@@ -270,30 +279,6 @@ local function AEM_NetworkLoop()
     end
 
     return timer.getTime() + 0.1 -- Ejecuta este chequeo 10 veces por segundo
-end
-
-if not AUTO_CONNECT then
-    timer.scheduleFunction(AEM_NetworkLoop, nil, timer.getTime() + 1)
-else
-    -- Helper function to replace the last number of the IP
-    local function setHostIP(newOctet)
-        -- Uses regex to capture everything up to the final dot in the IP string
-        local baseIP = string.match(HOST_IP, "^(.*%.)%d+$")
-        if baseIP then
-            HOST_IP = baseIP .. tostring(newOctet)
-            trigger.action.outText("AEM Commander HQ IP updated to: " .. HOST_IP, 10)
-        else
-            trigger.action.outText("AEM Commander Error: Malformed Base IP", 10)
-        end
-    end
-
-    menuConnectServer = missionCommands.addSubMenu("Connect to HQ", nil)
-    local menuConnectServerCmd1 = missionCommands.addCommand("Connect", menuConnectServer, function() timer.scheduleFunction(AEM_NetworkLoop, nil, timer.getTime() + 1) end, nil)
-    local menuChangeIP = missionCommands.addSubMenu("Change IP (Last Octet)", menuConnectServer)
-    for i = IP_RANGE_FROM, IP_RANGE_TO do
-        missionCommands.addCommand("Set IP to ." .. i, menuChangeIP, function() setHostIP(i) end, nil)
-    end
-    
 end
 
 -- ======================================================================
@@ -599,8 +584,6 @@ function ExportOrderOfBattle()
     messageToAll("AEM: Order of Battle Exported", 15)
 end
 
-timer.scheduleFunction(ExportOrderOfBattle, nil, timer.getTime() + 1)
-
 -- ======================================================================
 -- Mission Goals
 --
@@ -654,9 +637,6 @@ function ExportGoals()
     messageToAll("AEM: Mission Goals Exported", 15)
 end
 
--- Run once at 2 seconds into the mission
-timer.scheduleFunction(ExportGoals, nil, timer.getTime() + 2)
-
 -- ======================================================================
 -- Map Borders
 --
@@ -707,9 +687,6 @@ function ExportBorders()
 
     messageToAll("AEM: Borders Exported", 15)
 end
-
--- Run once at 3 seconds into the mission, staggering it from the other exports
-timer.scheduleFunction(ExportBorders, nil, timer.getTime() + 3)
 
 -- ======================================================================
 -- ISR (Intelligence, Surveillance, Reconnaissance)
@@ -1763,7 +1740,31 @@ function missionStrike(targetCoord, enemyGroupName, ownGroupName, coalitionStr)
 end
 
 -- ======================================================================
--- Done
+-- Start execution
 -- ======================================================================
+
+if not AUTO_CONNECT then
+    timer.scheduleFunction(AEM_NetworkLoop, nil, timer.getTime() + 1)
+else
+    -- Helper function to replace the last number of the IP
+    local function setHostIP(newOctet)
+        -- Uses regex to capture everything up to the final dot in the IP string
+        local baseIP = string.match(HOST_IP, "^(.*%.)%d+$")
+        if baseIP then
+            HOST_IP = baseIP .. tostring(newOctet)
+            trigger.action.outText("AEM Commander HQ IP updated to: " .. HOST_IP, 10)
+        else
+            trigger.action.outText("AEM Commander Error: Malformed Base IP", 10)
+        end
+    end
+
+    menuConnectServer = missionCommands.addSubMenu("Connect to HQ", nil)
+    local menuConnectServerCmd1 = missionCommands.addCommand("Connect", menuConnectServer, function() timer.scheduleFunction(AEM_NetworkLoop, nil, timer.getTime() + 1) end, nil)
+    local menuChangeIP = missionCommands.addSubMenu("Change IP (Last Octet)", menuConnectServer)
+    for i = IP_RANGE_FROM, IP_RANGE_TO do
+        missionCommands.addCommand("Set IP to ." .. i, menuChangeIP, function() setHostIP(i) end, nil)
+    end
+    
+end
 
 printBootStatus()
