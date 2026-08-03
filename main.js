@@ -20,22 +20,9 @@ let authMethodGlobal = 'apikey';
 let authCredentialGlobal = null;
 
 // Persistence
-let currentPersistenceFile = null;
-let persistentState = { units: {} };
+const PersistenceManager = require('./utils/persistence.js');
+let persistence = new PersistenceManager();
 let activeDeployments = {};
-
-function loadState() {
-    if (fs.existsSync(currentPersistenceFile)) {
-        try {
-            persistentState = JSON.parse(fs.readFileSync(currentPersistenceFile, 'utf8'));
-        } catch (e) {
-            console.error("Error reading state.json:", e);
-        }
-    }
-}
-function saveState() {
-    fs.writeFileSync(currentPersistenceFile, JSON.stringify(persistentState, null, 2));
-}
 
 // Commanders
 const CoalitionArmedForces = require('./utils/coalitionArmedForces.js');
@@ -50,7 +37,8 @@ let redActive = false, blueActive = false;
 
 let state = {
     red: { forces: null, targets: null, territory: null, aiLogs: [] },
-    blue: { forces: null, targets: null, territory: null, aiLogs: [] }
+    blue: { forces: null, targets: null, territory: null, aiLogs: [] },
+    ballisticRangeKm: 290
 };
 
 const defaultDoctrine = 'Maintain air superiority on our territory: launch defensive caps. Attack flights must have escort or cap.';
@@ -121,6 +109,7 @@ ${userContext}
 - "FIRE_SUPPORT": Long-range bombardment (Artillery). Route them to a safe standoff "target_area" (10-20km away from the front).
 - "DEFEND": Order ground units to hold and protect a friendly strategic location. Route them to the friendly "target_area".
 - "TRANSPORT": Simulate troop deployment to conquer an area. Can be used by air (Helos) or ground. Route to the "target_area".
+- "BALLISTIC": Launch a strategic ballistic missile (e.g. SCUD/Iskander) against heavily defended, high-value static targets (Airbases, SAM sites, Radars). Extremely difficult to intercept. Do NOT use against moving targets. Provide specific target coordinates in "target_area".
 
 ## 6. GOALS
 - "strike": the specific coordinates must be bombed.
@@ -163,12 +152,8 @@ function startServer() {
         console.log("DCS World connected to AEM Commander.");
         let buffer = '';
         
-        loadState();
-        
         // Send the kill list to DCS immediately upon connection
-        const destroyedUnits = Object.keys(persistentState.units).filter(
-            name => persistentState.units[name].status === "destroyed"
-        );
+        const destroyedUnits = persistence.getDestroyedUnits();
         if (destroyedUnits.length > 0) {
             const payload = JSON.stringify({
                 type: "ORDERS",
@@ -181,9 +166,9 @@ function startServer() {
             socket.write(payload + "\n");
         }
 
-        if (persistentState.eventThreatBonus) {
-            state.red.eventThreatBonus = persistentState.eventThreatBonus.red || 0;
-            state.blue.eventThreatBonus = persistentState.eventThreatBonus.blue || 0; 
+        if (persistence.state.eventThreatBonus) {
+            state.red.eventThreatBonus = persistence.state.eventThreatBonus.red || 0;
+            state.blue.eventThreatBonus = persistence.state.eventThreatBonus.blue || 0; 
         }
 
         socket.on('data', (data) => {
@@ -218,8 +203,7 @@ function startServer() {
             state.blue.targets = null;
             state.blue.territory = null;
             
-            persistentState = { units: {} };
-            currentPersistenceFile = null;
+            persistence = new PersistenceManager();
             activeDeployments = {};
             
             if (mainWindow) {
@@ -246,8 +230,7 @@ function startServer() {
             state.blue.targets = null;
             state.blue.territory = null;
             
-            persistentState = { units: {} };
-            currentPersistenceFile = null;
+            persistence = new PersistenceManager();
             activeDeployments = {};
             
             if (mainWindow) {
@@ -293,31 +276,35 @@ function routeDCSMessage(msg) {
 	if (msg.type === "INIT") {
         const incomingMission = msg.data.mission_name;
         
-        if (currentPersistenceFile) {
-            if (incomingMission !== persistentState.mission_info?.mission_name) {
+        if (msg.data.ballistic_range) {
+            state.ballisticRangeKm = Math.floor(msg.data.ballistic_range / 1000);
+            console.log(`Dynamic Ballistic Missile Range set to: ${state.ballisticRangeKm} km`);
+        }
+
+        if (persistence.currentFile) {
+            if (incomingMission !== persistence.state.mission_info?.mission_name) {
                 mainWindow.webContents.send('log-message', `WARNING: Loaded save file is for '${persistentState.mission_info?.mission_name}', but DCS loaded '${incomingMission}'.`, 'error');
             } else {
                 mainWindow.webContents.send('log-message', `Persistence verified for mission: ${incomingMission}`, 'success');
             }
             
-            // Send the kill list to DCS now that we verified the mission
-            const destroyedUnits = Object.keys(persistentState.units).filter(
-                name => persistentState.units[name].status === "destroyed"
-            );
+            // Check the kill list
+            const destroyedUnits = persistence.getDestroyedUnits();
 
-            const downedPilots = persistentState.csar ? Object.keys(persistentState.csar).map(name => ({ 
+            // Check CSAR missions
+            const downedPilots = persistence.state.csar ? Object.keys(persistence.state.csar).map(name => ({ 
                 name: name, 
-                lat: persistentState.csar[name].lat, 
-                lon: persistentState.csar[name].lon, 
-                coalition: persistentState.csar[name].coalition 
+                lat: persistence.state.csar[name].lat, 
+                lon: persistence.state.csar[name].lon, 
+                coalition: persistence.state.csar[name].coalition 
             })) : [];
-
             if (downedPilots.length > 0) {
                 // Clear csar state; they will be re-registered by DCS when spawned to avoid ghost entries
-                persistentState.csar = {};
-                saveState();
+                persistence.state.csar = {};
+                persistence.saveState();
             }
 
+            // Send actions inmediatelly to DCS
             const actions = [];
             if (destroyedUnits.length > 0) {
                 actions.push({ action_type: "persistence_destroy", unit_names: destroyedUnits });
@@ -347,10 +334,9 @@ function routeDCSMessage(msg) {
 
             // 2. Handle combat deaths
             if (event.type === 'destroyed' && event.groupName) {
-                if (!persistentState.units) persistentState.units = {}; 
                 
                 // Mark the specific unit as dead for the persistence file
-                persistentState.units[event.unitName] = { status: "destroyed" };
+                persistence.markUnitAsDestroyed(event.unitName);
                 stateChanged = true;
                 console.log(`Unit destroyed. Flagged '${event.unitName}' as dead.`);
                 
@@ -359,7 +345,7 @@ function routeDCSMessage(msg) {
                     
                     // Pop exactly ONE static unit from the ledger for this death
                     const consumedStatic = activeDeployments[event.groupName].pop();
-                    persistentState.units[consumedStatic] = { status: "destroyed" };
+                    persistence.markUnitAsDestroyed(consumedStatic);
                     stateChanged = true;
                     console.log(`Commander unit destroyed. Flagged static reserve '${consumedStatic}' as dead.`);
                     
@@ -368,32 +354,27 @@ function routeDCSMessage(msg) {
 
             // 3. Handle downed pilots persistence
             if (event.type === 'csar') {
-                if (!persistentState.csar) persistentState.csar = {};
-                persistentState.csar[event.name] = { lat: event.lat, lon: event.lon, coalition: event.coalition.toLowerCase() };
+                if (!persistence.state.csar) persistence.state.csar = {};
+                persistence.state.csar[event.name] = { lat: event.lat, lon: event.lon, coalition: event.coalition.toLowerCase() };
                 stateChanged = true;
                 console.log(`Downed pilot recorded: '${event.name}'.`);
             }
             
             // 4. Handle pilot rescues
             if (event.type === 'rescued') {
-                if (persistentState.csar && persistentState.csar[event.name]) {
-                    delete persistentState.csar[event.name];
+                if (persistence.state.csar && persistence.state.csar[event.name]) {
+                    delete persistence.state.csar[event.name];
                     stateChanged = true;
                     console.log(`Pilot rescued. Removed '${event.name}' from tracking.`);
                 }
             }
         });
 		
-        // Only save if a file was loaded/created
-		if (stateChanged && currentPersistenceFile) {
-            if (!persistentState.mission_info) persistentState.mission_info = {};
-            const now = new Date().toISOString();
-            persistentState.mission_info.updated_at = now;
-            
-            saveState();
-            
+        // Update state and notify renderer if any changes occurred
+		if (stateChanged && persistence.currentFile) {
+            persistence.saveState();
             if (mainWindow) {
-                mainWindow.webContents.send('persistence-updated', now);
+                mainWindow.webContents.send('persistence-updated', persistence.state.mission_info.updated_at);
             }
         }
     }
@@ -494,10 +475,10 @@ function routeDCSMessage(msg) {
                         } else {
                             state[coal].aiLogs.push(`A unit from ${event.groupName} has been destroyed`);
                         }
-                        if (currentPersistenceFile) {
-                            if (persistentState.eventThreatBonus == null) persistentState.eventThreatBonus = {};
-                            persistentState.eventThreatBonus[coal] = state[coal].eventThreatBonus;
-                            saveState();
+                        if (persistence.currentFile) {
+                            if (persistence.state.eventThreatBonus == null) persistence.state.eventThreatBonus = {};
+                            persistence.state.eventThreatBonus[coal] = state[coal].eventThreatBonus;
+                            persistence.saveState();
                         }
                         break;
                         
@@ -506,10 +487,10 @@ function routeDCSMessage(msg) {
 							state[coal].eventThreatBonus = (state[coal].eventThreatBonus || 0) + 30;
                             targets.addTarget(`csar-${event.name}`, 999, 'csar', event.lat, event.lon, null);
                             state[coal].aiLogs.push('One of our pilots has ejected safely and needs to be rescued. A new csar mission has been added to the targets list');
-                            if (currentPersistenceFile) {
-                                if (persistentState.eventThreatBonus == null) persistentState.eventThreatBonus = {};
-                                persistentState.eventThreatBonus[coal] = state[coal].eventThreatBonus;
-                                saveState();
+                            if (persistence.currentFile) {
+                                if (persistence.state.eventThreatBonus == null) persistence.state.eventThreatBonus = {};
+                                persistence.state.eventThreatBonus[coal] = state[coal].eventThreatBonus;
+                                persistence.saveState();
                             }
                         } else {
                             targets.addTarget(`enemy csar-${event.name}`, 0.5, 'enemy-csar', event.lat, event.lon, null);
@@ -675,10 +656,10 @@ async function processCommander(side) {
             cState.eventThreatBonus = Math.max(0, cState.eventThreatBonus - 5);
         }
 
-        if (currentPersistenceFile) {
-            if (persistentState.eventThreatBonus == null) persistentState.eventThreatBonus = {};
-            persistentState.eventThreatBonus[side] = cState.eventThreatBonus;
-            saveState();
+        if (persistence.currentFile) {
+            if (persistence.state.eventThreatBonus == null) persistence.state.eventThreatBonus = {};
+            persistence.state.eventThreatBonus[side] = state[side].eventThreatBonus;
+            persistence.saveState();
         }
     }
 	
@@ -691,6 +672,13 @@ async function processCommander(side) {
     } else {
         mainWindow.webContents.send('log-message', `Commander of ${forces.coalition}: Full multi-domain offensive operations authorized for this cycle (Roll: ${Math.round(roll)}% <= Aggressiveness Threshold: ${cState.aggressiveness}%).`, 'info');
     }
+
+    const ballisticCount = persistence.getBallisticMissileCount(side);
+    const strategicInventory = ballisticCount > 0 ? `\nSTRATEGIC WEAPONS INVENTORY: You currently have ${ballisticCount} ballistic missiles available. Do not order a "BALLISTIC" task if you have 0.
+CRITICAL RULES FOR BALLISTIC MISSILES:
+1. 1 LAUNCHER = 1 MISSILE: To fire, you must issue an "existing" action targeting ONE specific capable launcher group from your 'active_assets'.
+2. RANGE LIMIT: Launchers have a STRICT MAXIMUM RANGE of ${state.ballisticRangeKm}km. You MUST calculate the approximate distance between the launcher's location and the target.
+3. INVENTORY & ASSET LIMITS: You cannot fire more missiles than your total inventory, nor can you fire more missiles than the number of capable launchers currently within range.\n` : `STRATEGIC WEAPONS INVENTORY: You currently have ${ballisticCount} ballistic missiles available so you can not order a "BALLISTIC" task.\n`;
 	
 	if (forces.session == null) {
 		
@@ -699,7 +687,7 @@ async function processCommander(side) {
 			forces.model = ai.initModel(authMethodGlobal, authCredentialGlobal, currentModelName, getSystemInstructions(forces.instructions));
 			forces.session = ai.startChatSession(forces.model);
 			mainWindow.webContents.send('log-message', `Commander of ${forces.coalition} is monitoring the battlefield`, 'success');
-			
+
 			// Get initial orders
 			try {
 				const prompt = `
@@ -714,7 +702,7 @@ You are the active Theater Commander.
 6. When you have gathered enough intelligence, issue your final orders.
 
 CRITICAL: Your final response MUST be a valid JSON object matching the contract exactly. Absolutely no conversational text, no markdown blocks, and no narrative reasoning outside the JSON. If no action is needed, return {"mission_log": "Idle", "actions": []}.`;
-				const aiRawResponse = await ai.sendChatUpdate(prompt + restrictionPrompt, forces, targets, territory);
+				const aiRawResponse = await ai.sendChatUpdate(prompt + restrictionPrompt + strategicInventory, forces, targets, territory);
 				const jsonOutput = JSON.parse(aiRawResponse);
 				if (jsonOutput && jsonOutput.actions) {
 					mainWindow.webContents.send('log-message', `Commander of ${forces.coalition} Journal: ${jsonOutput.mission_log}`, 'success');
@@ -724,6 +712,10 @@ CRITICAL: Your final response MUST be a valid JSON object matching the contract 
                             action.unit_names.forEach(unitName => {
                                 forces.removeAvailableUnit(unitName);
                             });
+                        }
+                        if (action.task === 'BALLISTIC') {
+                            persistence.consumeBallisticMissile(side, 1);
+                            mainWindow.webContents.send('log-message', `Commander of ${forces.coalition} authorized a BALLISTIC MISSILE launch. Missiles remaining: ${persistence.getBallisticMissileCount()}`, 'info');
                         }
                     });
                     triggerMapUpdate();
@@ -762,7 +754,7 @@ ${logForAI.length > 0 ? logForAI.join('.\n') : "ISR contacts updated. Review new
 
 CRITICAL: Output ONLY valid JSON matching the contract exactly. No conversational text.`;
 			
-			const aiRawResponse = await ai.sendChatUpdate(updatePrompt + restrictionPrompt, forces, targets, territory);
+			const aiRawResponse = await ai.sendChatUpdate(updatePrompt + restrictionPrompt + strategicInventory, forces, targets, territory);
             const jsonOutput = ai.aiSanitizeJson(aiRawResponse);
 			
 			if (jsonOutput && jsonOutput.actions && jsonOutput.actions.length > 0) {
@@ -773,6 +765,10 @@ CRITICAL: Output ONLY valid JSON matching the contract exactly. No conversationa
                         action.unit_names.forEach(unitName => {
                             forces.removeAvailableUnit(unitName);
                         });
+                    }
+                    if (action.task === 'BALLISTIC') {
+                        persistence.consumeBallisticMissile(side, 1);
+                        mainWindow.webContents.send('log-message', `Commander of ${forces.coalition} authorized a BALLISTIC MISSILE launch. Missiles remaining: ${persistence.getBallisticMissileCount()}`, 'info');
                     }
                 });
                 triggerMapUpdate();
@@ -806,7 +802,7 @@ ipcMain.handle('select-json-file', async (event) => {
     return filePaths[0];
 });
 
-ipcMain.handle('select-and-start', async (event, authMethod, authCredential, modelName, commanderSide, instructionsRed, instructionsBlue, intervalTime, aggRed, aggBlue, enableEscalation) => {
+ipcMain.handle('select-and-start', async (event, authMethod, authCredential, modelName, commanderSide, instructionsRed, instructionsBlue, intervalTime, aggRed, aggBlue, enableEscalation, bmRed, bmBlue) => {
 	
     startServer();
 
@@ -816,11 +812,12 @@ ipcMain.handle('select-and-start', async (event, authMethod, authCredential, mod
 	
 	state.escalationEnabled = enableEscalation;
 
-    if (currentPersistenceFile) {
-        if (!persistentState.mission_info) persistentState.mission_info = {};
-        persistentState.mission_info.instructionsRed = instructionsRed;
-        persistentState.mission_info.instructionsBlue = instructionsBlue;
-        saveState();
+    if (persistence.currentFile) {
+        if (!persistence.state.mission_info) persistence.state.mission_info = {};
+        persistence.state.mission_info.instructionsRed = instructionsRed;
+        persistence.state.mission_info.instructionsBlue = instructionsBlue;
+        persistence.setBallisticMissiles(bmRed, bmBlue);
+        persistence.saveState();
     }
 	
     if (commanderSide === 'red' || commanderSide === 'both') {
@@ -885,9 +882,8 @@ ipcMain.handle('stop-monitor', () => {
     }
 	state.red.forces = null; 
     state.blue.forces = null;
-	persistentState = { units: {} };
-	currentPersistenceFile = null;
-	activeDeployments = {};
+	persistence = new PersistenceManager();
+    activeDeployments = {};
     mainWindow.webContents.send('log-message', 'Operations suspended by user.', 'info');
     stopServer();
     return true;
@@ -944,24 +940,22 @@ ipcMain.handle('select-persistence-file', async (event) => {
     const filePath = filePaths[0];
     
     try {
-        const fileContent = fs.readFileSync(filePath, 'utf8');
-        const parsedState = JSON.parse(fileContent);
+        const success = persistence.loadState(filePath);
         
-        if (!parsedState.mission_info || !parsedState.units) {
-            throw new Error("Invalid AEM Commander state file format.");
+        if (!success) {
+            throw new Error("Invalid AEM Commander state file format or file not found.");
         }
-        
-        currentPersistenceFile = filePath;
-        persistentState = parsedState;
         
         return { 
             success: true, 
             fileName: path.basename(filePath),
-            missionName: parsedState.mission_info.mission_name ,
-			updatedAt: parsedState.mission_info.updated_at || parsedState.mission_info.created_at,
-            createdAt: parsedState.mission_info.created_at,
-            instructionsRed: parsedState.mission_info.instructionsRed || '',
-            instructionsBlue: parsedState.mission_info.instructionsBlue || ''
+            missionName: persistence.state.mission_info.mission_name,
+            updatedAt: persistence.state.mission_info.updated_at || persistence.state.mission_info.created_at,
+            createdAt: persistence.state.mission_info.created_at,
+            instructionsRed: persistence.state.mission_info.instructionsRed || '',
+            instructionsBlue: persistence.state.mission_info.instructionsBlue || '',
+            bmRed: persistence.state.strategic_weapons?.ballistic_missiles?.red || 0,
+            bmBlue: persistence.state.strategic_weapons?.ballistic_missiles?.blue || 0
         };
     } catch (err) {
         return { success: false, error: err.message };
@@ -978,25 +972,15 @@ ipcMain.handle('create-new-persistence-file', async (event, intendedMissionName)
 
     if (canceled) return null;
 
-    const blankState = {
-        mission_info: {
-            mission_name: intendedMissionName,
-            created_at: new Date().toISOString()
-        },
-        units: {}
-    };
-
-    fs.writeFileSync(filePath, JSON.stringify(blankState, null, 2));
-    currentPersistenceFile = filePath;
-    persistentState = blankState;
+    persistence.createNewState(filePath, intendedMissionName);
 
     return { 
-		success: true, 
-		fileName: path.basename(filePath), 
-		missionName: intendedMissionName,
-		updatedAt: blankState.mission_info.created_at,
-        createdAt: parsedState.mission_info.created_at
-	};
+        success: true, 
+        fileName: path.basename(filePath), 
+        missionName: intendedMissionName,
+        updatedAt: persistence.state.mission_info.created_at,
+        createdAt: persistence.state.mission_info.created_at
+    };
 });
 
 app.whenReady().then(createWindow);

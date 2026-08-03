@@ -546,6 +546,20 @@
                             <input type="checkbox" id="enableEscalation" checked style="width: 18px; height: 18px; accent-color: var(--accent-blue);">When enabled, commanders start in a defensive posture and unlock offensive missions only if territory is violated or losses are sustained. Threat counter will slowly decrease over time.
                         </label>
                     </div>
+
+                    <div style="margin-top: 20px;">
+                        <label>Strategic ballistic missiles inventory:</label>
+                        <div style="display: flex; gap: 25px; margin-top: 8px;">
+                            <div style="flex: 1;">
+                                <span style="font-size: 0.85em; color: var(--accent-red); font-weight: bold;">Red Missiles:</span>
+                                <input type="number" id="bmCountRed" class="input-field" value="0" min="0" style="margin-top: 5px;">
+                            </div>
+                            <div style="flex: 1;">
+                                <span style="font-size: 0.85em; color: var(--accent-blue); font-weight: bold;">Blue Missiles:</span>
+                                <input type="number" id="bmCountBlue" class="input-field" value="0" min="0" style="margin-top: 5px;">
+                            </div>
+                        </div>
+                    </div>
 					
                 </div>
 
@@ -662,6 +676,8 @@
         const aggBlueSlider = document.getElementById('aggressivenessBlue');
         const valAggRedLabel = document.getElementById('valAggRed');
         const valAggBlueLabel = document.getElementById('valAggBlue');
+        const bmCountRedInput = document.getElementById('bmCountRed');
+        const bmCountBlueInput = document.getElementById('bmCountBlue');
 		
 		// Persistence
 		const btnLoadPersistence = document.getElementById('btnLoadPersistence');
@@ -685,6 +701,8 @@
 				lastSavedTime.innerText = `Last saved: ${formatTime(result.updatedAt)}`;
                 if (result.instructionsRed) inputInstructionsRed.value = result.instructionsRed;
                 if (result.instructionsBlue) inputInstructionsBlue.value = result.instructionsBlue;
+                if (result.bmRed !== undefined) bmCountRedInput.value = result.bmRed;
+                if (result.bmBlue !== undefined) bmCountBlueInput.value = result.bmBlue;
 				persistenceInfo.style.display = 'block';
 				addLog(`Loaded state for mission: ${result.missionName}`, 'success');
 			} else if (result && !result.success) {
@@ -855,7 +873,10 @@
 			
 			const enableEscalation = document.getElementById('enableEscalation').checked;
 			
-			const selectedPath = await window.electronAPI.selectAndStart(authMethod, authCredential, model, commanderSide, instructionsRed, instructionsBlue, intervalTime, aggRed, aggBlue, enableEscalation);
+            const bmRed = parseInt(bmCountRedInput.value, 10) || 0;
+            const bmBlue = parseInt(bmCountBlueInput.value, 10) || 0;
+			
+            const selectedPath = await window.electronAPI.selectAndStart(authMethod, authCredential, model, commanderSide, instructionsRed, instructionsBlue, intervalTime, aggRed, aggBlue, enableEscalation, bmRed, bmBlue);
             
             if (selectedPath) {
                 statusText.innerText = `Running (${intervalTime}s Cycle)`;

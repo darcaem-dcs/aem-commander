@@ -95,6 +95,16 @@ RED_PILOT = "RED DOWNED PILOT"
 __CSAR_SOS = "morse-sos.ogg"        -- ADD YOUR OWN SOUND FILE
 
 -------------------------------------------------------------------------
+-- Ballistic missiles
+--
+--	BALLISTIC_MISSILE_RANGE: max range of the available launchers, 290km
+--  for SCUDs or 400km for Iskanders
+--
+-------------------------------------------------------------------------
+
+BALLISTIC_MISSILE_RANGE = 400000
+
+-------------------------------------------------------------------------
 -- Debug messages
 --
 --	Show on screen messages (can be switched ingame with F10 menu)
@@ -208,7 +218,10 @@ local function AEM_ConnectTCP()
         tcp_conn:settimeout(0)
         env.info("AEM Commander: TCP Connection established successfully!")
 		messageToAll("AEM Commander: connection with HQ established", 15)
-		SendToNode("INIT", "ALL", { mission_name = MISSION_NAME })
+		SendToNode("INIT", "ALL", { 
+            mission_name = MISSION_NAME, 
+            ballistic_range = BALLISTIC_MISSILE_RANGE 
+        })
         if menuConnectServer ~= nil then
             missionCommands.removeItem(menuConnectServer)
             menuConnectServer = nil
@@ -392,6 +405,7 @@ local function GetMissionsFromName(groupName)
     if string.find(upperName, "SECURE") then table.insert(missions, "SECURE") end
     if string.find(upperName, "FIRE_SUPPORT") then table.insert(missions, "FIRE_SUPPORT") end
 	if string.find(upperName, "CSAR") then table.insert(missions, "CSAR") end
+    if string.find(upperName, "BALLISTIC") then table.insert(missions, "BALLISTIC") end
     
     -- Default if no keywords matched
     if #missions == 0 then table.insert(missions, "Idle") end
@@ -1638,6 +1652,9 @@ function ProcessAIOrders(actions, coalitionStr)
 							combatMission = missionSEAD(zoneName, targetCoord, FlightGroup)
 						elseif taskType == "STRIKE" then
 							combatMission = missionStrike(targetCoord, action.reference_entity, action.group_name, coalitionStr)
+                        elseif taskType == "BALLISTIC" then
+                            combatMission = missionBalisticMissile(action.group_name, targetCoord.x, targetCoord.z, action.radius)
+                            return
 						end
 						
 						-- Si logramos crear una misión válida, la asignamos
@@ -1739,11 +1756,55 @@ function missionStrike(targetCoord, enemyGroupName, ownGroupName, coalitionStr)
 	return combatMission
 end
 
+function missionBalisticMissile(groupName, posX, posZ, radius)
+    
+	radius = radius or 500 
+
+    local LauncherGroup = GROUP:FindByName(groupName)
+    
+    if LauncherGroup then
+        -- 1. Generamos el desvío aleatorio (dispersión)
+        local angulo = math.random() * 2 * math.pi
+        local distanciaAleatoria = math.sqrt(math.random()) * radius
+
+        local offsetX = math.cos(angulo) * distanciaAleatoria
+        local offsetZ = math.sin(angulo) * distanciaAleatoria
+
+        -- Aplicamos el desvío a las coordenadas originales
+        local posX_final = posX + offsetX
+        local posZ_final = posZ + offsetZ
+
+        -- 2. Creamos la coordenada dinámicamente con la dispersión aplicada
+        local TargetCoord = COORDINATE:NewFromVec2({x = posX_final, y = posZ_final})
+        
+        -- 3. Obtenemos la posición de la lanzadera para calcular la distancia
+        local ScudCoord = LauncherGroup:GetCoordinate()
+        local distanciaMetros = TargetCoord:Get2DDistance(ScudCoord)
+        local distanciaKm = math.floor(distanciaMetros / 1000)
+        
+        -- 4. Comprobamos la restricción física del SCUD en DCS (50km - 290km)
+        if distanciaMetros >= 50000 and distanciaMetros <= BALLISTIC_MISSILE_RANGE then
+            -- Ordenamos el fuego
+            LauncherGroup:TaskArtillery(TargetCoord, nil, nil, 1)
+            
+            local mensajeLog = string.format("Lanzamiento SCUD ordenado. Error simulado de %d metros. Distancia: %d km", math.floor(distanciaAleatoria), distanciaKm)
+            env.info(mensajeLog)
+            
+            -- Opcional: Descomentar la siguiente línea si quieres un mensaje en pantalla al disparar
+            -- trigger.action.outText(mensajeLog, 10)
+        else
+            env.error("AEM Commander: balistic missile target is at " .. distanciaKm .. " km. Out of range (50-" .. BALLISTIC_MISSILE_RANGE .. " km)")
+        end
+    else
+        env.error("AEM Commander: balistic missile group not found " .. LauncherGroup)
+    end
+end
+
 -- ======================================================================
 -- Start execution
 -- ======================================================================
 
-if not AUTO_CONNECT then
+if AUTO_CONNECT then
     timer.scheduleFunction(AEM_NetworkLoop, nil, timer.getTime() + 1)
 else
     -- Helper function to replace the last number of the IP
