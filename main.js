@@ -4,6 +4,10 @@ const net = require('net');
 const os = require('os');
 const fs = require('fs');
 
+// Logger
+const Log = require('./utils/log.js');
+const logger = new Log(); // Creará el archivo aem_commander.log
+
 let mainWindow;
 let processIntervalId = null;
 
@@ -143,13 +147,13 @@ Return ONLY a valid JSON object. No conversational text.
 function startServer() {
     // Prevent trying to start multiple servers on the same port
     if (isListening) {
-        console.log("Server is already running.");
+        logger.info("Server is already running.");
         return;
     }
 
     tcpServer = net.createServer((socket) => {
         dcsSocket = socket;
-        console.log("DCS World connected to AEM Commander.");
+        logger.info("DCS World connected to AEM Commander.");
         let buffer = '';
         
         // Send the kill list to DCS immediately upon connection
@@ -181,12 +185,12 @@ function startServer() {
                 try {
                     let msg = JSON.parse(line);
                     routeDCSMessage(msg);
-                } catch(e) { console.error("Error parsing JSON from DCS", e); }
+                } catch(e) { logger.error("Error parsing JSON from DCS", e); }
             }
         });
 
         socket.on('close', () => {
-            console.log("DCS World disconnected.");
+            logger.info("DCS World disconnected.");
             dcsSocket = null;
             
             if (processIntervalId) {
@@ -213,7 +217,7 @@ function startServer() {
         });
         
         socket.on('error', (err) => {
-            console.log(err);
+            logger.info(err);
             dcsSocket = null;
             
             if (processIntervalId) {
@@ -243,12 +247,12 @@ function startServer() {
 
     tcpServer.listen(49080, '0.0.0.0', () => {
         isListening = true;
-        console.log('TCP Server listening on port 49080');
+        logger.info('TCP Server listening on port 49080');
     });
 
     // Handle errors (like port already in use)
     tcpServer.on('error', (err) => {
-        console.error('Server error:', err);
+        logger.error('Server error:', err);
         isListening = false;
     });
 }
@@ -258,7 +262,7 @@ function stopServer() {
         tcpServer.close(() => {
             isListening = false;
             tcpServer = null;
-            console.log('TCP Server stopped.');
+            logger.info('TCP Server stopped.');
         });
     }
 }
@@ -278,7 +282,7 @@ function routeDCSMessage(msg) {
         
         if (msg.data.ballistic_range) {
             state.ballisticRangeKm = Math.floor(msg.data.ballistic_range / 1000);
-            console.log(`Dynamic Ballistic Missile Range set to: ${state.ballisticRangeKm} km`);
+            logger.info(`Dynamic Ballistic Missile Range set to: ${state.ballisticRangeKm} km`);
         }
 
         if (persistence.currentFile) {
@@ -338,7 +342,7 @@ function routeDCSMessage(msg) {
                 // Mark the specific unit as dead for the persistence file
                 persistence.markUnitAsDestroyed(event.unitName);
                 stateChanged = true;
-                console.log(`Unit destroyed. Flagged '${event.unitName}' as dead.`);
+                logger.info(`Unit destroyed. Flagged '${event.unitName}' as dead.`);
                 
                 // Handle the AI Commander's reserve ledger using the group name
                 if (event.groupName && activeDeployments[event.groupName] && activeDeployments[event.groupName].length > 0) {
@@ -347,7 +351,7 @@ function routeDCSMessage(msg) {
                     const consumedStatic = activeDeployments[event.groupName].pop();
                     persistence.markUnitAsDestroyed(consumedStatic);
                     stateChanged = true;
-                    console.log(`Commander unit destroyed. Flagged static reserve '${consumedStatic}' as dead.`);
+                    logger.info(`Commander unit destroyed. Flagged static reserve '${consumedStatic}' as dead.`);
                     
                 }
             }
@@ -357,7 +361,7 @@ function routeDCSMessage(msg) {
                 if (!persistence.state.csar) persistence.state.csar = {};
                 persistence.state.csar[event.name] = { lat: event.lat, lon: event.lon, coalition: event.coalition.toLowerCase() };
                 stateChanged = true;
-                console.log(`Downed pilot recorded: '${event.name}'.`);
+                logger.info(`Downed pilot recorded: '${event.name}'.`);
             }
             
             // 4. Handle pilot rescues
@@ -365,7 +369,7 @@ function routeDCSMessage(msg) {
                 if (persistence.state.csar && persistence.state.csar[event.name]) {
                     delete persistence.state.csar[event.name];
                     stateChanged = true;
-                    console.log(`Pilot rescued. Removed '${event.name}' from tracking.`);
+                    logger.info(`Pilot rescued. Removed '${event.name}' from tracking.`);
                 }
             }
         });
@@ -452,8 +456,8 @@ function routeDCSMessage(msg) {
                 switch (event.type) {
                     case 'activated':
 					
-						console.log("EVENT");
-						console.log(event);
+						logger.info("EVENT");
+						logger.info(event);
 					
                         const arrayStatics = event.staticUnits;
                         forces.addActiveGroup(
@@ -464,7 +468,7 @@ function routeDCSMessage(msg) {
                         arrayStatics.forEach(name => forces.removeAvailableUnit(name));
                         state[coal].aiLogs.push(`The new flight ${event.group.name} has successfully launched from ${event.group.airbase}`);
 						
-						console.log(`The new flight ${event.group.name} has successfully launched from ${event.group.airbase}`);
+						logger.info(`The new flight ${event.group.name} has successfully launched from ${event.group.airbase}`);
 						
                         break;
                         
@@ -597,7 +601,7 @@ function triggerMapUpdate() {
         const serializedData = JSON.parse(JSON.stringify(cleanState));
         mainWindow.webContents.send('update-map', serializedData);
     } catch (e) {
-        console.error("Error serializing map state:", e);
+        logger.error("Error serializing map state:", e);
     }
 }
 
@@ -627,13 +631,14 @@ async function processCommander(side) {
 
     if (!forces.activeGroups || !targets.targets || !territory.border) {
         mainWindow.webContents.send('log-message', `Commander of ${side} is waiting for DCS telemetry...`, 'info');
-	console.log("[processCommander] not ready: " + forces.activeGroups + " + " + forces.targets + " - " + forces.border);
+	logger.info("[processCommander] not ready: " + forces.activeGroups + " + " + forces.targets + " - " + forces.border);
 		setTimeout(() => processCommander(side), 10000);
         return;
     }
 	
 	let restrictionPrompt = "";
-    
+    let shouldRoll = true;
+
     // Chequeo opcional del Sistema de Escalada (Threat Counter)
     if (state.escalationEnabled) {
         const totalThreat = (cState.isrThreatScore || 0) + (cState.eventThreatBonus || 0);
@@ -642,6 +647,7 @@ async function processCommander(side) {
             // POSTURA VERDE: Defensiva Pura
             restrictionPrompt += `\n\nCURRENT THEATER THREST POSTURE: [GREEN - LOW THREAT (Score: ${Math.round(totalThreat)})]. The situation is stable. You are strictly in a DEFENSIVE POSTURE. You are ABSOLUTELY FORBIDDEN from launching any new offensive missions (such as "STRIKE", "SEAD", "CAS", "ASSAULT", or "TRANSPORT"). You may ONLY launch or redirect units for defensive tasks ("CAP", "INTERCEPT", "DEFEND", "RTB"). Do not cross the border under any circumstance unless explicitly intercepting an active intruder.`;
             mainWindow.webContents.send('log-message', `Commander of ${forces.coalition}: Posture is GREEN (Threat Score: ${Math.round(totalThreat)} < 40). Only defensive actions authorized.`, 'info');
+            shouldRoll = false; // No need to roll for aggressiveness if we're in a strict defensive posture
         } else if (totalThreat >= 40 && totalThreat <= 80) {
             // POSTURA AMARILLA: Escaramuza / Reactiva
             restrictionPrompt += `\n\nCURRENT THEATER THREAT POSTURE: [YELLOW - MEDIUM THREAT (Score: ${Math.round(totalThreat)})]. Enemy activity or recent friendly losses have escalated the tension. You are in a REACTIVE POSTURE. You are authorized to launch close support missions ("CAS", "SEAD") to suppress localized border threats or assist friendly flights. However, you are STILL FORBIDDEN from launching deep strategic infrastructure strikes ("STRIKE") or mass ground invasions ("ASSAULT").`;
@@ -663,14 +669,15 @@ async function processCommander(side) {
         }
     }
 	
-	const roll = Math.random() * 100;
-    
-    if (roll > cState.aggressiveness) {
-        // El chequeo falló: Bloqueamos misiones ofensivas en esta iteración
-        restrictionPrompt += `\n\nCRITICAL TEMPORARY THREAT POSTURE RESTRICTION FOR THIS CYCLE: Strategic offensive operations are currently ON HOLD due to headquarters command. You are STRICTLY FORBIDDEN from launching or tasking any new offensive, strike, or assault missions (such as "STRIKE", "SEAD", "CAS", "ASSAULT", or "TRANSPORT"). You may ONLY issue defensive, protective, or support orders (such as "CAP", "INTERCEPT", "DEFEND", or "RTB") to maintain the front line or preserve active units. Do not open new offensive fronts during this interval.`;
-        mainWindow.webContents.send('log-message', `Commander of ${forces.coalition}: Threat posture check on hold (Roll: ${Math.round(roll)}% > Aggressiveness Threshold: ${cState.aggressiveness}%). Only defensive operations allowed for this cycle.`, 'info');
-    } else {
-        mainWindow.webContents.send('log-message', `Commander of ${forces.coalition}: Full multi-domain offensive operations authorized for this cycle (Roll: ${Math.round(roll)}% <= Aggressiveness Threshold: ${cState.aggressiveness}%).`, 'info');
+    if (shouldRoll) {
+        const roll = Math.random() * 100;
+        if (roll > cState.aggressiveness) {
+            // El chequeo falló: Bloqueamos misiones ofensivas en esta iteración
+            restrictionPrompt += `\n\nCRITICAL TEMPORARY THREAT POSTURE RESTRICTION FOR THIS CYCLE: Strategic offensive operations are currently ON HOLD due to headquarters command. You are STRICTLY FORBIDDEN from launching or tasking any new offensive, strike, or assault missions (such as "STRIKE", "SEAD", "CAS", "ASSAULT", or "TRANSPORT"). You may ONLY issue defensive, protective, or support orders (such as "CAP", "INTERCEPT", "DEFEND", or "RTB") to maintain the front line or preserve active units. Do not open new offensive fronts during this interval.`;
+            mainWindow.webContents.send('log-message', `Commander of ${forces.coalition}: Threat posture check on hold (Roll: ${Math.round(roll)}% > Aggressiveness Threshold: ${cState.aggressiveness}%). Only defensive operations allowed for this cycle.`, 'info');
+        } else {
+            mainWindow.webContents.send('log-message', `Commander of ${forces.coalition}: Full multi-domain offensive operations authorized for this cycle (Roll: ${Math.round(roll)}% <= Aggressiveness Threshold: ${cState.aggressiveness}%).`, 'info');
+        }
     }
 
     const ballisticCount = persistence.getBallisticMissileCount(side);
@@ -725,7 +732,7 @@ CRITICAL: Your final response MUST be a valid JSON object matching the contract 
 				return;
 			}
 		} catch (err) {
-			console.log(err);
+			logger.info(err);
 			mainWindow.webContents.send('log-message', `Failed to initialize model for ${forces.coalition}: ${err.message}`, 'error');
 			forces.session = null;
 			return;
@@ -845,7 +852,7 @@ ipcMain.handle('select-and-start', async (event, authMethod, authCredential, mod
     processIntervalId = setInterval(async () => {
         // Prevent overlapping if the API takes longer than the interval time
         if (isProcessing) {
-            console.log("Previous commander cycle still running. Skipping this interval.");
+            logger.info("Previous commander cycle still running. Skipping this interval.");
             return;
         }
         
@@ -866,7 +873,7 @@ ipcMain.handle('select-and-start', async (event, authMethod, authCredential, mod
                 await processCommander('blue');
             }
         } catch (err) {
-            console.error("Error in commander execution loop:", err);
+            logger.error("Error in commander execution loop:", err);
         } finally {
             isProcessing = false;
         }

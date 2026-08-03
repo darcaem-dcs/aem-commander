@@ -135,7 +135,7 @@ module.exports = function() {
             }
         ];
 		
-		console.log("Starting Gemini with model: " + model);
+		logger.info("Starting Gemini with model: " + model);
 		
 		let aiClient;
 		
@@ -152,7 +152,7 @@ module.exports = function() {
                 const svcAccountJson = JSON.parse(svcAccountData);
                 projectId = svcAccountJson.project_id;
             } catch (err) {
-                console.error("Error reading project_id", err);
+                logger.error("Error reading project_id", err);
             }
 			
 			process.env.GOOGLE_APPLICATION_CREDENTIALS = authCredential;
@@ -217,7 +217,7 @@ module.exports = function() {
 			while (calls && calls.length > 0) {
                 loopCount++;
 				if (loopCount >= HARD_KILL_LIMIT) {
-                    console.log("[Tool Call] Force exit.");
+                    logger.info("[Tool Call] Force exit.");
                     break;
                 }
 				
@@ -225,7 +225,7 @@ module.exports = function() {
 
                 for (const call of calls) {
                     let apiResponse = {};
-                    console.log(`[Tool Call] AI requested: ${call.name}`);
+                    logger.info(`[Tool Call] AI requested: ${call.name}`);
 
                     if (loopCount > MAX_TOOL_LOOPS) {
                         apiResponse = { system_error: "TIME EXPIRED. GENERATE THE FINAL JSON NOW." };
@@ -275,7 +275,7 @@ module.exports = function() {
 			return "";
             
         } catch (err) {
-            console.error("Gemini API Error:", err);
+            logger.error("Gemini API Error:", err);
             // Throw the error up to main.js so it gets pushed to the Electron UI log
             throw new Error(`API Request Failed: ${err.message || "Unknown communication error."}`);
         }
@@ -301,7 +301,7 @@ module.exports = function() {
                 history: truncatedHistory
             });
         } catch (err) {
-            console.error("Re-base Error:", err);
+            logger.error("Re-base Error:", err);
             return oldSession;
         }
 	}
@@ -322,11 +322,11 @@ module.exports = function() {
                     try {
                         return JSON.parse(jsonMatch[0]);
                     } catch (err3) {
-                        console.log("--- Cleanup failed (Regex extract):", jsonMatch[0]);
+                        logger.info("--- Cleanup failed (Regex extract):", jsonMatch[0]);
                         return null;
                     }
                 } else {
-                    console.log("--- Cleanup failed (No JSON structure found):", sanitized);
+                    logger.info("--- Cleanup failed (No JSON structure found):", sanitized);
                     return null;
                 }
             }

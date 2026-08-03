@@ -35,7 +35,7 @@ class PersistenceManager {
                 this.currentFile = filePath;
                 return true;
             } catch (e) {
-                console.error("Error reading persistence file:", e);
+                logger.error("Error reading persistence file:", e);
                 return false;
             }
         }
