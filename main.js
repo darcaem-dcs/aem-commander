@@ -55,37 +55,36 @@ The following specific doctrine, posture, and goals have been dictated for your 
 ${userContext}
 
 # DATA INPUTS
-1. goals: Current tactical objectives.
+1. goals: Current tactical objectives (including secondary logistical/resupply goals).
 2. active_assets: Units already in the field (can be redirected or RTB).
 3. available_assets: Reserve units ready for new tasking.
 4. isr_report: Enemy contacts detected by intelligence.
 
 # JOINT OPERATIONS & COMBINED ARMS
-- **CONQUER GOALS:** To achieve a 'conquer' type goal, you MUST deploy ground units (using tasks like "ASSAULT", "SECURE" or "TRANSPORT").
+- **CONQUER GOALS:** To achieve a 'conquer' type goal, you MUST deploy "TRANSPORT_TROOPS" to the area to deploy occupying infantry.
 - **COMBINED ARMS:** Ground units are vulnerable. Follow these deployment rules:
-  1. DO NOT send "ASSAULT" (Tanks) into a zone without establishing local Air Superiority (CAP) or without softening the target via "CAS", "STRIKE", or "FIRE_SUPPORT".
-  2. DO NOT send "SECURE" (APCs/IFVs) units alone into heavy enemy resistance. They are lightly armored. They should follow "ASSAULT" units or be sent only after the area is heavily bombed.
+  1. DO NOT send "ASSAULT" (Armor/IFVs) or "TRANSPORT_TROOPS" into a zone without establishing local Air Superiority (CAP) or without softening the target via "CAS", "STRIKE", or "FIRE_SUPPORT".
+  2. "ASSAULT" acts as the spearhead. They clear the area of enemy ground resistance. "TRANSPORT_TROOPS" should follow them or be sent only after the area is safe.
 - **ARTILLERY POSITIONING:** "FIRE_SUPPORT" units are fragile. Do NOT assign them the exact coordinates of the enemy target. Calculate and assign a "target_area" that is a safe standoff distance (approx 10-20km away).
 
 # CRITICAL CONSTRAINTS - DOCTRINE & RULES
 
 ## 1. MANDATORY MISSION VALIDATION (ZERO-TOLERANCE)
-- **THE MISSION ARRAY IS THE ONLY SOURCE OF TRUTH FOR CAPABILITIES.** - You are UNMISTAKABLY FORBIDDEN from assigning a 'task' to a unit unless that task is explicitly listed in the unit's 'mission' array within 'available_assets'.
-- **EXAMPLE:** If a unit has mission: ["ASSAULT"], you CANNOT assign it "CAS" or "CONQUER". You must assign it "ASSAULT".
+- **THE MISSION ARRAY IS THE ONLY SOURCE OF TRUTH FOR CAPABILITIES.** You are UNMISTAKABLY FORBIDDEN from assigning a 'task' to a unit unless that task is explicitly listed in the unit's 'mission' array within 'available_assets'.
+- Note: "AWACS", "TANKER", "EW", "SAM", and "AAA" are autonomous. You CANNOT task them.
 - If no available unit possesses the required capability for a high-priority goal, log the failure in 'mission_log' and DO NOT issue the order.
 
 ## 2. RULE OF TWO (FLIGHT COMPOSITION)
 - All NEW air groups must consist of exactly 2 units. 
-- Ground units ("ASSAULT", "SECURE", "FIRE_SUPPORT") may be tasked in groups of 1 or more depending on availability and threat level. 
+- Ground units and Helicopters may be tasked in groups of 1 or more depending on availability and threat level. 
 
 ## 3. ACTION TYPES & RECALL
-- "new": Tasking units from 'available_assets'. Requires 'location', 'airbase', 'unit_count', and an array of 'unit_names' selected from the tool's available_unit_ids. CRITICAL: Do not assign the same static ID to multiple different actions.
+- "new": Tasking units from 'available_assets'. Requires 'location', 'airbase', 'unit_count', and an array of 'unit_names'. CRITICAL: Do not assign the same static ID to multiple different actions.
 - "existing": Redirecting units from 'active_assets'. Requires 'group_name' (the 'id' from active_assets). Omit 'unit_names'. The 'task' must remain exactly the same as its current active mission, OR be set to "RTB" (units cannot change armaments mid-flight).
 
 ## 4. CONSERVATIVE STRATEGY
-- **PROACTIVE DEPLOYMENT:** You must not remain idle if goals are unfulfilled. Launch minimum required assets to achieve goals even if the ISR report is empty.
-- **ECONOMY OF FORCE:** Deploy only the minimum force necessary to secure a goal or counter a threat. Do not over-commit.
-- **RESERVE RATIO:** You should maintain a baseline of 20-50% of available units in reserve.
+- **PROACTIVE DEPLOYMENT:** Launch minimum required assets to achieve goals even if the ISR report is empty.
+- **ECONOMY OF FORCE:** Deploy only the minimum force necessary. Do not over-commit. Maintain a baseline of 20-50% of available units in reserve.
 - **GO/NO-GO LOGIC:** If available assets are insufficient to meet a high-priority threat safely, you MUST choose NOT to deploy. Preserving the force is a valid strategic victory.
 - **RADAR MASKING (LOST CONTACTS):** If an enemy contact suddenly drops off the ISR report, DO NOT immediately order your interceptors to RTB. Let your active fighters continue their sweep.
 - **FALLBACK TACTICS:** If outnumbered or in an escalation spiral, execute fallback strategies:
@@ -97,29 +96,29 @@ ${userContext}
 ## 5. TASKS
 
 *AIR & NAVAL TASKS:*
-- "INTERCEPT": Intercept enemy aircraft. Provide expected interception coordinates in "target_area" and the enemy group name in "reference_entity".
-- "CAP": Secure an area generally. Provide the area center in "target_area".
-- "ESCORT": Tether a fighter group to a STRIKE, CAS, or TRANSPORT. Provide the group to escort in "reference_entity".
-- "CAS": Locate and destroy ground targets to support ground forces. Provide search area center in "target_area".
-- "STRIKE": Attack specific static coordinates. Provide coordinates in "target_area".
-- "SEAD": Destroy enemy SAMs. Provide approximate SAM coordinates in "target_area".
-- "ANTI-SHIP": Attack enemy ships. Provide target location in "target_area".
-- "CSAR": Rescue downed pilots. Provide search area in "target_area" and pilot name in "reference_entity". Provide CAS cover if in enemy territory.
+- "INTERCEPT": Fixed-wing only. Intercept enemy aircraft or helicopters. Provide expected interception coordinates in "target_area" and the enemy group name in "reference_entity".
+- "CAP": Fixed-wing only. Secure an area generally. Provide area center in "target_area".
+- "SEAD": Fixed-wing only. Destroy enemy SAMs/Air Defenses. Provide approximate SAM coordinates in "target_area".
+- "CAS": Fixed-wing or Helicopters. Destroy active ground targets (moving or deployed) to support ground forces.
+- "STRIKE": Fixed-wing only. Attack specific static high-value ground targets (runways, warehouses, ports, fixed EW radars, or fixed SAM sites). Provide exact coordinates in "target_area".
+- "ANTI-SHIP": Fixed-wing only. Attack enemy ships. Provide target location in "target_area".
+- "ESCORT": Fixed-wing (to escort other planes) or Helicopters (to escort ground units/transport). Provide the escorted group in "reference_entity".
+- "CSAR": Helicopters only. Rescue downed pilots. Provide search area in "target_area" and pilot name in "reference_entity".
 - "RTB": Command an active group to return to base to preserve forces.
 
 *GROUND & LOGISTICS TASKS:*
-- "ASSAULT": Spearhead ground attacks using heavy armor (MBTs). Route them directly into the "target_area" to destroy enemy ground presence.
-- "SECURE": Use mechanized infantry (APCs/IFVs) to occupy and hold lightly defended or previously softened objectives. Route them into the "target_area".
-- "FIRE_SUPPORT": Long-range bombardment (Artillery). Route them to a safe standoff "target_area" (10-20km away from the front).
-- "DEFEND": Order ground units to hold and protect a friendly strategic location. Route them to the friendly "target_area".
-- "TRANSPORT": Simulate troop deployment to conquer an area. Can be used by air (Helos) or ground. Route to the "target_area".
-- "BALLISTIC": Launch a strategic ballistic missile (e.g. SCUD/Iskander) against heavily defended, high-value static targets (Airbases, SAM sites, Radars). Extremely difficult to intercept. Do NOT use against moving targets. Provide specific target coordinates in "target_area".
+- "ASSAULT": Spearhead ground attacks using heavy armor/combat vehicles. Route them directly into the "target_area" to destroy enemy ground presence before transports arrive.
+- "TRANSPORT_TROOPS": Fixed-wing, Helicopters, or Ground vehicles. Deploy infantry to conquer and hold a specific position. Route them to the "target_area".
+- "TRANSPORT_LOGISTICS": Fixed-wing, Helicopters, or Ground vehicles. Resupply units (e.g., SAMs without missiles, troops holding a point) or deliver materials to build new SAM sites. Provide target location in "target_area".
+- "FIRE_SUPPORT": Long-range bombardment (Artillery). Route them to a safe standoff "target_area" (10-20km away).
+- "BALLISTIC": Ground-based strategic missiles. Launch against heavily defended, static high-value targets. Do NOT use against moving targets. Provide specific coordinates in "target_area".
 
 ## 6. GOALS
-- "strike": the specific coordinates must be bombed.
-- "csar": the specific units in assetsInvolved must be rescued.
-- "enemy-csar": the specific units in assetsInvolved must be destroyed.
-- "conquer": ground units ("ASSAULT", "SECURE") or "TRANSPORT" troops must be moved to the specific coordinates to occupy them.
+- "strike": Specific static coordinates or fixed high-value targets must be destroyed.
+- "csar": Specific units in assetsInvolved must be rescued.
+- "enemy-csar": Specific downed enemy units in assetsInvolved must be destroyed.
+- "conquer": "TRANSPORT_TROOPS" must be moved to the specific coordinates to deploy infantry and occupy the zone. "ASSAULT" should clear the area first.
+- "resupply": "TRANSPORT_LOGISTICS" must be sent to coordinates to re-arm units or build infrastructure.
 
 # OUTPUT CONTRACT
 Return ONLY a valid JSON object. No conversational text.
@@ -133,7 +132,7 @@ Return ONLY a valid JSON object. No conversational text.
       "unit_type": "Exact type from asset list",
       "location": "Origin location (if 'new')",
       "airbase": "Airbase name (if 'new')",
-      "unit_count": 2, // Can be 1 or more for ground units. Must be 2 for air units.
+      "unit_count": 2, // Must be 2 for air units. 1+ for ground/helos.
       "task": "MUST match a value in the unit's 'mission' array exactly (or current task if 'existing'), OR be 'RTB'.",
       "target_area": {"lat": 0.0, "long": 0.0},
       "target_name": "targetName from goals (if applicable)",
@@ -455,10 +454,6 @@ function routeDCSMessage(msg) {
 
                 switch (event.type) {
                     case 'activated':
-					
-						logger.info("EVENT");
-						logger.info(event);
-					
                         const arrayStatics = event.staticUnits;
                         forces.addActiveGroup(
                             event.group.name, event.group.type, event.group.category,
@@ -528,6 +523,26 @@ function routeDCSMessage(msg) {
 						if (event.status === 'SUCCESS') {
 							state[coal].aiLogs.push(`The ${event.task} mission by ${event.groupName} against ${event.targetName} was a SUCCESS.`);
 							
+                            // 1. Identificar al enemigo y buscar en su lista de objetivos
+                            const enemyCoalition = coal === 'red' ? 'blue' : 'red';
+                            const enemyTargetsList = state[enemyCoalition].targets?.targets || [];
+                            
+                            // Buscar el objetivo destruido (DCS lo exporta usando la propiedad 'id' o 'name')
+                            const targetData = enemyTargetsList.find(t => t.id === event.targetName || t.name === event.targetName);
+                            
+                            // 2. Si el objetivo destruido era un almacén de misiles
+                            if (targetData && targetData.type === 'bm_depot') {
+                                const depotCapacity = parseInt(targetData.bm_count) || 0;
+                                const actualLost = persistence.destroyBallisticMissiles(enemyCoalition, depotCapacity);
+                                
+                                // Informar a ambos comandantes con sus respectivos enfoques
+                                state[coal].aiLogs.push(`INTEL CONFIRMS: Enemy ballistic missile depot destroyed! Estimated up to ${depotCapacity} missiles eliminated.`);
+                                state[enemyCoalition].aiLogs.push(`CRITICAL ALERT: Our ballistic missile depot ${event.targetName} was destroyed by enemy forces! We lost ${actualLost} missiles.`);
+                                
+                                logger.info(`[AEM] ${enemyCoalition} lost ${actualLost} ballistic missiles due to depot strike.`);
+                            }
+                            
+                            // 3. Eliminar el objetivo completado
 							targets.removeTarget(event.targetName);
 						} else {
 							state[coal].aiLogs.push(`The ${event.task} mission by ${event.groupName} against ${event.targetName} FAILED. Assess if a re-strike is necessary.`);

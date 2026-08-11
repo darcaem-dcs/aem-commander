@@ -388,24 +388,31 @@ local function GetMissionsFromName(groupName)
     local upperName = string.upper(groupName)
     local missions = {}
     
+    -- Aereal combat missions
     if string.find(upperName, "INTERCEPT") then table.insert(missions, "INTERCEPT") end
     if string.find(upperName, "CAP") then table.insert(missions, "CAP") end
     if string.find(upperName, "SEAD") then table.insert(missions, "SEAD") end
     if string.find(upperName, "CAS") then table.insert(missions, "CAS") end
     if string.find(upperName, "STRIKE") then table.insert(missions, "STRIKE") end
     if string.find(upperName, "ANTI%-SHIP") then table.insert(missions, "ANTI-SHIP") end
+    if string.find(upperName, "ESCORT") then table.insert(missions, "ESCORT") end
+	if string.find(upperName, "CSAR") then table.insert(missions, "CSAR") end
+
+    -- Ground combat missions
+    if string.find(upperName, "ASSAULT") then table.insert(missions, "ASSAULT") end
+    if string.find(upperName, "FIRE_SUPPORT") then table.insert(missions, "FIRE_SUPPORT") end
+    if string.find(upperName, "BALLISTIC") then table.insert(missions, "BALLISTIC") end
+
+    -- Transport and logistic missions
+    if string.find(upperName, "TRANSPORT_TROOPS") then table.insert(missions, "TRANSPORT_TROOPS") end
+    if string.find(upperName, "TRANSPORT_LOGISTICS") then table.insert(missions, "TRANSPORT_LOGISTICS") end
+    
+    -- Non-IA controlled units
     if string.find(upperName, "AWACS") then table.insert(missions, "AWACS") end
     if string.find(upperName, "TANKER") then table.insert(missions, "TANKER") end
-    if string.find(upperName, "ESCORT") then table.insert(missions, "ESCORT") end
     if string.find(upperName, "EW") then table.insert(missions, "EW") end
     if string.find(upperName, "SAM") then table.insert(missions, "SAM") end
     if string.find(upperName, "AAA") then table.insert(missions, "AAA") end
-    if string.find(upperName, "TRANSPORT") then table.insert(missions, "TRANSPORT") end
-    if string.find(upperName, "ASSAULT") then table.insert(missions, "ASSAULT") end
-    if string.find(upperName, "SECURE") then table.insert(missions, "SECURE") end
-    if string.find(upperName, "FIRE_SUPPORT") then table.insert(missions, "FIRE_SUPPORT") end
-	if string.find(upperName, "CSAR") then table.insert(missions, "CSAR") end
-    if string.find(upperName, "BALLISTIC") then table.insert(missions, "BALLISTIC") end
     
     -- Default if no keywords matched
     if #missions == 0 then table.insert(missions, "Idle") end
@@ -481,6 +488,10 @@ end
 
 function ExportOrderOfBattle()
 
+    env.info("==================================================")
+    env.info(" AEM COMMANDER: ORDER OF BATTLE")
+    env.info("==================================================")
+
     local active_red = {}
     local active_blue = {}
     local available_red_list = {}
@@ -491,6 +502,8 @@ function ExportOrderOfBattle()
     -- 1. DETECT ACTIVE FORCES (Deployed Groups)
     local ActiveSet = SET_GROUP:New():FilterStart()
     
+	env.info("Active groups:")
+	
     ActiveSet:ForEachGroup(function(group)
         local groupName = group:GetName()
         local coalitionVal = group:GetCoalition()
@@ -525,6 +538,9 @@ function ExportOrderOfBattle()
                     type = unitType,
                     id = groupName -- Useful for app tracking
                 }
+				
+				local key = string.format("%s|%s|%s", airbaseName, unitType, table.concat(entry.mission, ","))
+				env.info(" -> " .. key .. " (" .. coalitionVal .. ")")
                 
                 if coalitionVal == coalition.side.RED then
                     table.insert(active_red, entry)
@@ -542,6 +558,8 @@ function ExportOrderOfBattle()
     -- Reset pools just in case
     AEM_Pool_Red = {}
     AEM_Pool_Blue = {}
+	
+	env.info("Static units:")
 
     StaticSet:ForEachStatic(function(static)
         local coalitionVal = static:GetCoalition()
@@ -563,6 +581,7 @@ function ExportOrderOfBattle()
 
             -- Create Key for Dictionary: "AirbaseName|UnitTypeName|Missions"
             local key = string.format("%s|%s|%s", airbaseName, typeName, missionString)
+			env.info(" -> " .. key .. " (" .. coalitionVal .. ")")
             
             -- Select the correct global pool
             local dict = (coalitionVal == coalition.side.RED) and AEM_Pool_Red or AEM_Pool_Blue
@@ -595,6 +614,7 @@ function ExportOrderOfBattle()
     SendToNode("AVAILABLE", "RED", available_red_list)
     SendToNode("AVAILABLE", "BLUE", available_blue_list)
 
+    env.info("==================================================")
     messageToAll("AEM: Order of Battle Exported", 15)
 end
 

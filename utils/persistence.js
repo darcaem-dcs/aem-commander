@@ -59,7 +59,7 @@ class PersistenceManager {
         this.saveState();
     }
 
-    // --- Métodos de gestión de misiles balísticos ---
+    /** Ballistic missiles */
 
     setBallisticMissiles(redCount, blueCount) {
         if (!this.state.strategic_weapons) {
@@ -83,8 +83,20 @@ class PersistenceManager {
         return false;
     }
 
-    // --- Métodos de gestión de unidades (migrados de main.js) ---
-    
+    destroyBallisticMissiles(side, amount) {
+        if (!this.state.strategic_weapons) return 0;
+        
+        let currentCount = this.state.strategic_weapons.ballistic_missiles[side] || 0;
+        let lostCount = Math.min(currentCount, amount); // Resta como máximo lo que nos quede
+        
+        this.state.strategic_weapons.ballistic_missiles[side] -= lostCount;
+        this.saveState();
+        
+        return lostCount; // Devolvemos la cantidad real que se ha perdido
+    }
+
+    /** Available and destroyed units */
+
     markUnitAsDestroyed(unitName) {
         if (!this.state.units) this.state.units = {};
         this.state.units[unitName] = { status: "destroyed" };
