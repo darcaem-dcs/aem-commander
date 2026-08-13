@@ -48,14 +48,23 @@ let state = {
 const defaultDoctrine = 'Maintain air superiority on our territory: launch defensive caps. Attack flights must have escort or cap.';
 const getSystemInstructions = (userContext, unitProfiles, commanderSide) => {
     let profilesPrompt = "";
+    
     if (unitProfiles && Array.isArray(unitProfiles) && unitProfiles.length > 0) {
-        // Filtrar solo los que aplican a 'both' o a la coalición actual
+        // Filtramos por bando
         const relevantProfiles = unitProfiles.filter(p => p.side === 'both' || p.side === commanderSide);
         
         if (relevantProfiles.length > 0) {
             const profilesList = relevantProfiles
-                .map(p => `- **${p.type}**: ${p.desc}`)
+                .map(p => {
+                    let missionTag = '';
+                    // Si hay misiones definidas y no incluyen 'ANY', las añadimos al prompt
+                    if (p.mission && Array.isArray(p.mission) && !p.mission.includes('ANY')) {
+                        missionTag = ` [Task: ${p.mission.join(', ')}]`;
+                    }
+                    return `- **${p.type}${missionTag}**: ${p.desc}`;
+                })
                 .join('\n');
+                
             profilesPrompt = `\n# UNIT CAPABILITIES & LOADOUT PROFILES\nThe following unit types have specific capabilities or loadouts assigned for this operation. Factor these strengths into your tactical assignments:\n${profilesList}\n`;
         }
     }
