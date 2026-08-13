@@ -46,9 +46,25 @@ let state = {
 };
 
 const defaultDoctrine = 'Maintain air superiority on our territory: launch defensive caps. Attack flights must have escort or cap.';
-const getSystemInstructions = (userContext) => `
+const getSystemInstructions = (userContext, unitProfiles, commanderSide) => {
+    let profilesPrompt = "";
+    if (unitProfiles && Array.isArray(unitProfiles) && unitProfiles.length > 0) {
+        // Filtrar solo los que aplican a 'both' o a la coalición actual
+        const relevantProfiles = unitProfiles.filter(p => p.side === 'both' || p.side === commanderSide);
+        
+        if (relevantProfiles.length > 0) {
+            const profilesList = relevantProfiles
+                .map(p => `- **${p.type}**: ${p.desc}`)
+                .join('\n');
+            profilesPrompt = `\n# UNIT CAPABILITIES & LOADOUT PROFILES\nThe following unit types have specific capabilities or loadouts assigned for this operation. Factor these strengths into your tactical assignments:\n${profilesList}\n`;
+        }
+    }
+
+    return `
 # ROLE
 You are a highly capable and conservative AI Theater Commander for a DCS World mission. Your goal is to manage coalition assets to achieve strategic goals while minimizing losses.
+
+${profilesPrompt}
 
 # STRATEGIC CONTEXT & COMMANDER INTENT
 The following specific doctrine, posture, and goals have been dictated for your coalition. You must prioritize this intent while strictly obeying the critical constraints below:
@@ -142,6 +158,7 @@ Return ONLY a valid JSON object. No conversational text.
   ]
 }
 `;
+}
 
 function startServer() {
     // Prevent trying to start multiple servers on the same port
@@ -286,7 +303,7 @@ function routeDCSMessage(msg) {
 
         if (persistence.currentFile) {
             if (incomingMission !== persistence.state.mission_info?.mission_name) {
-                mainWindow.webContents.send('log-message', `WARNING: Loaded save file is for '${persistentState.mission_info?.mission_name}', but DCS loaded '${incomingMission}'.`, 'error');
+                mainWindow.webContents.send('log-message', `WARNING: Loaded save file is for '${persistence.state.mission_info?.mission_name}', but DCS loaded '${incomingMission}'.`, 'error');
             } else {
                 mainWindow.webContents.send('log-message', `Persistence verified for mission: ${incomingMission}`, 'success');
             }
@@ -706,8 +723,7 @@ CRITICAL RULES FOR BALLISTIC MISSILES:
 		
 		try {
 			// Pasamos el método y la credencial a tu initModel
-			forces.model = ai.initModel(authMethodGlobal, authCredentialGlobal, currentModelName, getSystemInstructions(forces.instructions));
-			forces.session = ai.startChatSession(forces.model);
+            forces.model = ai.initModel(authMethodGlobal, authCredentialGlobal, currentModelName, getSystemInstructions(forces.instructions, state.unitProfiles, side));
 			mainWindow.webContents.send('log-message', `Commander of ${forces.coalition} is monitoring the battlefield`, 'success');
 
 			// Get initial orders
@@ -824,7 +840,7 @@ ipcMain.handle('select-json-file', async (event) => {
     return filePaths[0];
 });
 
-ipcMain.handle('select-and-start', async (event, authMethod, authCredential, modelName, commanderSide, instructionsRed, instructionsBlue, intervalTime, aggRed, aggBlue, enableEscalation, bmRed, bmBlue) => {
+ipcMain.handle('select-and-start', async (event, authMethod, authCredential, modelName, commanderSide, instructionsRed, instructionsBlue, intervalTime, aggRed, aggBlue, enableEscalation, bmRed, bmBlue, unitProfiles) => {
 	
     startServer();
 
@@ -839,8 +855,11 @@ ipcMain.handle('select-and-start', async (event, authMethod, authCredential, mod
         persistence.state.mission_info.instructionsRed = instructionsRed;
         persistence.state.mission_info.instructionsBlue = instructionsBlue;
         persistence.setBallisticMissiles(bmRed, bmBlue);
+        persistence.state.mission_info.unitProfiles = unitProfiles;
         persistence.saveState();
     }
+
+    state.unitProfiles = unitProfiles;
 	
     if (commanderSide === 'red' || commanderSide === 'both') {
         state.red.forces = new CoalitionArmedForces('red', instructionsRed);
@@ -977,7 +996,8 @@ ipcMain.handle('select-persistence-file', async (event) => {
             instructionsRed: persistence.state.mission_info.instructionsRed || '',
             instructionsBlue: persistence.state.mission_info.instructionsBlue || '',
             bmRed: persistence.state.strategic_weapons?.ballistic_missiles?.red || 0,
-            bmBlue: persistence.state.strategic_weapons?.ballistic_missiles?.blue || 0
+            bmBlue: persistence.state.strategic_weapons?.ballistic_missiles?.blue || 0,
+            unitProfiles: persistence.state.mission_info.unitProfiles || {}
         };
     } catch (err) {
         return { success: false, error: err.message };

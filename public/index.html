@@ -589,6 +589,13 @@
                 
                 <textarea type="text" id="inputInstructionsRed" class="input-field" placeholder="Default red: Maintain air superiority on our territory: launch defensive caps. Attack flights must have escort or cap."></textarea>
                 <textarea type="text" id="inputInstructionsBlue" class="input-field" placeholder="Default blue: Maintain air superiority on our territory: launch defensive caps. Attack flights must have escort or cap." style="margin-top: 10px;"></textarea>
+
+                <div style="margin-top: 15px;">
+                    <button id="btnOpenUnitProfiles" class="btn-icon">
+                        <i class="fa-solid fa-plane-circle-check"></i> Configure Unit Profiles
+                    </button>
+                    <p style="font-size: 0.8em; color: var(--text-muted); margin-top: 5px;">Define custom capabilities or loadouts for specific unit types (e.g., F-15ESE).</p>
+                </div>
             </div>
 			
         </div>
@@ -648,6 +655,42 @@
 		</div>
 	</div>
 
+    <div id="unitProfilesModal" class="modal-overlay" style="display: none;">
+        <div class="modal-content card" style="width: 850px; max-width: 95%;">
+            <h3 style="margin-top: 0;">Unit Capabilities Profiles</h3>
+            <p style="font-size: 0.85em; color: var(--text-muted); margin-bottom: 15px;">Define custom descriptions for unit types so the AI commander knows their strengths.</p>
+            
+            <div id="unitProfilesList" style="max-height: 300px; overflow-y: auto; margin-bottom: 15px;">
+                <!-- Las filas se añadirán aquí dinámicamente -->
+            </div>
+
+            <button id="btnAddUnitProfile" class="btn-icon" style="width: 100%; margin-bottom: 15px;">
+                <i class="fa-solid fa-plus"></i> Add New Unit Type
+            </button>
+            
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button id="btnSaveUnitProfiles" class="btn-select" style="margin: 0; padding: 8px 16px;">Done</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sub-Modal para seleccionar Misiones -->
+    <div id="taskSelectModal" class="modal-overlay" style="display: none; z-index: 1050;">
+        <div class="modal-content card" style="width: 500px;">
+            <h4 style="margin-top: 0; margin-bottom: 5px;">Select Tasks</h4>
+            <p style="font-size: 0.85em; color: var(--text-muted); margin-bottom: 15px;">Choose the missions this loadout is capable of.</p>
+            
+            <div id="taskCheckboxesContainer" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; background: var(--bg-input); padding: 15px; border-radius: 6px; border: 1px solid var(--border-color);">
+                <!-- Los checkboxes se inyectarán aquí dinámicamente -->
+            </div>
+            
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button id="btnCancelTasks" class="btn-icon">Cancel</button>
+                <button id="btnConfirmTasks" class="btn-select" style="margin: 0; padding: 8px 16px;">Confirm</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         const btnSelectStart = document.getElementById('btnSelectStart');
         const btnStop = document.getElementById('btnStop');
@@ -703,6 +746,24 @@
                 if (result.bmRed !== undefined) bmCountRedInput.value = result.bmRed;
                 if (result.bmBlue !== undefined) bmCountBlueInput.value = result.bmBlue;
 				persistenceInfo.style.display = 'block';
+                if (result.unitProfiles) {
+                    if (Array.isArray(result.unitProfiles)) {
+                        unitProfilesData = result.unitProfiles.map(p => ({
+                            type: p.type,
+                            // Si viene del paso anterior donde era un string, lo convertimos a array. Si no existe, 'ANY'.
+                            mission: Array.isArray(p.mission) ? p.mission : (p.mission ? [p.mission] : ['ANY']),
+                            side: p.side || 'both',
+                            desc: p.desc
+                        }));
+                    } else {
+                        unitProfilesData = Object.entries(result.unitProfiles).map(([t, d]) => ({ 
+                            type: t, 
+                            mission: ['ANY'], 
+                            side: 'both', 
+                            desc: d 
+                        }));
+                    }
+                }
 				addLog(`Loaded state for mission: ${result.missionName}`, 'success');
 			} else if (result && !result.success) {
 				showValidationError(`Persistence Error: ${result.error}`);
@@ -764,7 +825,152 @@
 				btnConfirmMissionName.click();
 			}
 		});
+
+        // Unit profiles modal
+        let unitProfilesData = [];
+        let currentTaskButton = null; // Guardará el botón que abrió el sub-modal
+
+        const availableMissions = [
+            "ANY", "INTERCEPT", "CAP", "SEAD", "CAS", "STRIKE", "ANTI-SHIP", 
+            "ESCORT", "CSAR", "ASSAULT", "TRANSPORT_TROOPS", "TRANSPORT_LOGISTICS", 
+            "FIRE_SUPPORT", "BALLISTIC"
+        ];
+
+        const btnOpenUnitProfiles = document.getElementById('btnOpenUnitProfiles');
+        const unitProfilesModal = document.getElementById('unitProfilesModal');
+        const btnSaveUnitProfiles = document.getElementById('btnSaveUnitProfiles');
+        const btnAddUnitProfile = document.getElementById('btnAddUnitProfile');
+        const unitProfilesList = document.getElementById('unitProfilesList');
+
+        // Referencias al Sub-Modal
+        const taskSelectModal = document.getElementById('taskSelectModal');
+        const taskCheckboxesContainer = document.getElementById('taskCheckboxesContainer');
+        const btnCancelTasks = document.getElementById('btnCancelTasks');
+        const btnConfirmTasks = document.getElementById('btnConfirmTasks');
+
+        // 1. Lógica del Modal Principal
+        btnOpenUnitProfiles.addEventListener('click', () => {
+            unitProfilesModal.style.display = 'flex';
+            renderUnitProfiles();
+        });
+
+        btnSaveUnitProfiles.addEventListener('click', () => {
+            unitProfilesData = [];
+            document.querySelectorAll('.unit-profile-row').forEach(row => {
+                const type = row.querySelector('.profile-type').value.trim();
+                // Leemos las misiones desde el atributo data-missions del botón
+                const missionsRaw = row.querySelector('.task-selector-btn').getAttribute('data-missions');
+                const selectedMissions = JSON.parse(missionsRaw || '["ANY"]');
+                
+                const side = row.querySelector('.profile-side').value;
+                const desc = row.querySelector('.profile-desc').value.trim();
+                
+                if (type && desc) {
+                    unitProfilesData.push({ type, mission: selectedMissions, side, desc });
+                }
+            });
+            unitProfilesModal.style.display = 'none';
+        });
+
+        btnAddUnitProfile.addEventListener('click', () => {
+            addProfileRow('', ['ANY'], 'both', '');
+        });
+
+        function renderUnitProfiles() {
+            unitProfilesList.innerHTML = '';
+            unitProfilesData.forEach(profile => {
+                addProfileRow(profile.type, profile.mission, profile.side, profile.desc);
+            });
+        }
+
+        function addProfileRow(type, missionsArr, side, desc) {
+            const row = document.createElement('div');
+            row.className = 'unit-profile-row';
+            row.style = 'display: flex; gap: 10px; margin-bottom: 10px; align-items: flex-start;';
+            
+            const safeMissions = Array.isArray(missionsArr) && missionsArr.length > 0 ? missionsArr : ['ANY'];
+            const displayMissions = safeMissions.includes('ANY') ? 'ANY' : safeMissions.join(', ');
+
+            row.innerHTML = `
+                <input type="text" class="input-field profile-type" placeholder="Type (e.g. F-16C)" value="${type}" style="flex: 0.8; height: 42px;">
+                
+                <button class="btn-icon task-selector-btn" data-missions='${JSON.stringify(safeMissions)}' style="flex: 1.2; height: 42px; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: inherit; font-size: 0.9em; background: var(--bg-input); border: 1px solid var(--border-color); color: var(--text-main);">
+                    ${displayMissions}
+                </button>
+
+                <select class="input-field profile-side" style="flex: 0.8; height: 42px; padding: 0 10px;">
+                    <option value="both" ${side === 'both' ? 'selected' : ''}>Both</option>
+                    <option value="red" ${side === 'red' ? 'selected' : ''}>Red Only</option>
+                    <option value="blue" ${side === 'blue' ? 'selected' : ''}>Blue Only</option>
+                </select>
+                
+                <textarea class="input-field profile-desc" placeholder="Description..." style="flex: 3; min-height: 42px; height: 42px; resize: vertical; line-height: 1.4; padding: 10px;">${desc}</textarea>
+                
+                <button class="btn-icon btn-remove-profile" style="color: var(--accent-red); height: 42px;"><i class="fa-solid fa-trash"></i></button>
+            `;
+
+            // Evento para abrir el sub-modal de tareas
+            row.querySelector('.task-selector-btn').addEventListener('click', function() {
+                currentTaskButton = this;
+                openTaskModal(JSON.parse(this.getAttribute('data-missions')));
+            });
+
+            row.querySelector('.btn-remove-profile').addEventListener('click', () => row.remove());
+            unitProfilesList.appendChild(row);
+        }
+
+        // 2. Lógica del Sub-Modal de Tareas
+        function openTaskModal(currentMissions) {
+            taskCheckboxesContainer.innerHTML = '';
+            
+            availableMissions.forEach(m => {
+                const isChecked = currentMissions.includes(m) ? 'checked' : '';
+                const label = document.createElement('label');
+                label.style = 'display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--text-main); font-size: 0.9em; padding: 4px;';
+                
+                label.innerHTML = `<input type="checkbox" class="task-checkbox" value="${m}" ${isChecked} style="accent-color: var(--accent-blue); width: 16px; height: 16px;"> ${m}`;
+                
+                const checkbox = label.querySelector('input');
+                
+                // Comportamiento de "ANY"
+                checkbox.addEventListener('change', (e) => {
+                    const allBoxes = taskCheckboxesContainer.querySelectorAll('.task-checkbox');
+                    if (e.target.value === 'ANY' && e.target.checked) {
+                        allBoxes.forEach(box => { if (box.value !== 'ANY') box.checked = false; });
+                    } else if (e.target.value !== 'ANY' && e.target.checked) {
+                        const anyBox = Array.from(allBoxes).find(b => b.value === 'ANY');
+                        if (anyBox) anyBox.checked = false;
+                    }
+                });
+
+                taskCheckboxesContainer.appendChild(label);
+            });
+
+            taskSelectModal.style.display = 'flex';
+        }
+
+        btnCancelTasks.addEventListener('click', () => {
+            taskSelectModal.style.display = 'none';
+            currentTaskButton = null;
+        });
+
+        btnConfirmTasks.addEventListener('click', () => {
+            if (!currentTaskButton) return;
+
+            const allBoxes = taskCheckboxesContainer.querySelectorAll('.task-checkbox:checked');
+            let selected = Array.from(allBoxes).map(b => b.value);
+            
+            if (selected.length === 0) selected = ['ANY']; // Prevención si desmarcan todo
+
+            // Guardamos la info en el botón y actualizamos su texto
+            currentTaskButton.setAttribute('data-missions', JSON.stringify(selected));
+            currentTaskButton.innerText = selected.includes('ANY') ? 'ANY' : selected.join(', ');
+
+            taskSelectModal.style.display = 'none';
+            currentTaskButton = null;
+        });
 		
+        // Map
 		let map;
 		let mapLayerGroup;
         let lastBattleState = null;
@@ -875,8 +1081,8 @@
             const bmRed = parseInt(bmCountRedInput.value, 10) || 0;
             const bmBlue = parseInt(bmCountBlueInput.value, 10) || 0;
 			
-            const selectedPath = await window.electronAPI.selectAndStart(authMethod, authCredential, model, commanderSide, instructionsRed, instructionsBlue, intervalTime, aggRed, aggBlue, enableEscalation, bmRed, bmBlue);
-            
+            const selectedPath = await window.electronAPI.selectAndStart(authMethod, authCredential, model, commanderSide, instructionsRed, instructionsBlue, intervalTime, aggRed, aggBlue, enableEscalation, bmRed, bmBlue, unitProfilesData);
+
             if (selectedPath) {
                 statusText.innerText = `Running (${intervalTime}s Cycle)`;
                 statusText.className = "running";

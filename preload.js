@@ -15,8 +15,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
      * Triggers the folder selection dialog and starts the monitoring 
      * process immediately using the provided Auth details.
      */
-    selectAndStart: (authMethod, authCredential, modelName, commanderSide, instructionsRed, instructionsBlue, intervalTime, aggRed, aggBlue, enableEscalation, bmRed, bmBlue) => 
-        ipcRenderer.invoke('select-and-start', authMethod, authCredential, modelName, commanderSide, instructionsRed, instructionsBlue, intervalTime, aggRed, aggBlue, enableEscalation, bmRed, bmBlue),
+    selectAndStart: (authMethod, authCredential, modelName, commanderSide, instructionsRed, instructionsBlue, intervalTime, aggRed, aggBlue, enableEscalation, bmRed, bmBlue, unitProfiles) => 
+    ipcRenderer.invoke('select-and-start', authMethod, authCredential, modelName, commanderSide, instructionsRed, instructionsBlue, intervalTime, aggRed, aggBlue, enableEscalation, bmRed, bmBlue, unitProfiles),
 
     /**
      * Stops the active monitoring interval in the main process.
