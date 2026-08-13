@@ -87,6 +87,7 @@ ${userContext}
 
 # JOINT OPERATIONS & COMBINED ARMS
 - **CONQUER GOALS:** To achieve a 'conquer' type goal, you MUST deploy "TRANSPORT_TROOPS" to the area to deploy occupying infantry.
+- **BORDER CROSSINGS (CHOKE POINTS):** Ground invasion forces assigned to an "ASSAULT" or "TRANSPORT_TROOPS" task are strictly forbidden from crossing the border through random coordinates due to impassable terrain. If their final "target_area" is in enemy territory, you MUST specify the exact name of a "border_crossing" goal in the "route_via" field of your output action. The ground forces will use this point as a mandatory waypoint to safely cross the mountains/forests.
 - **COMBINED ARMS:** Ground units are vulnerable. Follow these deployment rules:
   1. DO NOT send "ASSAULT" (Armor/IFVs) or "TRANSPORT_TROOPS" into a zone without establishing local Air Superiority (CAP) or without softening the target via "CAS", "STRIKE", or "FIRE_SUPPORT".
   2. "ASSAULT" acts as the spearhead. They clear the area of enemy ground resistance. "TRANSPORT_TROOPS" should follow them or be sent only after the area is safe.
@@ -144,6 +145,8 @@ ${userContext}
 - "enemy-csar": Specific downed enemy units in assetsInvolved must be destroyed.
 - "conquer": "TRANSPORT_TROOPS" must be moved to the specific coordinates to deploy infantry and occupy the zone. "ASSAULT" should clear the area first.
 - "resupply": "TRANSPORT_LOGISTICS" must be sent to coordinates to re-arm units or build infrastructure.
+- "border_crossing": A strategic choke point. In peacetime, deploy infantry here to secure it. In wartime, ASSAULT forces must route through these points to invade enemy territory.
+- "deploy_infantry": "TRANSPORT_TROOPS" must be sent to these coordinates to drop off defensive infantry.
 
 # OUTPUT CONTRACT
 Return ONLY a valid JSON object. No conversational text.
@@ -161,6 +164,7 @@ Return ONLY a valid JSON object. No conversational text.
       "task": "MUST match a value in the unit's 'mission' array exactly (or current task if 'existing'), OR be 'RTB'.",
       "target_area": {"lat": 0.0, "long": 0.0},
       "target_name": "targetName from goals (if applicable)",
+      "route_via": "targetName of the 'border_crossing' goal to route through (REQUIRED if ground units are invading across the border. Otherwise null)",
       "reference_entity": "name of the group or unit referenced by the task (if applicable)",
       "rationale": "Military reasoning, including a capability verification check."
     }
@@ -686,15 +690,16 @@ async function processCommander(side) {
         
         if (totalThreat < 40) {
             // POSTURA VERDE: Defensiva Pura
-            restrictionPrompt += `\n\nCURRENT THEATER THREST POSTURE: [GREEN - LOW THREAT (Score: ${Math.round(totalThreat)})]. The situation is stable. You are strictly in a DEFENSIVE POSTURE. You are ABSOLUTELY FORBIDDEN from launching any new offensive missions (such as "STRIKE", "SEAD", "CAS", "ASSAULT", or "TRANSPORT"). You may ONLY launch or redirect units for defensive tasks ("CAP", "INTERCEPT", "DEFEND", "RTB"). Do not cross the border under any circumstance unless explicitly intercepting an active intruder.`;
-            mainWindow.webContents.send('log-message', `Commander of ${forces.coalition}: Posture is GREEN (Threat Score: ${Math.round(totalThreat)} < 40). Only defensive actions authorized.`, 'info');
-            shouldRoll = false; // No need to roll for aggressiveness if we're in a strict defensive posture
+            restrictionPrompt += `\n\nCURRENT THEATER THREAT POSTURE: [GREEN - LOW THREAT (Score: ${Math.round(totalThreat)})]. The situation is stable. You are strictly in a DEFENSIVE POSTURE. You are ABSOLUTELY FORBIDDEN from launching any new offensive missions (such as "STRIKE", "SEAD", "CAS", "ASSAULT"). You may ONLY launch or redirect units for defensive tasks ("CAP", "INTERCEPT", "DEFEND", "TRANSPORT_TROOPS", "RTB"). CRITICAL: You may ONLY pursue goals that have "peacetime_allowed": true. Ignore any goals where peacetime_allowed is false.`;
+            mainWindow.webContents.send('log-message', `Commander of ${forces.coalition}: Posture is GREEN (Threat Score: ${Math.round(totalThreat)} < 40). Only peacetime goals authorized.`, 'info');
+            shouldRoll = false; 
         } else if (totalThreat >= 40 && totalThreat <= 80) {
             // POSTURA AMARILLA: Escaramuza / Reactiva
-            restrictionPrompt += `\n\nCURRENT THEATER THREAT POSTURE: [YELLOW - MEDIUM THREAT (Score: ${Math.round(totalThreat)})]. Enemy activity or recent friendly losses have escalated the tension. You are in a REACTIVE POSTURE. You are authorized to launch close support missions ("CAS", "SEAD") to suppress localized border threats or assist friendly flights. However, you are STILL FORBIDDEN from launching deep strategic infrastructure strikes ("STRIKE") or mass ground invasions ("ASSAULT").`;
-            mainWindow.webContents.send('log-message', `Commander of ${forces.coalition}: Posture is YELLOW (Threat Score: ${Math.round(totalThreat)}). Specialized support authorized. Strategic strikes locked.`, 'info');
+            restrictionPrompt += `\n\nCURRENT THEATER THREAT POSTURE: [YELLOW - MEDIUM THREAT (Score: ${Math.round(totalThreat)})]. Enemy activity or recent friendly losses have escalated the tension. You are in a REACTIVE POSTURE. You are authorized to launch close support missions ("CAS", "SEAD") to suppress localized border threats. CRITICAL: You may ONLY pursue goals that have "peacetime_allowed": true. Strategic wartime goals are still locked.`;
+            mainWindow.webContents.send('log-message', `Commander of ${forces.coalition}: Posture is YELLOW (Threat Score: ${Math.round(totalThreat)}). Specialized support authorized. Only peacetime goals allowed.`, 'info');
         } else {
             // POSTURA ROJA: Guerra Total
+            restrictionPrompt += `\n\nCURRENT THEATER THREAT POSTURE: [RED - TOTAL WAR (Score: ${Math.round(totalThreat)})]. FULL ESCALATION. All constraints lifted. You are authorized to pursue ANY goal, including those where peacetime_allowed is false. Focus on high-value strikes and ground invasions.`;
             mainWindow.webContents.send('log-message', `Commander of ${forces.coalition}: Posture is RED (Threat Score: ${Math.round(totalThreat)} > 80). ALL CONSTRAINTS LIFTED. FULL THEATER WAR DECLARED.`, 'success');
         }
         

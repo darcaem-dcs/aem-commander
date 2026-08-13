@@ -1236,13 +1236,21 @@
                             .bindPopup('<b>Rescue Operation</b><br>Target: ' + target.name);
                         mapLayerGroup.addLayer(marker);
                     } else {				
-						let marker = L.circle([target.lat, target.lon], {
-							radius: 3000,	// meters
-							color: '#ffc107',
-							fillOpacity: 0.2,
-							weight: 2
-						}).bindPopup('<b>Goal: ' + target.name + '</b><br>Priority: ' + target.priority + '<br>Type: ' + target.type);
-						mapLayerGroup.addLayer(marker);
+						// Diferenciar color según el flag peacetime
+                        let ringColor = target.peacetime ? '#198754' : '#ffc107'; // Verde si es peacetime, amarillo/naranja si no
+                        
+                        let marker = L.circle([target.lat, target.lon], {
+                            radius: 3000,	// meters
+                            color: ringColor,
+                            fillOpacity: 0.2,
+                            weight: 2
+                        }).bindPopup(
+                            '<b>Goal: ' + target.name + '</b><br>' +
+                            'Priority: ' + target.priority + '<br>' +
+                            'Type: ' + target.type + '<br>' +
+                            'Peacetime allowed: ' + (target.peacetime ? 'Yes' : 'No')
+                        );
+                        mapLayerGroup.addLayer(marker);
 					}
                 });
             }

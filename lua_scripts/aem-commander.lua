@@ -69,6 +69,8 @@ BLUE_BORDER = "BLUE BORDER"
 
 STATIC_RESOURCE = "AEM_RES"
 TEMPLATE_PREFIX = "AEM_TPL_"
+RED_INFANTRY = "AEM_RED_INFANTRY"
+BLUE_INFANTRY = "AEM_BLUE_INFANTRY"
 
 SCHEDULER_ISR_FREQ_RED = 60
 SCHEDULER_ISR_FREQ_BLUE = 60
@@ -1237,6 +1239,100 @@ end	-- module CSAR
 AEM_Spawners = {}
 AEM_Packages = AEM_Packages or {}
 
+function AEM_DeployInfantry(groupName, coalitionStr)
+    local group = GROUP:FindByName(groupName)
+    if group and group:IsAlive() then
+        local currentCoord = group:GetCoordinate()
+        local template = (string.upper(coalitionStr) == "RED") and RED_INFANTRY or BLUE_INFANTRY
+        
+        -- Buscamos el Spawner en el registro global, o lo creamos si es la primera vez
+        local spawnObj = AEM_Spawners[template]
+        
+        if not spawnObj then
+            spawnObj = SPAWN:New(template)
+            AEM_Spawners[template] = spawnObj
+            env.info("AEM Commander: Registered new Spawner for " .. template)
+        end
+        
+        if spawnObj then
+            spawnObj:SpawnFromCoordinate(currentCoord)
+            messageToAll("AEM Commander: Infantry deployed at target zone by " .. groupName, 10)
+            env.info("AEM Commander: Infantry deployed at target zone by " .. groupName)
+        else
+            env.error("AEM Commander: Infantry template not found: " .. tostring(template))
+        end
+        
+        -- Tras desplegar la infantería, ordenamos RTB
+        group:ClearTasks()
+        group:RouteRTB()
+    end
+end
+
+local function RouteGroundUnit(group, targetCoord, speed, route_via_name, taskType, coalitionStr)
+    local waypoints = {}
+    
+    table.insert(waypoints, group:GetCoordinate():WaypointGround(speed, "Off Road"))
+    
+    if route_via_name and route_via_name ~= "" then
+        local chokeZone = ZONE:FindByName(route_via_name)
+        if chokeZone then
+            table.insert(waypoints, chokeZone:GetCoordinate():WaypointGround(speed, "Off Road"))
+        end
+    end
+    
+    local wpTarget = targetCoord:WaypointGround(speed, "Off Road")
+    
+    -- Inyectamos la acción nativa de DCS en el waypoint final
+    if taskType == "TRANSPORT_TROOPS" then
+        local taskDeploy = group:TaskFunction("AEM_DeployInfantry", group:GetName(), coalitionStr)
+        wpTarget.task = group:TaskCombo({ taskDeploy })
+    end
+    
+    table.insert(waypoints, wpTarget)
+    group:Route(waypoints)
+end
+
+local function RouteAirplaneDrop(group, targetCoord, speed, altitude, taskType, coalitionStr)
+    local waypoints = {}
+    table.insert(waypoints, group:GetCoordinate():WaypointAir(speed, "Turning Point", "Fly Over", altitude))
+    
+    local wpTarget = targetCoord:WaypointAir(speed, "Turning Point", "Fly Over", altitude)
+    if taskType == "TRANSPORT_TROOPS" then
+        local taskDeploy = group:TaskFunction("AEM_DeployInfantry", group:GetName(), coalitionStr)
+        wpTarget.task = group:TaskCombo({ taskDeploy })
+    end
+    
+    table.insert(waypoints, wpTarget)
+    group:Route(waypoints)
+end
+
+local function RouteHeloDrop(group, targetCoord, speed, altitude, taskType, coalitionStr)
+    local waypoints = {}
+    table.insert(waypoints, group:GetCoordinate():WaypointAir(speed, "Turning Point", "Fly Over", altitude))
+    
+    -- DCS Native action: Obliga al helicóptero a buscar donde posarse en esa zona
+    table.insert(waypoints, targetCoord:WaypointAir(speed, "Land", "Landing", 0))
+    group:Route(waypoints)
+    
+    -- Esperamos pacientemente el evento de aterrizaje
+    group:HandleEvent(EVENTS.Land)
+    function group:OnEventLand(EventData)
+        if EventData.IniGroup == self then
+            local dist = self:GetCoordinate():Get2DDistance(targetCoord)
+            if dist < 2000 then -- Damos un margen de 2km por si el terreno es irregular
+                if taskType == "TRANSPORT_TROOPS" then
+                    AEM_DeployInfantry(self:GetName(), coalitionStr)
+                else
+                    -- Si era solo logística (suministros), no hace spawn pero hace RTB
+                    self:ClearTasks()
+                    self:RouteRTB() -- TODO: implementar la construcción de los suministros
+                end
+                self:UnHandleEvent(EVENTS.Land) -- Apagamos el listener
+            end
+        end
+    end
+end
+
 -- Package Manager Scheduler (Monitors RV Points and Go/No-Go criteria)
 SCHEDULER:New(nil, function()
     local timeNow = timer.getTime()
@@ -1396,8 +1492,7 @@ local function SpawnAndTask(action, spawnTemplate, spawnAirbase, coalitionStr, p
         local combatMission = nil
 		
 		if not isAirUnit then
-			local redirectTask = NewGroup:TaskRouteToVec2(targetCoord:GetVec2(), 40)
-            NewGroup:SetTask(redirectTask, 1)
+            RouteGroundUnit(NewGroup, targetCoord, 40, action.route_via, taskType, coalitionStr)
 		else
         
 			if taskType == "CAP" or taskType == "ESCORT" then
@@ -1420,11 +1515,12 @@ local function SpawnAndTask(action, spawnTemplate, spawnAirbase, coalitionStr, p
 				combatMission = missionSEAD(zoneName, targetCoord, FlightGroup)
 			elseif taskType == "STRIKE" then
 				combatMission = missionStrike(targetCoord, action.reference_entity, groupName, coalitionStr)
-			elseif taskType == "TRANSPORT" then
-                -- Fallback de navegación básica si es un transporte aéreo (Mi-8, C-130, etc.)
-                altitude = (unitCategory == "Helo") and 3000 or 15000
-                speed = (unitCategory == "Helo") and 120 or 250
-                FlightGroup:AddWaypoint(targetCoord, speed, nil, altitude, true)
+            elseif taskType == "TRANSPORT_TROOPS" or taskType == "TRANSPORT_LOGISTICS" then
+                if unitCategory == "Helo" then
+                    RouteHeloDrop(NewGroup, targetCoord, 120, 3000, taskType, coalitionStr)
+                else
+                    RouteAirplaneDrop(NewGroup, targetCoord, 250, 15000, taskType, coalitionStr)
+                end
             end
 			
 			-- Package & Rendezvous Logic
@@ -1655,37 +1751,47 @@ function ProcessAIOrders(actions, coalitionStr)
 						ExistingGroup:ClearTasks()
 						ExistingGroup:RouteRTB()
 					else
-						local targetCoord = COORDINATE:NewFromLLDD(action.target_area.lat, action.target_area.long)
+
+                        local targetCoord = COORDINATE:NewFromLLDD(action.target_area.lat, action.target_area.long)
 						local zoneName = action.target_name or ("TGT-"..action.group_name)
-						
-						local FlightGroup = FLIGHTGROUP:New(ExistingGroup)
-						local combatMission = nil
 						local taskType = action.task
-					
-						if taskType == "CAP" or taskType == "ESCORT" then
-							combatMission = missionCAP(zoneName, targetCoord, FlightGroup)
-						elseif taskType == "INTERCEPT" then
-							combatMission = missionIntercept(zoneName, targetCoord, action.reference_entity)
-						elseif taskType == "CAS" then
-							combatMission = missionCAS(zoneName, targetCoord)
-						elseif taskType == "SEAD" then
-							combatMission = missionSEAD(zoneName, targetCoord, FlightGroup)
-						elseif taskType == "STRIKE" then
-							combatMission = missionStrike(targetCoord, action.reference_entity, action.group_name, coalitionStr)
-                        elseif taskType == "BALLISTIC" then
-                            combatMission = missionBalisticMissile(action.group_name, targetCoord.x, targetCoord.z, action.radius)
-                            return
-						end
 						
-						-- Si logramos crear una misión válida, la asignamos
-						if combatMission then
-							-- ClearTasks cancela rutas previas
-							ExistingGroup:ClearTasks() 
-							FlightGroup:AddMission(combatMission)
+						local isAirUnit = ExistingGroup:IsAir() or ExistingGroup:IsHelicopter()
+						local unitCategory = ExistingGroup:IsHelicopter() and "Helo" or (ExistingGroup:IsAir() and "Air" or "Ground")
+
+                        if isAirUnit then
+							local FlightGroup = FLIGHTGROUP:New(ExistingGroup)
+							local combatMission = nil
+						
+							if taskType == "CAP" or taskType == "ESCORT" then
+								combatMission = missionCAP(zoneName, targetCoord, FlightGroup)
+							elseif taskType == "INTERCEPT" then
+								combatMission = missionIntercept(zoneName, targetCoord, action.reference_entity)
+							elseif taskType == "CAS" then
+								combatMission = missionCAS(zoneName, targetCoord)
+							elseif taskType == "SEAD" then
+								combatMission = missionSEAD(zoneName, targetCoord, FlightGroup)
+							elseif taskType == "STRIKE" then
+								combatMission = missionStrike(targetCoord, action.reference_entity, action.group_name, coalitionStr)
+							elseif taskType == "TRANSPORT_TROOPS" or taskType == "TRANSPORT_LOGISTICS" then
+								if unitCategory == "Helo" then
+									RouteHeloDrop(ExistingGroup, targetCoord, 120, 3000, taskType, coalitionStr)
+								else
+									RouteAirplaneDrop(ExistingGroup, targetCoord, 250, 15000, taskType, coalitionStr)
+								end
+							end
+							
+							-- Si generó una misión de combate AUFTRAG, la asignamos
+							if combatMission then
+								ExistingGroup:ClearTasks() 
+								FlightGroup:AddMission(combatMission)
+							end
 						else
-							-- Fallback por si la tarea no se reconoce (Ej: TRANSPORT)
-							local redirectTask = ExistingGroup:TaskRouteToVec2(targetCoord:GetVec2())
-							ExistingGroup:SetTask(redirectTask, 1)
+							if taskType == "BALLISTIC" then
+								missionBalisticMissile(action.group_name, targetCoord.x, targetCoord.z, action.radius)
+							else    -- ASSAULT
+								RouteGroundUnit(ExistingGroup, targetCoord, 40, action.route_via, taskType, coalitionStr)
+							end
 						end
 						
 					end	
