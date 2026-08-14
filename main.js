@@ -87,7 +87,7 @@ ${userContext}
 
 # JOINT OPERATIONS & COMBINED ARMS
 - **CONQUER GOALS:** To achieve a 'conquer' type goal, you MUST deploy "TRANSPORT_TROOPS" to the area to deploy occupying infantry.
-- **BORDER CROSSINGS (CHOKE POINTS):** Ground invasion forces assigned to an "ASSAULT" or "TRANSPORT_TROOPS" task are strictly forbidden from crossing the border through random coordinates due to impassable terrain. If their final "target_area" is in enemy territory, you MUST specify the exact name of a "border_crossing" goal in the "route_via" field of your output action. The ground forces will use this point as a mandatory waypoint to safely cross the mountains/forests.
+- **BORDER CROSSINGS (CHOKE POINTS):** If the final "target_area" for an "ASSAULT" or "TRANSPORT_TROOPS" task is in enemy territory, check your active goals list. IF a "border_crossing" goal exists, you MUST route the ground forces through it by putting its exact name in the "route_via" field. IF NO "border_crossing" goals exist in the theater, you may ignore this rule, leave "route_via" as null, and they will proceed directly.
 - **COMBINED ARMS:** Ground units are vulnerable. Follow these deployment rules:
   1. DO NOT send "ASSAULT" (Armor/IFVs) or "TRANSPORT_TROOPS" into a zone without establishing local Air Superiority (CAP) or without softening the target via "CAS", "STRIKE", or "FIRE_SUPPORT".
   2. "ASSAULT" acts as the spearhead. They clear the area of enemy ground resistance. "TRANSPORT_TROOPS" should follow them or be sent only after the area is safe.
@@ -164,7 +164,7 @@ Return ONLY a valid JSON object. No conversational text.
       "task": "MUST match a value in the unit's 'mission' array exactly (or current task if 'existing'), OR be 'RTB'.",
       "target_area": {"lat": 0.0, "long": 0.0},
       "target_name": "targetName from goals (if applicable)",
-      "route_via": "targetName of the 'border_crossing' goal to route through (REQUIRED if ground units are invading across the border. Otherwise null)",
+      "route_via": "targetName of the 'border_crossing' goal (Only required if invading AND such a goal exists in your list. Otherwise null)",
       "reference_entity": "name of the group or unit referenced by the task (if applicable)",
       "rationale": "Military reasoning, including a capability verification check."
     }
