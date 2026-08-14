@@ -1,3 +1,5 @@
+const logger = require('./log.js');
+
 class ActiveGroup {
 
 	constructor(name, type, category, mission, lat, lon, airbase, nUnits, heading) {
@@ -377,6 +379,13 @@ class CoalitionArmedForces {
 			}
 		}
 
+		if (threats.length === 0) {
+			return { 
+				status: "CLEAR", 
+				message: `ISR scan complete. No enemy threats detected within ${radius}km of the target coordinates.` 
+			};
+		}
+
 		// Sort threats by closest first
 		threats.sort((a, b) => a.distance_km - b.distance_km);
 
@@ -412,6 +421,25 @@ class CoalitionArmedForces {
 				category: e.category,
 				lat: e.lat,
 				lon: e.lon
+			}))
+		};
+	}
+
+	// Returns ALL currently active (deployed) groups in a single call
+	getAllActiveGroups() {
+		if (!this.activeGroups || this.activeGroups.length === 0) {
+			return { message: "No active groups currently deployed." };
+		}
+
+		return {
+			total_deployed: this.activeGroups.length,
+			groups: this.activeGroups.map(g => ({
+				group_id: g.name,
+				type: g.type,
+				category: g.category,
+				mission: g.mission, // Muestra el array completo de misiones asignadas
+				lat: g.lat,
+				lon: g.lon
 			}))
 		};
 	}

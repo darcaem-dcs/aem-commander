@@ -1,3 +1,5 @@
+const logger = require('./log.js');
+
 class CoalitionTerritory {
 	
     constructor(coalition) {

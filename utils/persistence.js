@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const logger = require('./log.js');
 
 class PersistenceManager {
     constructor() {

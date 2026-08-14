@@ -44,4 +44,5 @@ class Log {
     }
 }
 
-module.exports = Log;
+const logger = new Log();
+module.exports = logger;

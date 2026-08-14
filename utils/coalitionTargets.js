@@ -1,3 +1,5 @@
+const logger = require('./log.js');
+
 class Target {
 	constructor(name, priority, type, lat, lon, assetsInvolved, peacetime = false) {
 		this.name = name;
@@ -25,7 +27,7 @@ class CoalitionTargets {
             item.target_area.long,
             item.assetsInvolved || null,
             // DCS Lua might send it as a string "true" or a boolean true
-            item.hasOwnProp('peacetime') && (item.peacetime === 'true' || item.peacetime === true)
+            item.hasOwnProperty('peacetime') && (item.peacetime === 'true' || item.peacetime === true)
         ));
     }
 	

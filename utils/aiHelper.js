@@ -1,4 +1,5 @@
 const fs = require('fs');
+const logger = require('./log.js');
 
 module.exports = function() {
 
@@ -131,6 +132,78 @@ module.exports = function() {
                             required: ["threat_class"]
                         }
                     },
+                    {
+                        name: "get_full_tactical_intel",
+                        description: "MACRO-TOOL: Retrieves a complete tactical intelligence report for a specific target location. It automatically returns territory status, nearby enemy threats, the closest capable reserve group for your mission, and nearby friendly SAM/CAP cover. Use this to evaluate a strike or assault zone in a single action.",
+                        parameters: {
+                            type: "OBJECT",
+                            properties: {
+                                target_lat: { type: "NUMBER", description: "Target latitude" },
+                                target_lon: { type: "NUMBER", description: "Target longitude" },
+                                required_mission_type: { 
+                                    type: "STRING", 
+                                    description: "The capability you need to deploy (e.g., 'STRIKE', 'TRANSPORT_TROOPS')" 
+                                },
+                                threat_radius_km: { type: "NUMBER", description: "Radius to scan for enemy threats (e.g., 50 or 80)" }
+                            },
+                            required: ["target_lat", "target_lon", "required_mission_type", "threat_radius_km"]
+                        }
+                    },
+                    {
+                        name: "get_all_active_groups",
+                        description: "Retrieves a complete list of ALL friendly groups currently deployed in the theater across all mission types. Use this to get a full picture of your active forces without calling multiple tools.",
+                        parameters: {
+                            type: "OBJECT",
+                            properties: {
+                                execute: { type: "BOOLEAN", description: "Always set to true" }
+                            },
+                            required: ["execute"]
+                        }
+                    },
+                    {
+                        name: "submit_commander_orders",
+                        description: "FINAL STEP: Use this tool to submit your final tactical plan and end your turn. Call this ONLY when you have gathered all necessary intelligence and are ready to issue orders.",
+                        parameters: {
+                            type: "OBJECT",
+                            properties: {
+                                mission_log: { 
+                                    type: "STRING",
+                                    description: "Strategic summary and assessment of history. Do not mention vehicle names or types that do not explicitly exist in your available_assets list."
+                                },
+                                actions: {
+                                    type: "ARRAY",
+                                    description: "Array of orders to issue to your forces. Leave empty if no action is needed.",
+                                    items: {
+                                        type: "OBJECT",
+                                        properties: {
+                                            action_type: { type: "STRING", description: "MUST be 'new' or 'existing'" },
+                                            group_name: { type: "STRING", description: "The 'id' from active_assets (ONLY if 'existing')" },
+                                            unit_names: { type: "ARRAY", items: { type: "STRING" }, description: "Array of static IDs. Exactly 'unit_count' IDs (ONLY if 'new')" },
+                                            unit_type: { type: "STRING", description: "Exact type from asset list (e.g., 'F-16C', 'M1A2')" },
+                                            location: { type: "STRING", description: "Origin location (ONLY if 'new')" },
+                                            airbase: { type: "STRING", description: "Airbase name (ONLY if 'new')" },
+                                            unit_count: { type: "INTEGER", description: "Must be 2 for air units. 1 or more for ground/helos." },
+                                            task: { type: "STRING", description: "MUST match a value in the unit's 'mission' array exactly, OR be 'RTB'." },
+                                            target_area: { 
+                                                type: "OBJECT",
+                                                description: "Coordinates for the task",
+                                                properties: {
+                                                    lat: { type: "NUMBER" },
+                                                    long: { type: "NUMBER" }
+                                                }
+                                            },
+                                            target_name: { type: "STRING", description: "targetName from goals (if applicable)" },
+                                            route_via: { type: "STRING", description: "targetName of the 'border_crossing' goal (Only required if invading AND such a goal exists in your list. Otherwise null)" },
+                                            reference_entity: { type: "STRING", description: "name of the group or unit referenced by the task (if applicable)" },
+                                            rationale: { type: "STRING", description: "Military reasoning, including a capability verification check." }
+                                        },
+                                        required: ["action_type", "task", "rationale"]
+                                    }
+                                }
+                            },
+                            required: ["mission_log", "actions"]
+                        }
+                    }
                 ]
             }
         ];
@@ -202,35 +275,47 @@ module.exports = function() {
 
     this.sendChatUpdate = async function(prompt, armedForces, coalitionTargets, coalitionTerritory) {
         try {
-			let response = await armedForces.session.sendMessage({ message: prompt });
-			
-			const extractAndDeduplicateCalls = (res) => {
+            let response = await armedForces.session.sendMessage({ message: prompt });
+            
+            const extractAndDeduplicateCalls = (res) => {
                 const parts = res.candidates?.[0]?.content?.parts || [];
                 return parts.filter(p => p.functionCall).map(p => p.functionCall);
             };
-			
-			let calls = extractAndDeduplicateCalls(response);
+            
+            let calls = extractAndDeduplicateCalls(response);
             let loopCount = 0;
-            const MAX_TOOL_LOOPS = 12;
-			const HARD_KILL_LIMIT = 14;
-			
-			while (calls && calls.length > 0) {
+            const MAX_TOOL_LOOPS = 25; // Presupuesto total
+            const WARNING_THRESHOLD = 20; // Aviso previo
+
+            while (calls && calls.length > 0) {
                 loopCount++;
-				if (loopCount >= HARD_KILL_LIMIT) {
-                    logger.info("[Tool Call] Force exit.");
-                    break;
+                logger.info(`[Tool Loop ${loopCount}/${MAX_TOOL_LOOPS}] Processed tool calls.`);
+
+                // Válvula de seguridad extrema: Si la IA ignora el corte y sigue pidiendo herramientas, abortamos limpiamente.
+                if (loopCount > MAX_TOOL_LOOPS) {
+                    logger.info(`[Tool Call] AI refused to stop calling tools. Forcing graceful abort.`);
+                    return JSON.stringify({ mission_log: "Intelligence gathering taking too long. Maintaining holding pattern for this cycle.", actions: [] });
                 }
-				
+
                 const toolResponses = []; 
 
                 for (const call of calls) {
                     let apiResponse = {};
-                    logger.info(`[Tool Call] AI requested: ${call.name}`);
+                    logger.info(`[Tool Call] AI requested: ${call.name} | Args: ${JSON.stringify(call.args)}`);
 
-                    if (loopCount > MAX_TOOL_LOOPS) {
-                        apiResponse = { system_error: "TIME EXPIRED. GENERATE THE FINAL JSON NOW." };
+                    // 1. Corte de suministro: Si llegamos al límite, todas las funciones devuelven un error estricto.
+                    if (loopCount === MAX_TOOL_LOOPS) {
+                        apiResponse = { 
+                            status: "FORCE_END",
+                            tactical_directive: "INTELLIGENCE GATHERING WINDOW EXPIRED. Stop calling tools. Output your final JSON actions array IMMEDIATELY based solely on the data you currently have." ,
+                            expected_format: { mission_log: "Finalizing plan...", actions: [] }
+                        };
                     } else {
-						if (call.name === "find_closest_capable_group") {
+                        // Ejecución normal de las herramientas
+                        if (call.name === "submit_commander_orders") {
+                            logger.info(`[Tool Call] AI submitted final orders. Exiting loop successfully.`);
+                            return JSON.stringify(call.args);
+                        } else if (call.name === "find_closest_capable_group") {
                             apiResponse = armedForces.findClosestCapableGroup(call.args.mission_type, call.args.target_lat, call.args.target_lon);
                         } else if (call.name === "get_theater_reserves_summary") {
                             apiResponse = armedForces.getTheaterReservesSummary();
@@ -248,11 +333,38 @@ module.exports = function() {
                             apiResponse = armedForces.getEnemyThreatsNearLocation(call.args.target_lat, call.args.target_lon, call.args.radius_km);
                         } else if (call.name === "get_known_enemy_threats_by_type") {
                             apiResponse = armedForces.getKnownEnemyThreatsByType(call.args.threat_class);
-						} else {
+                        } else if (call.name === "get_full_tactical_intel") {
+                            // 1. Territory
+                            const territoryCheck = coalitionTerritory.isTargetInFriendlyTerritory(call.args.target_lat, call.args.target_lon);
+                            
+                            // 2. Enemy Threats
+                            const threatsCheck = armedForces.getEnemyThreatsNearLocation(call.args.target_lat, call.args.target_lon, call.args.threat_radius_km);
+                            
+                            // 3. Closest Reserves
+                            const reservesCheck = armedForces.findClosestCapableGroup(call.args.required_mission_type, call.args.target_lat, call.args.target_lon);
+                            
+                            // 4. Closest Friendly Cover (SAM)
+                            const coverCheck = armedForces.getClosestActiveGroup('SAM', call.args.target_lat, call.args.target_lon);
+
+                            apiResponse = {
+                                territory_status: territoryCheck,
+                                closest_reserves_available: reservesCheck,
+                                nearby_enemy_threats: threatsCheck,
+                                closest_friendly_sam_cover: coverCheck
+                            };
+                        } else if (call.name === "get_all_active_groups") {
+                            apiResponse = armedForces.getAllActiveGroups();
+                        } else {
                             apiResponse = { error: "Function not implemented." };
+                        }
+
+                        // 2. Advertencia suave
+                        if (loopCount >= WARNING_THRESHOLD) {
+                            apiResponse._system_notice = `WARNING: Only ${MAX_TOOL_LOOPS - loopCount} tool rounds remaining. Prepare to finalize your strategy.`;
                         }
                     }
 
+                    // Empaquetamos la respuesta en el formato estricto que exige la SDK
                     toolResponses.push({
                         functionResponse: {
                             id: call.id, 
@@ -262,21 +374,22 @@ module.exports = function() {
                     });
                 }
 
-                // Devolvemos los resultados a la IA
+                // Devolvemos los resultados (o los bloqueos) a la IA
                 response = await armedForces.session.sendMessage({ message: toolResponses });
                 calls = extractAndDeduplicateCalls(response);
-			}
-			
-			const textPart = response.candidates?.[0]?.content?.parts?.find(p => p.text);
+            }
+            
+            // Extracción final del texto
+            const textPart = response.candidates?.[0]?.content?.parts?.find(p => p.text);
             if (textPart && textPart.text) {
                 return textPart.text;
             }
-			
-			return "";
+            
+            // 3. Fallback seguro: Si no generó texto (por fallo o censura), devolvemos un JSON inofensivo para evitar petar main.js
+            return JSON.stringify({ mission_log: "Commander is assessing the situation. No new orders issued.", actions: [] });
             
         } catch (err) {
             logger.error("Gemini API Error:", err);
-            // Throw the error up to main.js so it gets pushed to the Electron UI log
             throw new Error(`API Request Failed: ${err.message || "Unknown communication error."}`);
         }
     }

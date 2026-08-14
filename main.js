@@ -5,8 +5,7 @@ const os = require('os');
 const fs = require('fs');
 
 // Logger
-const Log = require('./utils/log.js');
-const logger = new Log(); // Creará el archivo aem_commander.log
+const logger = require('./utils/log.js');
 
 let mainWindow;
 let processIntervalId = null;
@@ -149,27 +148,9 @@ ${userContext}
 - "deploy_infantry": "TRANSPORT_TROOPS" must be sent to these coordinates to drop off defensive infantry.
 
 # OUTPUT CONTRACT
-Return ONLY a valid JSON object. No conversational text.
-{
-  "mission_log": "Strategic summary and assessment of history. Do not mention vehicle names or types that do not explicitly exist in your available_assets list.",
-  "actions": [
-    {
-      "action_type": "new|existing",
-      "group_name": "The 'id' from active_assets (ONLY if 'existing')",
-      "unit_names": ["Static_ID_1", "Static_ID_2"], // Exactly 'unit_count' IDs (ONLY if 'new')
-      "unit_type": "Exact type from asset list",
-      "location": "Origin location (if 'new')",
-      "airbase": "Airbase name (if 'new')",
-      "unit_count": 2, // Must be 2 for air units. 1+ for ground/helos.
-      "task": "MUST match a value in the unit's 'mission' array exactly (or current task if 'existing'), OR be 'RTB'.",
-      "target_area": {"lat": 0.0, "long": 0.0},
-      "target_name": "targetName from goals (if applicable)",
-      "route_via": "targetName of the 'border_crossing' goal (Only required if invading AND such a goal exists in your list. Otherwise null)",
-      "reference_entity": "name of the group or unit referenced by the task (if applicable)",
-      "rationale": "Military reasoning, including a capability verification check."
-    }
-  ]
-}
+When you have gathered all necessary intelligence and are ready to issue your orders, you MUST call the 'submit_commander_orders' tool. 
+Pass your 'mission_log' and your 'actions' array directly into the parameters of that tool. 
+DO NOT generate raw JSON blocks or plain text outside of tool calls.
 `;
 }
 
@@ -738,6 +719,7 @@ CRITICAL RULES FOR BALLISTIC MISSILES:
 		try {
 			// Pasamos el método y la credencial a tu initModel
             forces.model = ai.initModel(authMethodGlobal, authCredentialGlobal, currentModelName, getSystemInstructions(forces.instructions, state.unitProfiles, side));
+            forces.session = ai.startChatSession(forces.model);
 			mainWindow.webContents.send('log-message', `Commander of ${forces.coalition} is monitoring the battlefield`, 'success');
 
 			// Get initial orders
@@ -746,14 +728,13 @@ CRITICAL RULES FOR BALLISTIC MISSILES:
 The battlefield simulation has started.
 You are the active Theater Commander.
 
-1. Use your tools to retrieve the highest priority goals.
-2. ISR CHECK: Use 'get_enemy_threats_near_location' to check for ENEMY SAMs, CAP, or EW sites near your high-priority goals. 
-3. FRIENDLY CHECK: Use 'get_active_groups_by_mission' to check your OWN deployed defensive assets. Do not confuse your own SAMs with enemy SAMs.
-4. Check if targets are in friendly territory to determine if SEAD or ESCORT is needed.
-5. Find the closest capable reserve groups to fulfill the objectives.
-6. When you have gathered enough intelligence, issue your final orders.
+1. Use 'get_top_priority_goals' to retrieve your current objectives. You have a STRICT MAXIMUM of 25 tool call rounds to gather intelligence before issuing orders.
+2. MACRO-INTEL OVERRIDE: To evaluate a specific target, you MUST prioritize the 'get_full_tactical_intel' tool. This single tool gives you territory status, enemy threats, closest reserves, and SAM cover all at once.
+3. Use atomic tools (like 'get_enemy_threats_near_location' or 'is_target_in_friendly_territory') ONLY for isolated, specific checks outside of a target evaluation.
+4. When you have gathered enough intelligence, issue your final orders.
+5. DO NOT brute-force 'get_active_groups_by_mission'. If you need to see your deployed assets to redirect them, use 'get_all_active_groups' ONCE.
 
-CRITICAL: Your final response MUST be a valid JSON object matching the contract exactly. Absolutely no conversational text, no markdown blocks, and no narrative reasoning outside the JSON. If no action is needed, return {"mission_log": "Idle", "actions": []}.`;
+CRITICAL: To finalize your turn, you MUST call the 'submit_commander_orders' tool. If no action is needed, call the tool with an empty actions array [].`;
 				const aiRawResponse = await ai.sendChatUpdate(prompt + restrictionPrompt + strategicInventory, forces, targets, territory);
 				const jsonOutput = JSON.parse(aiRawResponse);
 				if (jsonOutput && jsonOutput.actions) {
@@ -791,20 +772,21 @@ CRITICAL: Your final response MUST be a valid JSON object matching the contract 
 			
 			mainWindow.webContents.send('log-message', `Commander of ${forces.coalition} receiving battlefield updates...`, 'info');
 			
-			const updatePrompt = `
+            const updatePrompt = `
 SITUATION UPDATE: The battlefield state has changed based on new intelligence and events.
 
 RECENT BATTLEFIELD EVENTS:
 ${logForAI.length > 0 ? logForAI.join('.\n') : "ISR contacts updated. Review new intelligence."}
 
 1. REVIEW HISTORY: Consider your previous 'mission_log' and the orders you recently issued. Do not issue duplicate orders to units already task-saturated.
-2. ASSESS NEW DATA: Use your tools to review your goals, available reserve assets, currently active deployments, and updated ISR threats.
+2. ASSESS NEW DATA: Prioritize the 'get_full_tactical_intel' macro-tool to evaluate active targets quickly and conserve your tool call budget. Use individual atomic tools only for specific, isolated queries.
 3. TAKE ACTION: 
    - Issue 'new' orders to available assets to respond to unhandled threats or unfulfilled goals.
    - Issue 'RTB' commands to 'existing' active units if their goal is complete, or if the threat level has become unsurvivable.
 4. If the current situation is nominal and your previous orders are still sufficient, simply return {"mission_log": "Situation nominal, continuing execution of previous orders.", "actions": []}.
+5. DO NOT brute-force 'get_active_groups_by_mission'. If you need to see your deployed assets to redirect them, use 'get_all_active_groups' ONCE.
 
-CRITICAL: Output ONLY valid JSON matching the contract exactly. No conversational text.`;
+CRITICAL: To finalize your turn, you MUST call the 'submit_commander_orders' tool. If no action is needed, call the tool with an empty actions array [].`;
 			
 			const aiRawResponse = await ai.sendChatUpdate(updatePrompt + restrictionPrompt + strategicInventory, forces, targets, territory);
             const jsonOutput = ai.aiSanitizeJson(aiRawResponse);
