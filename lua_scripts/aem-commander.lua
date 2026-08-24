@@ -301,10 +301,11 @@ local function AEM_NetworkLoop()
                     FIND_IP_COUNTER = FIND_IP_COUNTER + 1
                 else
                     FIND_IP_COUNTER = IP_RANGE_FROM
+                    scan_initialized = true
                 end
                 if FIND_IP_COUNTER <= IP_RANGE_TO then
                     setHostIP(FIND_IP_COUNTER)
-                    return timer.getTime() + 5 -- Reintentar en 5 segundos
+                    return timer.getTime() + 1 -- Reintentar en 1 segundos
                 else
                     env.info("AEM Commander: server IP not found in range (" .. IP_RANGE_FROM .. " - " .. IP_RANGE_TO .. "). Stopping network loop.")
                     messageToAll("AEM Commander: HQ offline. Free flight.", 15)
