@@ -145,6 +145,12 @@ local function messageToAll(message, t)
 	end
 end
 
+local function messageToCoalition(coalition, message, t)
+    if MODULE_DEBUG then
+        trigger.action.outTextForCoalition(coalition, message, t)
+    end
+end
+
 local function printBootStatus()
     env.info("==================================================")
     env.info(" AEM COMMANDER: SCRIPT LOADED")
@@ -239,14 +245,26 @@ end
 function AEM_ReceiveOrders(jsonString)
     local success, msg = pcall(json.decode, jsonString)
     
-    if success and msg and msg.type == "ORDERS" then
-        if ProcessAIOrders then
-            ProcessAIOrders(msg.actions, msg.coalition)
+    if success and msg then
+        if msg.type == "ORDERS" then
+            if ProcessAIOrders then
+                ProcessAIOrders(msg.actions, msg.coalition)
+            end   
+        elseif msg.type == "MESSAGE" then
+            local side = string.upper(msg.coalition)
+            local dcsCoalition = (side == "RED") and coalition.side.RED or (side == "BLUE" and coalition.side.BLUE or coalition.side.ALL)
+            
+            if dcsCoalition == coalition.side.ALL then
+                messageToAll("AEM Commander: " .. tostring(msg.text), 15)
+            else
+                messageToCoalition(dcsCoalition, "AEM Commander: " .. tostring(msg.text), 15)
+            end
         end
     else
-		messageToAll("AEM Commander: failed to recieve orders from HQ", 15)
+        messageToAll("AEM Commander: failed to recieve orders from HQ", 15)
         env.info("AEM Commander: Error decoding tasks or JSON malformed.")
     end
+
 end
 
 local function AEM_NetworkLoop()

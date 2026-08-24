@@ -287,6 +287,13 @@ function sendOrdersToDCS(coalition, actions) {
     }
 }
 
+function sendMessageToDCS(coalition, text) {
+    if(dcsSocket) {
+        const payload = JSON.stringify({ type: "MESSAGE", coalition, text });
+        dcsSocket.write(payload + "\n");
+    }
+}
+
 function routeDCSMessage(msg) {
     const coal = msg.coalition.toLowerCase();
 	
@@ -635,6 +642,7 @@ CRITICAL: To finalize your turn, you MUST call the 'submit_commander_orders' too
 				if (jsonOutput && jsonOutput.actions) {
 					mainWindow.webContents.send('log-message', `Commander of ${forces.coalition} Journal: ${jsonOutput.mission_log}`, 'success');
 					sendOrdersToDCS(side.toUpperCase(), jsonOutput.actions);
+                    sendMessageToDCS(side.toUpperCase(), jsonOutput.mission_log);
 					jsonOutput.actions.forEach(action => {
                         if (action.action_type === 'new' && action.unit_names) {
                             action.unit_names.forEach(unitName => {
@@ -689,6 +697,7 @@ CRITICAL: To finalize your turn, you MUST call the 'submit_commander_orders' too
 			if (jsonOutput && jsonOutput.actions && jsonOutput.actions.length > 0) {
 				mainWindow.webContents.send('log-message', `Commander of ${forces.coalition}: ${jsonOutput.mission_log}`, 'success');
 				sendOrdersToDCS(side.toUpperCase(), jsonOutput.actions);
+                sendMessageToDCS(side.toUpperCase(), jsonOutput.mission_log);
 				jsonOutput.actions.forEach(action => {
                     if (action.action_type === 'new' && action.unit_names) {
                         action.unit_names.forEach(unitName => {
@@ -703,6 +712,7 @@ CRITICAL: To finalize your turn, you MUST call the 'submit_commander_orders' too
                 triggerMapUpdate();
 			} else if (jsonOutput) {
 				mainWindow.webContents.send('log-message', `Commander of ${forces.coalition}: Monitoring. ${jsonOutput.mission_log}`, 'info');
+                sendMessageToDCS(side.toUpperCase(), "Monitoring. " + jsonOutput.mission_log);
 			} else {
 				mainWindow.webContents.send('log-message', `Commander of ${forces.coalition}: AI failed to determine what to do in time.`, 'error');
 			}
