@@ -16,6 +16,9 @@
 -- mission starts, or adds an F10 menu option to connect manually.
 -- IP_RANGE_*: if not AUTO_CONNECT allows you to change the IP directly
 -- through the F10 menu before connecting.
+-- FIND_IP: if AUTO_CONNECT, scans the local network for the companion 
+-- app and connects to the first one found. Only works if the companion 
+-- app is running on a different machine in the same LAN.
 --
 -------------------------------------------------------------------------
 
@@ -24,9 +27,10 @@ MISSION_NAME = "Syria sandbox"  -- SET YOUR MISSION NAME HERE
 HOST_IP = "192.168.1.40"        -- CHANGE TO 127.0.0.1 or your LAN IP !!!
 SOCKET_MAX_RETRIES = 2
 
-AUTO_CONNECT = false
-IP_RANGE_FROM = 40
+AUTO_CONNECT = true
+IP_RANGE_FROM = 39
 IP_RANGE_TO = 45
+FIND_IP = AUTO_CONNECT and true
 
 -------------------------------------------------------------------------
 -- AI Commander
@@ -188,6 +192,20 @@ local socket = require("socket")
 local tcp_conn = nil
 local AEM_Socket_Retries = 0
 local menuConnectServer = nil
+local FIND_IP_COUNTER = IP_RANGE_FROM
+local scan_initialized = false
+
+-- Helper function to replace the last number of the IP
+local function setHostIP(newOctet)
+    -- Uses regex to capture everything up to the final dot in the IP string
+    local baseIP = string.match(HOST_IP, "^(.*%.)%d+$")
+    if baseIP then
+        HOST_IP = baseIP .. tostring(newOctet)
+        trigger.action.outText("AEM Commander HQ IP updated to: " .. HOST_IP, 10)
+    else
+        trigger.action.outText("AEM Commander Error: Malformed Base IP", 10)
+    end
+end
 
 local function SendToNode(dataType, coalitionStr, payload)
     if not tcp_conn then return end
@@ -220,7 +238,7 @@ local function AEM_ConnectTCP()
 	local success, err = tcp_conn:connect(HOST_IP, HOST_PORT)
 	if not success then
         messageToAll("AEM Commander: failed to init connection with HQ", 15)
-        env.info("AEM Commander failed to init TCP: " .. tostring(err))
+        env.info("AEM Commander failed to init TCP " .. HOST_IP .. ":" .. HOST_PORT .. " - " .. tostring(err))
         tcp_conn = nil
     else
         tcp_conn:settimeout(0)
@@ -270,7 +288,7 @@ end
 local function AEM_NetworkLoop()
     
     if not tcp_conn then
-		if AEM_Socket_Retries >= SOCKET_MAX_RETRIES then
+		if not FIND_IP and AEM_Socket_Retries >= SOCKET_MAX_RETRIES then
             env.info("AEM Commander: max TCP retires reached (" .. SOCKET_MAX_RETRIES .. "). Stopping network loop.")
             messageToAll("AEM Commander: HQ offline. Free flight.", 15)
             return nil
@@ -278,7 +296,23 @@ local function AEM_NetworkLoop()
         AEM_Socket_Retries = AEM_Socket_Retries + 1
         AEM_ConnectTCP()
         if not tcp_conn then
-            return timer.getTime() + 5 -- Reintentar en 5 segundos
+            if FIND_IP then
+                if scan_initialized then
+                    FIND_IP_COUNTER = FIND_IP_COUNTER + 1
+                else
+                    FIND_IP_COUNTER = IP_RANGE_FROM
+                end
+                if FIND_IP_COUNTER <= IP_RANGE_TO then
+                    setHostIP(FIND_IP_COUNTER)
+                    return timer.getTime() + 5 -- Reintentar en 5 segundos
+                else
+                    env.info("AEM Commander: server IP not found in range (" .. IP_RANGE_FROM .. " - " .. IP_RANGE_TO .. "). Stopping network loop.")
+                    messageToAll("AEM Commander: HQ offline. Free flight.", 15)
+                    return nil
+                end
+            else
+                return timer.getTime() + 5 -- Reintentar en 5 segundos
+            end
         end
     end
 	
@@ -1951,18 +1985,6 @@ end
 if AUTO_CONNECT then
     timer.scheduleFunction(AEM_NetworkLoop, nil, timer.getTime() + 1)
 else
-    -- Helper function to replace the last number of the IP
-    local function setHostIP(newOctet)
-        -- Uses regex to capture everything up to the final dot in the IP string
-        local baseIP = string.match(HOST_IP, "^(.*%.)%d+$")
-        if baseIP then
-            HOST_IP = baseIP .. tostring(newOctet)
-            trigger.action.outText("AEM Commander HQ IP updated to: " .. HOST_IP, 10)
-        else
-            trigger.action.outText("AEM Commander Error: Malformed Base IP", 10)
-        end
-    end
-
     menuConnectServer = missionCommands.addSubMenu("Connect to HQ", nil)
     local menuConnectServerCmd1 = missionCommands.addCommand("Connect", menuConnectServer, function() timer.scheduleFunction(AEM_NetworkLoop, nil, timer.getTime() + 1) end, nil)
     local menuChangeIP = missionCommands.addSubMenu("Change IP (Last Octet)", menuConnectServer)
