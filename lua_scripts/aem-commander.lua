@@ -22,7 +22,7 @@
 --
 -------------------------------------------------------------------------
 
-MISSION_NAME = "Syria sandbox"  -- SET YOUR MISSION NAME HERE
+MISSION_NAME = "Marianas sandbox"  -- SET YOUR MISSION NAME HERE
 
 HOST_IP = "192.168.1.39"        -- CHANGE TO 127.0.0.1 or your LAN IP !!!
 SOCKET_MAX_RETRIES = 2
@@ -101,6 +101,47 @@ RED_PILOT = "RED DOWNED PILOT"
 __CSAR_SOS = "morse-sos.ogg"        -- ADD YOUR OWN SOUND FILE
 
 -------------------------------------------------------------------------
+-- CIVILIAN TRAFFIC
+--
+--  Generates neutral background traffic between airbases and zones.
+--
+--  CIV_TEMPLATES: name of the late activation templates
+--  CIV_ZONE_PREFIX: to determine spawn and despawn zones
+--  CIV_INIT_FLIGHTS: how many flights will spawn at mission start
+--  CIV_MAX_FLIGHTS: max number of flights alive at any given time
+--  CIV_MIN_DIST_METERS: minimum distance between origin and destination
+--  CIV_ALLOWED_AIRBASES: table with the airports that can be used
+--
+-------------------------------------------------------------------------
+
+MODULE_CIV_TRAFFIC = true
+CIV_TEMPLATES = {
+	"CIV_TPL_B737",
+	"CIV_TPL_B737-1",
+	"CIV_TPL_B737-2",
+	"CIV_TPL_B737-3",
+	"CIV_TPL_B737-4",
+	"CIV_TPL_A320", 
+	"CIV_TPL_A320-1", 
+	"CIV_TPL_A320-2",
+	"CIV_TPL_A320-3",
+	"CIV_TPL_A320-4",
+	"CIV_TPL_A330",
+	"CIV_TPL_A330-1",
+	"CIV_TPL_A330-2",
+	"CIV_TPL_A330-3"
+}
+CIV_ZONE_PREFIX = "CIV_ZONE"
+CIV_INIT_FLIGHTS = 5
+CIV_MAX_FLIGHTS = 20
+CIV_MIN_DIST_METERS = 185200 -- 100nm (185 km aprox)
+CIV_ALLOWED_AIRBASES = {
+    "Antonio B. Won Pat Intl",
+    "Saipan Intl",
+    "Rota Intl"
+}
+
+-------------------------------------------------------------------------
 -- Ballistic missiles
 --
 --	BALLISTIC_MISSILE_RANGE: max range of the available launchers, 290km
@@ -145,7 +186,7 @@ missionCommands.addCommand("Show debug messages", menuAEM, function() switchDebu
 
 local function messageToAll(message, t)
 	if MODULE_DEBUG then
-		trigger.action.outText(message, t)
+		trigger.action.outText(message, t or 15)
 	end
 end
 
@@ -1280,6 +1321,156 @@ if MODULE_CSAR then	-- activate module CSAR
 	world.addEventHandler(CSAR_EventHandler)
 	
 end	-- module CSAR
+
+-- ======================================================================
+-- CIVILIAN TRAFFIC
+--
+-- Generates neutral background traffic between airbases and zones.
+-- ======================================================================
+
+local CivSpawners = {}
+
+if MODULE_CIV_TRAFFIC then
+    env.info("AEM Commander: Starting Civilian Traffic Module...")
+    local CivActiveFlights = 0
+
+    -- 1. Recopilar aeropuertos permitidos y zonas de tránsito
+    local function GetCivDestinations()
+        local dests = {}
+        local allowedDict = {}
+        for _, v in ipairs(CIV_ALLOWED_AIRBASES) do allowedDict[v] = true end
+
+        if world and world.getAirbases then
+            for _, airbase in pairs(world.getAirbases()) do
+                if airbase:isExist() and airbase:getDesc().category == 0 then
+                    if allowedDict[airbase:getName()] then
+                        table.insert(dests, { id = airbase:getName(), type = "AIRBASE", coord = COORDINATE:NewFromVec3(airbase:getPoint()) })
+                    end
+                end
+            end
+        end
+        if env.mission and env.mission.triggers and env.mission.triggers.zones then
+            for _, zoneData in pairs(env.mission.triggers.zones) do
+                if string.find(zoneData.name, "^" .. CIV_ZONE_PREFIX) then
+                    local mz = ZONE:FindByName(zoneData.name)
+                    if mz then table.insert(dests, { id = zoneData.name, type = "ZONE", coord = mz:GetCoordinate() }) end
+                end
+            end
+        end
+        return dests
+    end
+
+    local CivPoints = GetCivDestinations()
+
+    function AEM_DespawnCivGroup(groupName)
+        local g = GROUP:FindByName(groupName)
+        if g and g:IsAlive() then
+            g:Destroy()
+            CivActiveFlights = CivActiveFlights - 1
+            env.info("AEM Commander: Civ flight " .. groupName .. " left the airspace.")
+        end
+    end
+
+    -- 2. Función principal de generación
+    local function AEM_SpawnCivFlight()
+        if #CivPoints < 2 then return end
+
+        local origin = CivPoints[math.random(1, #CivPoints)]
+        local dest = CivPoints[math.random(1, #CivPoints)]
+        local attempts = 0
+
+        while (origin.id == dest.id or origin.coord:Get2DDistance(dest.coord) < CIV_MIN_DIST_METERS) and attempts < 10 do
+            dest = CivPoints[math.random(1, #CivPoints)]
+            attempts = attempts + 1
+        end
+        if attempts >= 10 then return end
+
+        -- Reservamos el slot para evitar que el bucle inicial genere de más
+        CivActiveFlights = CivActiveFlights + 1 
+        
+        local template = CIV_TEMPLATES[math.random(1, #CIV_TEMPLATES)]
+        if not CivSpawners[template] then
+            CivSpawners[template] = SPAWN:New(template)
+        end
+        local SpawnObj = CivSpawners[template]
+
+        SpawnObj:OnSpawnGroup(function(NewGroup)
+            local groupName = NewGroup:GetName()
+            local speed, alt = 400, math.random(25000, 39999)  * 0.3048
+            local waypoints = {}
+            
+            -- Obtener coordenadas base
+            local startCoord = (origin.type == "AIRBASE") and NewGroup:GetCoordinate() or origin.coord:SetAltitude(alt)
+            local endCoord = dest.coord
+            
+            table.insert(waypoints, startCoord:WaypointAir(speed, "Turning Point", "Fly Over", alt))
+
+            -- Waypoints intermedios aleatorios
+            local dist = startCoord:Get2DDistance(endCoord)
+            local heading = startCoord:HeadingTo(endCoord)
+            local numMidPoints = math.random(1, 3) -- Genera 1, 2 o 3 puntos de quiebro
+            
+            for i = 1, numMidPoints do
+                local fraction = i / (numMidPoints + 1)
+                local baseMidCoord = startCoord:Translate(dist * fraction, heading)
+                -- Desvío aleatorio de hasta 15km
+                local offsetCoord = baseMidCoord:GetRandomCoordinateInRadius(15000, 2000)
+                table.insert(waypoints, offsetCoord:WaypointAir(speed, "Turning Point", "Fly Over", alt))
+            end
+
+            -- Waypoint final (Aterrizar o Desaparecer)
+            if dest.type == "AIRBASE" then
+                table.insert(waypoints, endCoord:WaypointAir(speed, "Land", "Landing", 0))
+            else
+                local wpEnd = endCoord:WaypointAir(speed, "Turning Point", "Fly Over", alt)
+                wpEnd.task = NewGroup:TaskCombo({ NewGroup:TaskFunction("AEM_DespawnCivGroup", groupName) })
+                table.insert(waypoints, wpEnd)
+            end
+            
+            NewGroup:Route(waypoints)
+        end)
+
+        if origin.type == "AIRBASE" then
+            SpawnObj:SpawnAtAirbase(AIRBASE:FindByName(origin.id), SPAWN.Takeoff.Cold)
+        else
+            local spawnCoord = origin.coord:SetAltitude(math.random(25000, 39999) * 0.3048)
+            SpawnObj:SpawnFromCoordinate(spawnCoord)
+        end
+    end
+
+    -- 3. Generación inicial (Spawn burst)
+    -- Esperamos 20 segundos al inicio para que el mundo cargue bien y lanzamos todos.
+    timer.scheduleFunction(function()
+        for i = 1, CIV_INIT_FLIGHTS do
+            AEM_SpawnCivFlight()
+        end
+		messageToAll("AEM Commander: civilian traffic activated", 15)
+    end, nil, timer.getTime() + 20)
+
+    -- 4. Reposición de vuelos perdidos
+    SCHEDULER:New(nil, function()
+        if CivActiveFlights < CIV_MAX_FLIGHTS then
+            AEM_SpawnCivFlight()
+        end
+    end, {}, 60, 120) -- Revisa cada 2 minutos
+
+    -- 5. Limpieza al apagar motores
+    local CivEventHandler = EVENTHANDLER:New()
+    CivEventHandler:HandleEvent(EVENTS.EngineShutdown)
+    function CivEventHandler:OnEventEngineShutdown(EventData)
+        if EventData.IniGroup then
+            local name = EventData.IniGroup:GetName()
+            for _, tpl in ipairs(CIV_TEMPLATES) do
+                if string.find(name, tpl) then
+                    EventData.IniGroup:Destroy()
+                    CivActiveFlights = CivActiveFlights - 1
+                    break
+                end
+            end
+        end
+    end
+	
+end -- module civilian traffic
 
 -- ======================================================================
 -- Field command
