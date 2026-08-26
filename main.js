@@ -102,9 +102,10 @@ ${userContext}
 - Note: "AWACS", "TANKER", "EW", "SAM", and "AAA" are autonomous. You CANNOT task them.
 - If no available unit possesses the required capability for a high-priority goal, log the failure in 'mission_log' and DO NOT issue the order.
 
-## 2. RULE OF TWO (FLIGHT COMPOSITION)
-- All NEW air groups must consist of exactly 2 units. 
-- Ground units and Helicopters may be tasked in groups of 1 or more depending on availability and threat level. 
+## 2. COMPOSITION & TERMINOLOGY
+- **Air Units (Planes):** All NEW fixed-wing air groups MUST consist of exactly 2 units (referred to as a "flight" or "section").
+- **Ground & Helicopter Units:** Ground vehicles (e.g., armor, ICVs, transports, artillery) and helicopters may be tasked in groups of 1 or more depending on availability and threat level (referred to as "convoys", "platoons", or "detachments").
+- **Immersion:** Use correct military terminology in your 'mission_log'. NEVER refer to ground vehicles as "flights".
 
 ## 3. ACTION TYPES & RECALL
 - "new": Tasking units from 'available_assets'. Requires 'location', 'airbase', 'unit_count', and an array of 'unit_names'. CRITICAL: Do not assign the same static ID to multiple different actions.
@@ -284,6 +285,7 @@ function sendOrdersToDCS(coalition, actions) {
     if(dcsSocket) {
         const payload = JSON.stringify({ type: "ORDERS", coalition, actions });
         dcsSocket.write(payload + "\n");
+        logger.info(`Send orders to DCS (${coalition}): ${JSON.stringify(actions)}`);
     }
 }
 
@@ -291,6 +293,7 @@ function sendMessageToDCS(coalition, text) {
     if(dcsSocket) {
         const payload = JSON.stringify({ type: "MESSAGE", coalition, text });
         dcsSocket.write(payload + "\n");
+        logger.info(`Send message to DCS (${coalition}): ${text}`);
     }
 }
 

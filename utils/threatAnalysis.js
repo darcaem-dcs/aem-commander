@@ -111,8 +111,8 @@ module.exports = {
         }
 
         if (persistence.currentFile) {
-            if (persistence.cState.eventThreatBonus == null) persistence.cState.eventThreatBonus = {};
-            persistence.cState.eventThreatBonus[side] = cState[side].eventThreatBonus;
+            if (persistence.state.eventThreatBonus == null) persistence.state.eventThreatBonus = {};
+            persistence.state.eventThreatBonus[side] = cState.eventThreatBonus;
             persistence.saveState();
         }
 

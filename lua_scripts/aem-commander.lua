@@ -24,10 +24,10 @@
 
 MISSION_NAME = "Syria sandbox"  -- SET YOUR MISSION NAME HERE
 
-HOST_IP = "192.168.1.40"        -- CHANGE TO 127.0.0.1 or your LAN IP !!!
+HOST_IP = "192.168.1.39"        -- CHANGE TO 127.0.0.1 or your LAN IP !!!
 SOCKET_MAX_RETRIES = 2
 
-AUTO_CONNECT = true
+AUTO_CONNECT = false
 IP_RANGE_FROM = 39
 IP_RANGE_TO = 45
 FIND_IP = AUTO_CONNECT and true
@@ -1323,26 +1323,94 @@ end
 
 local function RouteGroundUnit(group, targetCoord, speed, route_via_name, taskType, coalitionStr)
     local waypoints = {}
+    local startCoord = group:GetCoordinate()
     
-    table.insert(waypoints, group:GetCoordinate():WaypointGround(speed, "Off Road"))
+    -- 1. Punto de inicio: Viajaremos "Off Road" (campo a través) para salir de la base
+    table.insert(waypoints, startCoord:WaypointGround(speed, "Off Road"))
     
+    -- 2. Buscamos la carretera más cercana al punto de aparición para iniciar la ruta de asfalto
+    local roadCoord = startCoord:GetClosestPointToRoad()
+    if roadCoord then
+        table.insert(waypoints, roadCoord:WaypointGround(speed, "On Road"))
+    end
+    
+    -- 3. Si hay un punto de cruce (choke point), nos aseguramos de que también se ajuste a la carretera
     if route_via_name and route_via_name ~= "" then
         local chokeZone = ZONE:FindByName(route_via_name)
         if chokeZone then
-            table.insert(waypoints, chokeZone:GetCoordinate():WaypointGround(speed, "Off Road"))
+            local chokeCoord = chokeZone:GetCoordinate():GetClosestPointToRoad() or chokeZone:GetCoordinate()
+            table.insert(waypoints, chokeCoord:WaypointGround(speed, "On Road"))
         end
     end
     
-    local wpTarget = targetCoord:WaypointGround(speed, "Off Road")
-    
-    -- Inyectamos la acción nativa de DCS en el waypoint final
-    if taskType == "TRANSPORT_TROOPS" then
-        local taskDeploy = group:TaskFunction("AEM_DeployInfantry", group:GetName(), coalitionStr)
-        wpTarget.task = group:TaskCombo({ taskDeploy })
-    end
+    -- 4. Punto de destino final, también ajustado a la carretera más cercana para evitar colapsos
+    local finalCoord = targetCoord:GetClosestPointToRoad() or targetCoord
+    local wpTarget = finalCoord:WaypointGround(speed, "On Road")
     
     table.insert(waypoints, wpTarget)
     group:Route(waypoints)
+	
+	-- Fallback
+	local groupName = group:GetName()
+    
+    timer.scheduleFunction(function()
+        -- Volvemos a buscar el grupo por si ha sido destruido en estos 20 segundos
+        local checkGroup = GROUP:FindByName(groupName)
+        if checkGroup and checkGroup:IsAlive() then
+            local currentCoord = checkGroup:GetCoordinate()
+            local distMoved = currentCoord:Get2DDistance(startCoord)
+            local currentSpeed = checkGroup:GetVelocityKMH()
+            
+            -- Si se ha movido menos de 10 metros y su velocidad es prácticamente nula, está atascado
+            if distMoved < 10 and currentSpeed < 1 then
+                env.info("AEM Commander: Pathfinding failed for " .. groupName .. ". Forcing OFF ROAD direct route.")
+                
+                local fallbackWaypoints = {}
+                table.insert(fallbackWaypoints, currentCoord:WaypointGround(speed, "Off Road"))
+                
+                local wpFallbackTarget = targetCoord:WaypointGround(speed, "Off Road")
+                if taskType == "TRANSPORT_TROOPS" then
+                    local fallbackDeploy = checkGroup:TaskFunction("AEM_DeployInfantry", groupName, coalitionStr)
+                    wpFallbackTarget.task = checkGroup:TaskCombo({ fallbackDeploy })
+                end
+                
+                table.insert(fallbackWaypoints, wpFallbackTarget)
+                
+                -- Sobrescribimos la ruta anterior con la nueva ruta directa de contingencia
+                checkGroup:Route(fallbackWaypoints)
+            end
+        end
+    end, nil, timer.getTime() + 60)
+	
+	if taskType == "TRANSPORT_TROOPS" then
+        local arrivalTimer
+        arrivalTimer = TIMER:New(function()
+            local checkGroup = GROUP:FindByName(groupName)
+            
+            if checkGroup and checkGroup:IsAlive() then
+                local currentCoord = checkGroup:GetCoordinate()
+                -- Medimos la distancia contra el target original
+                local distToTarget = currentCoord:Get2DDistance(targetCoord)
+                local currentSpeed = checkGroup:GetVelocityKMH()
+
+                -- Si está a menos de 600 metros de la zona y se ha detenido (velocidad < 2)
+                if distToTarget < 600 and currentSpeed < 2 then
+                    env.info("AEM Commander: " .. groupName .. " reached destination zone. Deploying infantry!")
+                    AEM_DeployInfantry(groupName, coalitionStr)
+                    
+                    -- Paramos el temporizador para que no siga creando infantería en bucle
+                    arrivalTimer:Stop()
+                end
+            else
+                -- Si el grupo es destruido por el enemigo antes de llegar, matamos el temporizador
+                arrivalTimer:Stop()
+            end
+        end)
+        
+        -- Iniciamos el escáner: Espera 30 segundos de gracia, y luego comprueba cada 5 segundos
+        arrivalTimer:Start(30, 5)
+    end
+	
 end
 
 local function RouteAirplaneDrop(group, targetCoord, speed, altitude, taskType, coalitionStr)
@@ -1504,18 +1572,25 @@ local function SpawnAndTask(action, spawnTemplate, spawnAirbase, coalitionStr, p
     
     SpawnObj:OnSpawnGroup(function(NewGroup)
         
-        NewGroup:CommandSetUnlimitedFuel(UNLIMITED_FUEL)
+		local FlightGroup = nil
 		
-		-- Forzar a que usen Chaff y Flares SOLO cuando detecten un misil en vuelo (para no gastarlos a lo tonto)
-        NewGroup:SetOption(AI.Option.Air.id.FLARE_USING, AI.Option.Air.val.FLARE_USING.AGAINST_FIRED_MISSILE)
-        
-        -- Forzar a que usen sus Pods de ECM (si los llevan equipados en el Mission Editor)
-        NewGroup:SetOption(AI.Option.Air.id.ECM_USING, AI.Option.Air.val.ECM_USING.USE_IF_DETECTED_LOCK_BY_RADAR)
+		if isAirUnit then
+		
+			NewGroup:CommandSetUnlimitedFuel(UNLIMITED_FUEL)
+			
+            -- Forzar a que usen Chaff y Flares SOLO cuando detecten un misil en vuelo
+            NewGroup:SetOption(AI.Option.Air.id.FLARE_USING, AI.Option.Air.val.FLARE_USING.AGAINST_FIRED_MISSILE)
+            
+            -- Forzar a que usen sus Pods de ECM
+            NewGroup:SetOption(AI.Option.Air.id.ECM_USING, AI.Option.Air.val.ECM_USING.USE_IF_DETECTED_LOCK_BY_RADAR)
+            
+            -- Inicializar MOOSE FlightGroup SOLAMENTE para unidades aéreas
+            FlightGroup = FLIGHTGROUP:New(NewGroup)
+        end
         
         local groupName = NewGroup:GetName()
-        messageToAll(string.format("AEM Commander %s: Executing Order - %s launched from %s", coalitionStr, action.unit_type, action.airbase), 15)
+        messageToAll(string.format("AEM Commander %s: Executing Order - %s launched from %s", coalitionStr, action.unit_type, action.airbase or "field"), 15)
         
-        local FlightGroup = FLIGHTGROUP:New(NewGroup)
         local startCoord  = NewGroup:GetCoordinate()
         local startLat, startLon = startCoord:GetLLDDM()
         
@@ -1634,7 +1709,7 @@ local function SpawnAndTask(action, spawnTemplate, spawnAirbase, coalitionStr, p
 			end
 		end
     end)
-    
+	
 	if not isAirUnit then
         -- Las unidades de tierra aparecen exactamente en la coordenada del estático consumido
         if spawnCoords and #spawnCoords > 0 then
