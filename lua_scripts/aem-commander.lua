@@ -22,7 +22,7 @@
 --
 -------------------------------------------------------------------------
 
-MISSION_NAME = "Marianas sandbox"  -- SET YOUR MISSION NAME HERE
+MISSION_NAME = "Germany sandbox"  -- SET YOUR MISSION NAME HERE
 
 HOST_IP = "192.168.1.39"        -- CHANGE TO 127.0.0.1 or your LAN IP !!!
 SOCKET_MAX_RETRIES = 2
@@ -121,24 +121,46 @@ CIV_TEMPLATES = {
 	"CIV_TPL_B737-2",
 	"CIV_TPL_B737-3",
 	"CIV_TPL_B737-4",
+	"CIV_TPL_B737-5",
+	"CIV_TPL_B737-6",
+	"CIV_TPL_B737-7",
 	"CIV_TPL_A320", 
 	"CIV_TPL_A320-1", 
 	"CIV_TPL_A320-2",
 	"CIV_TPL_A320-3",
 	"CIV_TPL_A320-4",
+	"CIV_TPL_A320-5",
+	"CIV_TPL_A320-6",
+	"CIV_TPL_A320-7",
+	"CIV_TPL_A320-8",
+	"CIV_TPL_A320-9",
 	"CIV_TPL_A330",
 	"CIV_TPL_A330-1",
 	"CIV_TPL_A330-2",
-	"CIV_TPL_A330-3"
+	"CIV_TPL_A330-3",
+	"CIV_TPL_A330-4",
+	"CIV_TPL_A330-5",
+	"CIV_TPL_A330-6"
 }
 CIV_ZONE_PREFIX = "CIV_ZONE"
 CIV_INIT_FLIGHTS = 5
 CIV_MAX_FLIGHTS = 20
-CIV_MIN_DIST_METERS = 185200 -- 100nm (185 km aprox)
+CIV_MIN_DIST_METERS = 185200 --  (185 km aprox)
 CIV_ALLOWED_AIRBASES = {
-    "Antonio B. Won Pat Intl",
-    "Saipan Intl",
-    "Rota Intl"
+    "Zweibruecken",
+    "Cologne",
+    "Duesseldorf",
+    "Frankfurt",
+    "Hannover",
+    "Bremen",
+    "Hamburg",
+    "Hamburg_Finkenwerder",
+    "Schkeuditz",
+    "Schoenefeld",
+    "Tegel",
+    "Kastrup",
+    "Sturup",
+    "Bornholm"
 }
 
 -------------------------------------------------------------------------
@@ -150,6 +172,21 @@ CIV_ALLOWED_AIRBASES = {
 -------------------------------------------------------------------------
 
 BALLISTIC_MISSILE_RANGE = 400000
+
+-------------------------------------------------------------------------
+-- Wildfires
+--
+--	Wildfires can start and expand over forest and urban areas
+--
+-------------------------------------------------------------------------
+
+MODULE_WILDFIRES = true
+WILDFIRE_MAX_PROPAGATION = 25
+FIRE_STEP_DISTANCE = 60  -- Distancia en metros entre focos (evita apelotonamiento)
+MIN_FIRE_SPACING   = 35  -- Distancia mínima a otros fuegos existentes
+DROP_RADIUS        = 80  -- Radio de efecto del agua en metros
+MAX_WATER_ALTITUDE = 75  -- Altitud máxima (AGL) en metros para soltar agua (~250 ft)
+MAX_WATER_SPEED    = 40  -- Velocidad máxima (m/s) para soltar agua (~75 nudos)
 
 -------------------------------------------------------------------------
 -- Debug messages
@@ -203,6 +240,7 @@ local function printBootStatus()
     
     -- Feature Toggles
     env.info(" -> MODULE_CSAR: " .. tostring(MODULE_CSAR))
+	env.info(" -> MODULE_CIV_TRAFFIC: " .. tostring(MODULE_CIV_TRAFFIC))
 	env.info(" -> MODULE_DEBUG: " .. tostring(MODULE_DEBUG))
     
     -- Network info
@@ -1331,7 +1369,6 @@ end	-- module CSAR
 local CivSpawners = {}
 
 if MODULE_CIV_TRAFFIC then
-    env.info("AEM Commander: Starting Civilian Traffic Module...")
     local CivActiveFlights = 0
 
     -- 1. Recopilar aeropuertos permitidos y zonas de tránsito
@@ -1379,7 +1416,10 @@ if MODULE_CIV_TRAFFIC then
         local dest = CivPoints[math.random(1, #CivPoints)]
         local attempts = 0
 
-        while (origin.id == dest.id or origin.coord:Get2DDistance(dest.coord) < CIV_MIN_DIST_METERS) and attempts < 10 do
+        while (origin.id == dest.id 
+			or (origin.type == "ZONE" and dest.type == "ZONE")
+			or origin.coord:Get2DDistance(dest.coord) < CIV_MIN_DIST_METERS) 
+			and attempts < 10 do
             dest = CivPoints[math.random(1, #CivPoints)]
             attempts = attempts + 1
         end
@@ -1396,16 +1436,24 @@ if MODULE_CIV_TRAFFIC then
 
         SpawnObj:OnSpawnGroup(function(NewGroup)
             local groupName = NewGroup:GetName()
-            local speed, alt = 400, math.random(25000, 39999)  * 0.3048
+			if dcsGroup then
+                dcsGroup:getController():setCommand({
+                    id = "SetInvisible", 
+                    params = { value = true }
+                })
+            end
+            local speed = 400
+			local alt = math.random(25000, 39999)  * 0.3048
             local waypoints = {}
             
             -- Obtener coordenadas base
             local startCoord = (origin.type == "AIRBASE") and NewGroup:GetCoordinate() or origin.coord:SetAltitude(alt)
             local endCoord = dest.coord
-            
-            table.insert(waypoints, startCoord:WaypointAir(speed, "Turning Point", "Fly Over", alt))
-
-            -- Waypoints intermedios aleatorios
+			endCoord:SetAltitude(alt)
+          
+            table.insert(waypoints, startCoord:WaypointAirTurningPoint(COORDINATE.WaypointAltType.BARO, speed))
+           
+		   -- Waypoints intermedios aleatorios
             local dist = startCoord:Get2DDistance(endCoord)
             local heading = startCoord:HeadingTo(endCoord)
             local numMidPoints = math.random(1, 3) -- Genera 1, 2 o 3 puntos de quiebro
@@ -1413,17 +1461,37 @@ if MODULE_CIV_TRAFFIC then
             for i = 1, numMidPoints do
                 local fraction = i / (numMidPoints + 1)
                 local baseMidCoord = startCoord:Translate(dist * fraction, heading)
-                -- Desvío aleatorio de hasta 15km
-                local offsetCoord = baseMidCoord:GetRandomCoordinateInRadius(15000, 2000)
-                table.insert(waypoints, offsetCoord:WaypointAir(speed, "Turning Point", "Fly Over", alt))
+                -- Desvío aleatorio de hasta 50km
+                local offsetCoord = baseMidCoord:GetRandomCoordinateInRadius(50000, 2000)
+				offsetCoord:SetAltitude(alt)
+                table.insert(waypoints, offsetCoord:WaypointAirTurningPoint(COORDINATE.WaypointAltType.BARO, speed))
             end
 
             -- Waypoint final (Aterrizar o Desaparecer)
             if dest.type == "AIRBASE" then
-                table.insert(waypoints, endCoord:WaypointAir(speed, "Land", "Landing", 0))
+                table.insert(waypoints, endCoord:WaypointAirLanding(speed, AIRBASE:FindByName(dest.id)))
+                NewGroup:HandleEvent(EVENTS.EngineShutdown)
+                
+                function NewGroup:OnEventEngineShutdown(EventData)
+                    if AEM_DespawnCivGroup then
+                        AEM_DespawnCivGroup(self:GetName())
+                    end
+                end
             else
-                local wpEnd = endCoord:WaypointAir(speed, "Turning Point", "Fly Over", alt)
-                wpEnd.task = NewGroup:TaskCombo({ NewGroup:TaskFunction("AEM_DespawnCivGroup", groupName) })
+				local wpEnd = endCoord:WaypointAirFlyOverPoint(COORDINATE.WaypointAltType.BARO, speed)
+				local despawnScript = string.format("if AEM_DespawnCivGroup then AEM_DespawnCivGroup('%s') end", groupName)
+				local despawnTask = {
+                    id = 'WrappedAction',
+                    params = {
+                        action = {
+                            id = 'Script',
+                            params = {
+                                command = despawnScript
+                            }
+                        }
+                    }
+                }
+				wpEnd.task = despawnTask
                 table.insert(waypoints, wpEnd)
             end
             
@@ -1431,7 +1499,7 @@ if MODULE_CIV_TRAFFIC then
         end)
 
         if origin.type == "AIRBASE" then
-            SpawnObj:SpawnAtAirbase(AIRBASE:FindByName(origin.id), SPAWN.Takeoff.Cold)
+            SpawnObj:SpawnAtAirbase(AIRBASE:FindByName(origin.id), SPAWN.Takeoff.Cold, AIRBASE.TerminalType.OpenBig)
         else
             local spawnCoord = origin.coord:SetAltitude(math.random(25000, 39999) * 0.3048)
             SpawnObj:SpawnFromCoordinate(spawnCoord)
@@ -1471,6 +1539,206 @@ if MODULE_CIV_TRAFFIC then
     end
 	
 end -- module civilian traffic
+
+-- ======================================================================
+-- CIVILIAN TRAFFIC
+--
+-- Generates neutral background traffic between airbases and zones.
+-- ======================================================================
+
+if MODULE_WILDFIRES then
+
+	AEM_ActiveFires = AEM_ActiveFires or {}
+	AEM_PlayerWater = AEM_PlayerWater or {}
+
+	function AEM_StartWildfire(coord, generation)
+		generation = generation or 1
+		if generation > WILDFIRE_MAX_PROPAGATION then return end 
+
+		-- 1. Normalizar la coordenada al nivel del terreno
+		local vec3 = coord:GetVec3()
+		vec3.y = land.getHeight({x = vec3.x, y = vec3.z})
+		
+		-- 2. Evitar crear un fuego encima de otro ya existente
+		for _, existingFire in pairs(AEM_ActiveFires) do
+			local exVec = existingFire.coord:GetVec3()
+			local dist = math.sqrt((vec3.x - exVec.x)^2 + (vec3.z - exVec.z)^2)
+			if dist < MIN_FIRE_SPACING then
+				return -- Cancela si ya hay un fuego muy cerca
+			end
+		end
+
+		-- 3. Comprobar si es agua
+		local surface = coord:GetSurfaceType()
+		if surface == land.SurfaceType.WATER or surface == land.SurfaceType.SHALLOW_WATER then 
+			return 
+		end
+
+		-- 4. Registrar e iniciar el fuego
+		local fireId = "Wildfire_" .. tostring(math.random(100000, 999999))
+		trigger.action.effectSmokeBig(vec3, 4, 1.0, fireId)
+		
+		local currentCoord = COORDINATE:NewFromVec3(vec3)
+		AEM_ActiveFires[fireId] = {
+			coord = currentCoord,
+			name = fireId,
+			gen = generation
+		}
+
+		-- 5. Leer dirección del viento (5m sobre el suelo)
+		local windVec = {x = vec3.x, y = vec3.y + 5, z = vec3.z}
+		local wind = atmosphere.getWind(windVec)
+		local windSpeed = math.sqrt(wind.x^2 + wind.z^2)
+		
+		-- Dirección del viento en radianes (si no hay viento, dirección aleatoria)
+		local baseAngle = (windSpeed > 0.5) and math.atan2(wind.z, wind.x) or math.rad(math.random(0, 360))
+
+		-- A mayor velocidad de viento, menor el tiempo de espera para propagar (más rápido arde)
+		local baseDelay = math.max(150, 300 - (windSpeed * 10))
+		local propagationDelay = baseDelay + math.random(-30, 30)
+
+		-- 6. Programar la expansión
+		timer.scheduleFunction(function(args, time)
+			-- Si este foco fue extinguido por el jugador, abortar propagación
+			if not AEM_ActiveFires[args.fireId] then return nil end
+			
+			local originVec = args.coord:GetVec3()
+			
+			-- Calcular dirección del nuevo foco (viento ± 30 grados)
+			local spreadAngle = args.baseAngle + math.rad(math.random(-30, 30))
+			
+			-- Avanzar una distancia fija uniforme
+			local step = FIRE_STEP_DISTANCE + math.random(-10, 10)
+			local newX = originVec.x + (math.cos(spreadAngle) * step)
+			local newZ = originVec.z + (math.sin(spreadAngle) * step)
+			local newY = land.getHeight({x = newX, y = newZ})
+			
+			local newCoord = COORDINATE:NewFromVec3({x = newX, y = newY, z = newZ})
+			
+			-- Intentar encender el nuevo foco
+			AEM_StartWildfire(newCoord, args.generation + 1)
+			
+			-- 30% de probabilidad de crear un frente lateral (ramificación)
+			if math.random() > 0.70 then
+				local sideAngle = spreadAngle + math.rad(math.random(40, 70) * (math.random() > 0.5 and 1 or -1))
+				local sideX = originVec.x + (math.cos(sideAngle) * step)
+				local sideZ = originVec.z + (math.sin(sideAngle) * step)
+				local sideY = land.getHeight({x = sideX, y = sideZ})
+				
+				AEM_StartWildfire(COORDINATE:NewFromVec3({x = sideX, y = sideY, z = sideZ}), args.generation + 1)
+			end
+			
+			return nil
+		end, {
+			coord = currentCoord, 
+			fireId = fireId, 
+			baseAngle = baseAngle, 
+			generation = generation
+		}, timer.getTime() + propagationDelay)
+	end
+	
+	function AEM_ExtinguishFiresAt(dropCoord, radius)
+		radius = radius or DROP_RADIUS
+		local dropVec = dropCoord:GetVec3()
+		local countExtinguished = 0
+
+		-- Crear efecto visual de vapor/agua al caer
+		trigger.action.smoke(dropVec, trigger.smokeColor.White)
+
+		for fireId, fireData in pairs(AEM_ActiveFires) do
+			local fireVec = fireData.coord:GetVec3()
+			local dist = math.sqrt((dropVec.x - fireVec.x)^2 + (dropVec.z - fireVec.z)^2)
+
+			if dist <= radius then
+				-- Detener el efecto visual en el motor de DCS
+				trigger.action.effectSmokeStop(fireData.name)
+				
+				-- Eliminar del registro global (cancela automáticamente su expansión futura)
+				AEM_ActiveFires[fireId] = nil
+				countExtinguished = countExtinguished + 1
+			end
+		end
+
+		return countExtinguished
+	end
+	
+	function AEM_RefillWaterForUnit(unit)
+		if not unit or not unit:IsExist() then return end
+		
+		local name = unit:GetName()
+		local coord = unit:GetCoordinate()
+		local vec3 = coord:GetVec3()
+		local heightAGL = vec3.y - land.getHeight({x = vec3.x, y = vec3.z})
+		local speed = unit:GetVelocityMPS()
+
+		-- Comprobar si está sobre agua o en base
+		local surfaceType = land.getSurfaceType({x = vec3.x, y = vec3.z})
+		local isOverWater = (surfaceType == land.SurfaceType.WATER or surfaceType == land.SurfaceType.SEA)
+
+		if isOverWater and heightAGL <= 20 and speed <= 5 then
+			AEM_PlayerWater[name] = true
+			trigger.action.outTextForGroup(unit:GetGroup():GetID(), "💧 ¡Bambi Bucket lleno! Listo para sofocar incendios.", 7)
+		elseif heightAGL <= 5 and speed <= 2 then
+			-- Permite recargar en tierra/base
+			AEM_PlayerWater[name] = true
+			trigger.action.outTextForGroup(unit:GetGroup():GetID(), "💧 Tanque de agua rellenado en base.", 7)
+		else
+			trigger.action.outTextForGroup(unit:GetGroup():GetID(), "❌ No se puede cargar agua. Debes hacer estacionario bajo (<20m) sobre agua.", 7)
+		end
+	end
+
+	function AEM_DropWaterForUnit(unit)
+		if not unit or not unit:IsExist() then return end
+		
+		local name = unit:GetName()
+		local groupID = unit:GetGroup():GetID()
+
+		if not AEM_PlayerWater[name] then
+			trigger.action.outTextForGroup(groupID, "⚠️ No tienes agua en el tanque. Ve a un lago o base para recargar.", 7)
+			return
+		end
+
+		local coord = unit:GetCoordinate()
+		local vec3 = coord:GetVec3()
+		local heightAGL = vec3.y - land.getHeight({x = vec3.x, y = vec3.z})
+		local speed = unit:GetVelocityMPS()
+
+		if heightAGL > MAX_WATER_ALTITUDE then
+			trigger.action.outTextForGroup(groupID, "❌ Demasiado alto para soltar agua. Vuela a menos de 75m del suelo.", 7)
+			return
+		end
+
+		if speed > MAX_WATER_SPEED then
+			trigger.action.outTextForGroup(groupID, "❌ Demasiado rápido. Reduce la velocidad para una descarga precisa.", 7)
+			return
+		end
+
+		-- Consumir la carga de agua
+		AEM_PlayerWater[name] = false
+
+		-- Ejecutar extinción en el punto de impacto proyectado
+		local extinguishedCount = AEM_ExtinguishFiresAt(coord, DROP_RADIUS)
+
+		if extinguishedCount > 0 then
+			trigger.action.outTextForGroup(groupID, string.format("💦 ¡Descarga exitosa! Se han sofocado %d focos de fuego.", extinguishedCount), 8)
+		else
+			trigger.action.outTextForGroup(groupID, "💦 Agua lanzada, pero no impactó contra ningún fuego activo.", 7)
+		end
+	end
+	
+	-- TODO: 
+	local _test = GROUP:FindByName("WILDFIRE TARGET")
+	AEM_StartWildfire(_test:GetCoordinate(), 1)
+	messageToAll("Wildfire started", 15) 
+	
+	local menuRoot = missionCommands.addSubMenu("Bomberos")
+	missionCommands.addCommand("Lanzar Agua", menuRoot, function()
+        local _test = GROUP:FindByName("WILDFIRE TARGET")
+		AEM_ExtinguishFiresAt(_test:GetCoordinate())
+    end)
+	-- TODO: 
+
+end -- module wildfires
 
 -- ======================================================================
 -- Field command
