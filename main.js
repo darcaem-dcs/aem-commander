@@ -328,7 +328,16 @@ function routeDCSMessage(msg) {
             if (downedPilots.length > 0) {
                 // Clear csar state; they will be re-registered by DCS when spawned to avoid ghost entries
                 persistence.state.csar = {};
-                persistence.saveState();
+            }
+
+            // Check active groups
+            const activeGroups = persistence.getActiveGroups();
+            const groupsToSpawn = [];
+            for (const [groupName, groupInfo] of Object.entries(activeGroups)) {
+                groupsToSpawn.push({
+                    coalition: groupInfo.coalition,
+                    data: groupInfo.data
+                });
             }
 
             // Send actions inmediatelly to DCS
@@ -339,7 +348,9 @@ function routeDCSMessage(msg) {
             if (downedPilots.length > 0) {
                 actions.push({ action_type: "persistence_csar", pilots: downedPilots });
             }
-
+            if (groupsToSpawn.length > 0) {
+                actions.push({ action_type: "persistence_spawn", groups: groupsToSpawn });
+            }
             if (actions.length > 0) {
                 sendOrdersToDCS("ALL", actions);
             }
@@ -347,10 +358,34 @@ function routeDCSMessage(msg) {
             mainWindow.webContents.send('log-message', `DCS Mission '${incomingMission}' connected without a persistence file.`, 'info');
         }
         return; // INIT doesn't need to go to AI commanders
-    }
-	
-	// We process destroyed events HERE so it works even if AI commanders are offline.
-	if (msg.type === "EVENTS") {
+    } else if (msg.type === "SAVE_STATE") {
+        if (persistence.currentFile) {
+            // Limpiamos los grupos viejos
+            persistence.clearActiveGroups();
+            
+            // Recorremos los datos de telemetría de ambos bandos para guardarlos
+            ['red', 'blue'].forEach(side => {
+                if (state[side].forces && state[side].forces.rawPersistenceData) {
+                    state[side].forces.rawPersistenceData.forEach(groupData => {
+                        // Solo guardamos grupos manejados por AEM (que contengan persistence_data)
+                        if (groupData.persistence_data) {
+                            persistence.addActiveGroup(groupData.id, side, groupData);
+                        }
+                    });
+                }
+            });
+
+            persistence.saveState();
+            logger.info("Manual persistence state successfully saved.");
+            
+            if (mainWindow) {
+                mainWindow.webContents.send('persistence-updated', persistence.state.mission_info.updated_at);
+                mainWindow.webContents.send('log-message', 'Mission state correctly saved to persistence file.', 'success');
+            }
+            sendMessageToDCS("ALL", "HQ confirms: Persistence state saved successfully.");
+        }
+        return;
+    } else if (msg.type === "EVENTS") {    // We process destroyed events HERE so it works even if AI commanders are offline.
         let stateChanged = false;
         msg.data.forEach(event => {
             // 1. Check out statics when a flight is activated
@@ -404,13 +439,15 @@ function routeDCSMessage(msg) {
                 mainWindow.webContents.send('persistence-updated', persistence.state.mission_info.updated_at);
             }
         }
+    
     }
-	
+
     if (!state[coal].forces) return;
 
     switch (msg.type) {
         case "ACTIVE":
             state[coal].forces.updateActiveGroups(msg.data);	
+            state[coal].forces.rawPersistenceData = msg.data;
             break;
         case "AVAILABLE":
             state[coal].forces.updateAvailableUnits(msg.data);

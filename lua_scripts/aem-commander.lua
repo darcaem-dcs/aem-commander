@@ -204,18 +204,7 @@ MODULE_DEBUG = true
 -------------------------------------------------------------------------
 
 HOST_PORT = 49080
-
--- ======================================================================
--- F10 menu
--- ======================================================================
-
-local function switchDebug()
-	MODULE_DEBUG = not MODULE_DEBUG
-	trigger.action.outText("AEM Commander debug messages " .. ("activated" and MODULE_DEBUG or "deactivated"), t)
-end
-
-local menuAEM = missionCommands.addSubMenu("AEM Commander", nil)
-missionCommands.addCommand("Show debug messages", menuAEM, function() switchDebug() end, nil)
+AEM_GroupPersistence = {}
 
 -- ======================================================================
 -- Log
@@ -898,6 +887,8 @@ local function GetActiveForcesData(ActiveSet)
             local coord = group:GetCoordinate()
             local lat, lon = coord:GetLLDDM()
             local heading = firstUnit:GetHeading() -- Obtenemos el rumbo (0-360)
+            local alt_ft = math.floor(coord.y * 3.28084)
+            local speed_kts = math.floor(firstUnit:GetVelocityKMH() * 0.539957)
 
 			-- Determine Airbase Presence (Optimized)
             local rawPoint = coord:GetVec3()
@@ -906,12 +897,15 @@ local function GetActiveForcesData(ActiveSet)
             local entry = {
                 category = category,
                 count = group:CountAliveUnits(),
-                location = { lat = lat, long = lon },
+                location = { lat = lat, long = lon, x = rawPoint.x, z = rawPoint.z },
+                alt_ft = alt_ft,
+                speed_kts = speed_kts,
                 airbase = airbaseName,
                 mission = GetMissionsFromName(groupName),
                 type = unitType,
                 id = groupName,
-                heading = math.floor(heading or 0) -- Añadimos el rumbo al JSON
+                heading = math.floor(heading or 0),
+                persistence_data = AEM_GroupPersistence[groupName]
             }
             
             table.insert(active_forces, entry)
@@ -1727,15 +1721,15 @@ if MODULE_WILDFIRES then
 	end
 	
 	-- TODO: 
-	local _test = GROUP:FindByName("WILDFIRE TARGET")
-	AEM_StartWildfire(_test:GetCoordinate(), 1)
-	messageToAll("Wildfire started", 15) 
+	-- local _test = GROUP:FindByName("WILDFIRE TARGET")
+	-- AEM_StartWildfire(_test:GetCoordinate(), 1)
+	-- messageToAll("Wildfire started", 15) 
 	
-	local menuRoot = missionCommands.addSubMenu("Bomberos")
-	missionCommands.addCommand("Lanzar Agua", menuRoot, function()
-        local _test = GROUP:FindByName("WILDFIRE TARGET")
-		AEM_ExtinguishFiresAt(_test:GetCoordinate())
-    end)
+	-- local menuRoot = missionCommands.addSubMenu("Bomberos")
+	-- missionCommands.addCommand("Lanzar Agua", menuRoot, function()
+    --    local _test = GROUP:FindByName("WILDFIRE TARGET")
+	-- 	AEM_ExtinguishFiresAt(_test:GetCoordinate())
+    --end)
 	-- TODO: 
 
 end -- module wildfires
@@ -2031,6 +2025,19 @@ local function SpawnAndTask(action, spawnTemplate, spawnAirbase, coalitionStr, p
     
     SpawnObj:OnSpawnGroup(function(NewGroup)
         
+        AEM_GroupPersistence[NewGroup:GetName()] = {
+            staticUnits = action.unit_names or {},
+            coalitionStr = coalitionStr,
+            unitCategory = unitCategory,
+            orders = {
+                task = action.task,
+                target_area = action.target_area,
+                target_name = action.target_name,
+                reference_entity = action.reference_entity,
+                route_via = action.route_via
+            }
+        }
+
 		local FlightGroup = nil
 		
 		if isAirUnit then
@@ -2242,6 +2249,104 @@ function ProcessAIOrders(actions, coalitionStr)
             if #action.pilots > 0 then
                 env.info("AEM Commander: Persistence state applied. Spawned " .. #action.pilots .. " CSAR targets.")
             end
+        elseif action.action_type == "persistence_spawn" and action.groups then
+            -- Retrasamos el spawn 5 segundos para asegurar que DCS y MOOSE están 100% inicializados
+            timer.scheduleFunction(function(args)
+                for _, grp in ipairs(args.groups) do
+                    local coalStr = string.upper(grp.coalition)
+                    local pData = grp.data.persistence_data
+                    
+                    if pData and pData.orders then
+                        local task = pData.orders.task
+                        local unitType = grp.data.type
+                        local category = pData.unitCategory
+                        local templateName = TEMPLATE_PREFIX .. coalStr .. " " .. task .. " " .. unitType
+                        
+                        -- DESTRUCCIÓN SILENCIOSA de los estáticos
+                        if pData.staticUnits then
+                            for _, staticName in ipairs(pData.staticUnits) do
+                                local staticObj = STATIC:FindByName(staticName, false)
+                                if staticObj and staticObj:IsAlive() then
+                                    staticObj:Destroy()
+                                end
+                            end
+                        end
+                        
+                        -- RECUPERAMOS LA ESTRUCTURA AEM_Spawners correcta
+                        local SpawnObj = AEM_Spawners[templateName]
+                        if not SpawnObj then
+                            SpawnObj = SPAWN:New(templateName)
+                            AEM_Spawners[templateName] = SpawnObj
+                        end
+                        
+                        local unitCount = grp.data.count or 1
+                        SpawnObj:InitGrouping(unitCount)
+                        
+                        SpawnObj:OnSpawnGroup(function(NewGroup)
+                            local groupName = NewGroup:GetName()
+                            AEM_GroupPersistence[groupName] = pData
+                            
+                            if NewGroup:IsAir() or NewGroup:IsHelicopter() then
+                                NewGroup:CommandSetUnlimitedFuel(UNLIMITED_FUEL)
+                                NewGroup:SetOption(AI.Option.Air.id.FLARE_USING, AI.Option.Air.val.FLARE_USING.AGAINST_FIRED_MISSILE)
+                                NewGroup:SetOption(AI.Option.Air.id.ECM_USING, AI.Option.Air.val.ECM_USING.USE_IF_DETECTED_LOCK_BY_RADAR)
+                            end
+                            
+                            local targetCoord = COORDINATE:NewFromLLDD(pData.orders.target_area.lat, pData.orders.target_area.long)
+                            local zoneName = pData.orders.target_name or ("TGT-"..groupName)
+                            
+                            if category == "Ground" then
+                                RouteGroundUnit(NewGroup, targetCoord, 40, pData.orders.route_via, task, coalStr)
+                            else
+                                local FlightGroup = FLIGHTGROUP:New(NewGroup)
+                                local combatMission = nil
+                                
+                                if task == "CAP" or task == "ESCORT" then combatMission = missionCAP(zoneName, targetCoord, FlightGroup)
+                                elseif task == "INTERCEPT" then combatMission = missionIntercept(zoneName, targetCoord, pData.orders.reference_entity)
+                                elseif task == "CAS" then combatMission = missionCAS(zoneName, targetCoord)
+                                elseif task == "SEAD" then combatMission = missionSEAD(zoneName, targetCoord, FlightGroup)
+                                elseif task == "STRIKE" then combatMission = missionStrike(targetCoord, pData.orders.reference_entity, groupName, coalStr)
+                                elseif task == "TRANSPORT_TROOPS" or task == "TRANSPORT_LOGISTICS" then
+                                    if category == "Helo" then RouteHeloDrop(NewGroup, targetCoord, 120, 3000, task, coalStr)
+                                    else RouteAirplaneDrop(NewGroup, targetCoord, 250, 15000, task, coalStr) end
+                                end
+                                
+                                if combatMission then
+                                    FlightGroup:AddWaypoint(targetCoord, grp.data.speed_kts or 400, nil, grp.data.alt_ft or 20000, true)
+                                    FlightGroup:AddMission(combatMission)
+                                end
+                            end
+                            
+                            PushEvent(string.lower(coalStr), {
+                                type = "activated",
+                                coalition = string.lower(coalStr),
+                                staticUnits = pData.staticUnits or {},
+                                group = {
+                                    name = groupName,
+                                    type = unitType,
+                                    category = category,
+                                    mission = {task},
+                                    lat = grp.data.location.lat,
+                                    lon = grp.data.location.long,
+                                    airbase = grp.data.airbase or "Field Deployment"
+                                }
+                            })
+                        end)
+                        
+                        -- Spawnear utilizando coordenadas Vec3 puras y altura calculada del terreno garantiza que no aparezcan bajo el suelo
+                        local safeY = (category == "Air" or category == "Helo") and ((grp.data.alt_ft or 15000) * 0.3048) or land.getHeight({x = grp.data.location.x, y = grp.data.location.z})
+                        local spawnCoord = COORDINATE:NewFromVec3({
+                            x = grp.data.location.x,
+                            y = safeY,
+                            z = grp.data.location.z
+                        })
+                        
+                        SpawnObj:SpawnFromCoordinate(spawnCoord)
+                    end
+                end
+                env.info("AEM Commander: Restored " .. #args.groups .. " active groups from persistence.")
+            end, { groups = action.groups }, timer.getTime() + 5.0)
+
 		elseif action.action_type == "new" and action.unit_names then
             
             local templateName = TEMPLATE_PREFIX..coalitionStr.." "..action.task.." "..action.unit_type
@@ -2339,6 +2444,16 @@ function ProcessAIOrders(actions, coalitionStr)
 						ExistingGroup:RouteRTB()
 					else
 
+                        if AEM_GroupPersistence[action.group_name] then
+                            AEM_GroupPersistence[action.group_name].orders = {
+                                task = action.task,
+                                target_area = action.target_area,
+                                target_name = action.target_name,
+                                reference_entity = action.reference_entity,
+                                route_via = action.route_via
+                            }
+                        end
+                        
                         local targetCoord = COORDINATE:NewFromLLDD(action.target_area.lat, action.target_area.long)
 						local zoneName = action.target_name or ("TGT-"..action.group_name)
 						local taskType = action.task
@@ -2512,6 +2627,38 @@ function missionBalisticMissile(groupName, posX, posZ, radius)
         env.error("AEM Commander: balistic missile group not found " .. LauncherGroup)
     end
 end
+
+-- ======================================================================
+-- F10 menu
+-- ======================================================================
+
+local function switchDebug()
+	MODULE_DEBUG = not MODULE_DEBUG
+	trigger.action.outText("AEM Commander debug messages " .. ("activated" and MODULE_DEBUG or "deactivated"), t)
+end
+
+local function forcePersistenceSave()
+    if FlushEvents then FlushEvents() end
+    
+    -- 2. Recalcula y envía la posición actual de TODO (garantiza telemetría perfecta al segundo)
+    local activeRed = GetActiveForcesData(RedActiveSet)
+    SendToNode("ACTIVE", "RED", activeRed)
+    local activeBlue = GetActiveForcesData(BlueActiveSet)
+    SendToNode("ACTIVE", "BLUE", activeBlue)
+    
+    -- 3. Le dice a Node.js que guarde (ahora Node.js utilizará el array ACTIVE que acaba de llegar)
+    if tcp_conn then
+        SendToNode("SAVE_STATE", "ALL", {})
+        messageToAll("AEM Commander: Requesting state save...", 10)
+    else
+        messageToAll("AEM Commander: Save failed. HQ not connected.", 10)
+    end
+end
+
+local menuAEM = missionCommands.addSubMenu("AEM Commander", nil)
+missionCommands.addCommand("Show messages", menuAEM, function() switchDebug() end, nil)
+missionCommands.addCommand("Save persistence state", menuAEM, function() forcePersistenceSave() end, nil)
+
 
 -- ======================================================================
 -- Start execution

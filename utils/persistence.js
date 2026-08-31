@@ -8,6 +8,7 @@ class PersistenceManager {
         this.state = { 
             units: {}, 
             csar: {},
+            active_groups: {},
             mission_info: {},
             strategic_weapons: {
                 ballistic_missiles: {
@@ -31,6 +32,10 @@ class PersistenceManager {
                 // Asegurar que el nodo de armas estratégicas existe incluso en saves antiguos
                 if (!this.state.strategic_weapons) {
                     this.state.strategic_weapons = { ballistic_missiles: { red: 0, blue: 0 } };
+                }
+
+                if (!this.state.active_groups) {
+                    this.state.active_groups = {};
                 }
                 
                 this.currentFile = filePath;
@@ -57,6 +62,26 @@ class PersistenceManager {
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
         };
+        this.saveState();
+    }
+
+    /** Active groups */
+
+    addActiveGroup(groupName, coalition, groupData) {
+        if (!this.state.active_groups) this.state.active_groups = {};
+        this.state.active_groups[groupName] = {
+            coalition: coalition,
+            data: groupData
+        };
+        this.saveState();
+    }
+
+    getActiveGroups() {
+        return this.state.active_groups || {};
+    }
+
+    clearActiveGroups() {
+        this.state.active_groups = {};
         this.saveState();
     }
 

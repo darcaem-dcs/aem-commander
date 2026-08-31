@@ -1,6 +1,6 @@
 {
   "name": "aem-commander",
-  "version": "0.2.10",
+  "version": "0.3.0",
   "description": "Autonomous Engagement Monitor: DCS companion app that emulates the HQ issuing orders to armed forces.",
   "main": "main.js",
   "scripts": {
