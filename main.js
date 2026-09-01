@@ -397,10 +397,15 @@ function routeDCSMessage(msg) {
             // 2. Handle combat deaths
             if (event.type === 'destroyed' && event.groupName) {
                 
-                // Mark the specific unit as dead for the persistence file
-                persistence.markUnitAsDestroyed(event.unitName);
+                // Mark the specific unit as dead ONLY if it's a pre-placed unit.
+                // MOOSE spawned units contain a '#' in their name. We ignore them here 
+                // because their deaths are handled by decreasing the group's "count" property.
+                if (event.unitName && !event.unitName.includes('#')) {
+                    persistence.markUnitAsDestroyed(event.unitName);
+                    logger.info(`Unit destroyed. Flagged '${event.unitName}' as dead.`);
+                }
+        
                 stateChanged = true;
-                logger.info(`Unit destroyed. Flagged '${event.unitName}' as dead.`);
                 
                 // Handle the AI Commander's reserve ledger using the group name
                 if (event.groupName && activeDeployments[event.groupName] && activeDeployments[event.groupName].length > 0) {

@@ -1761,6 +1761,26 @@ function AEM_DeployInfantry(groupName, coalitionStr)
         end
         
         if spawnObj then
+            spawnObj:OnSpawnGroup(function(NewGroup)
+                if NewGroup then
+                    local lat, lon = currentCoord:GetLLDDM()
+                    
+                    -- Inyectamos sus datos en la persistencia global de AEM
+                    AEM_GroupPersistence[NewGroup:GetName()] = {
+                        staticUnits = {}, -- La infantería no consume reservas extra
+                        coalitionStr = coalitionStr,
+                        unitCategory = "Ground",
+                        spawnedInfantry = true, -- Etiqueta especial para el respawn
+                        orders = {
+                            task = "Idle",
+                            target_area = { lat = lat, long = lon },
+                            target_name = "Deployed Infantry",
+                            reference_entity = nil,
+                            route_via = nil
+                        }
+                    }
+                end
+            end)
             spawnObj:SpawnFromCoordinate(currentCoord)
             messageToAll("AEM Commander: Infantry deployed at target zone by " .. groupName, 10)
             env.info("AEM Commander: Infantry deployed at target zone by " .. groupName)
@@ -2090,17 +2110,7 @@ local function SpawnAndTask(action, spawnTemplate, spawnAirbase, coalitionStr, p
 		else
         
 			if taskType == "CAP" or taskType == "ESCORT" then
-				altitude = math.random(18000, 28000)
-				speed = 420
-				-- Reducimos radio a 60km para no distraerse
-				combatMission = AUFTRAG:NewCAP(ZONE_RADIUS:New(zoneName, targetCoord:GetVec2(), 60000), altitude, speed, targetCoord)
-				
-				-- Si termina, orbita en lugar de volver a casa
-				function combatMission:OnAfterDone(From, Event, To)
-					local holdMission = AUFTRAG:NewORBIT(targetCoord, altitude, speed)
-					FlightGroup:AddMission(holdMission)
-				end
-				
+				combatMission = missionCAP(zoneName, targetCoord, FlightGroup)
 			elseif taskType == "INTERCEPT" then
 				combatMission = missionIntercept(zoneName, targetCoord, action.reference_entity)
 			elseif taskType == "CAS" then
@@ -2260,9 +2270,14 @@ function ProcessAIOrders(actions, coalitionStr)
                         local task = pData.orders.task
                         local unitType = grp.data.type
                         local category = pData.unitCategory
-                        local templateName = TEMPLATE_PREFIX .. coalStr .. " " .. task .. " " .. unitType
+                        local templateName
+                        if pData.spawnedInfantry then
+                            templateName = (coalStr == "RED") and RED_INFANTRY or BLUE_INFANTRY
+                        else
+                            templateName = TEMPLATE_PREFIX .. coalStr .. " " .. task .. " " .. unitType
+                        end
                         
-                        -- DESTRUCCIÓN SILENCIOSA de los estáticos
+                        -- Remove statics
                         if pData.staticUnits then
                             for _, staticName in ipairs(pData.staticUnits) do
                                 local staticObj = STATIC:FindByName(staticName, false)
@@ -2272,7 +2287,7 @@ function ProcessAIOrders(actions, coalitionStr)
                             end
                         end
                         
-                        -- RECUPERAMOS LA ESTRUCTURA AEM_Spawners correcta
+                        -- Get or create spawner for this template
                         local SpawnObj = AEM_Spawners[templateName]
                         if not SpawnObj then
                             SpawnObj = SPAWN:New(templateName)
