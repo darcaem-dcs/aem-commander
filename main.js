@@ -111,16 +111,15 @@ ${userContext}
 - "new": Tasking units from 'available_assets'. Requires 'location', 'airbase', 'unit_count', and an array of 'unit_names'. CRITICAL: Do not assign the same static ID to multiple different actions.
 - "existing": Redirecting units from 'active_assets'. Requires 'group_name' (the 'id' from active_assets). Omit 'unit_names'. The 'task' must remain exactly the same as its current active mission, OR be set to "RTB" (units cannot change armaments mid-flight).
 
-## 4. CONSERVATIVE STRATEGY
-- **PROACTIVE DEPLOYMENT:** Launch minimum required assets to achieve goals even if the ISR report is empty.
-- **ECONOMY OF FORCE:** Deploy only the minimum force necessary. Do not over-commit. Maintain a baseline of 20-50% of available units in reserve.
-- **GO/NO-GO LOGIC:** If available assets are insufficient to meet a high-priority threat safely, you MUST choose NOT to deploy. Preserving the force is a valid strategic victory.
-- **RADAR MASKING (LOST CONTACTS):** If an enemy contact suddenly drops off the ISR report, DO NOT immediately order your interceptors to RTB. Let your active fighters continue their sweep.
-- **FALLBACK TACTICS:** If outnumbered or in an escalation spiral, execute fallback strategies:
-  1. **Retreat and Lure:** Lure enemy fighters into your SAM umbrellas.
-  2. **Rely on Ground Defenses:** Stop spawning air assets and let SAM/AAA deal with the threat.
-  3. **Asymmetric Strike:** Spawn STRIKE, SEAD, or CAS to attack vulnerable enemy infrastructure while they focus on Air-to-Air.
-- **MAXIMUM SIMULTANEOUS GOALS (STRICT LIMIT):** You are ABSOLUTELY FORBIDDEN from pursuing more than 2 strategic goals at the same time. Prioritize the top 2 highest priority goals from the list. Even if you have ample available reserves, completely ignore any lower-priority goals until one of your top 2 goals is completely resolved or achieved. Focus your intelligence checks and deployments strictly on a maximum of 2 active objectives to maintain economy of force.
+## 4. CONSERVATIVE STRATEGY & OPERATIONAL PACING
+- **INCREMENTAL DEPLOYMENT (MAX 2 NEW ACTIONS PER CYCLE):** You are authorized to pursue up to 3 or 4 strategic goals simultaneously across the theater. However, you MUST NOT issue more than 2 "new" deployment orders in a single commander turn. Deploy forces incrementally in structured waves to preserve force balance and avoid saturation.
+- **BACKGROUND DEFENSIVE COVER:** Defensive patrols ("CAP" or "INTERCEPT") over friendly territory do NOT count against your active strategic goals. If you have active ground operations or unassigned fighter reserves, maintain at least 1 defensive CAP flight over key sectors.
+- **ECONOMY OF FORCE:** Maintain a baseline of 20-30% of available reserve units for emergency response.
+- **GO/NO-GO LOGIC:** If available assets are insufficient to meet a high-priority threat safely, choose NOT to deploy to that specific threat. Preserving the force is a valid strategic victory.
+- **FALLBACK TACTICS:** If outnumbered or under heavy threat:
+  1. Lure enemy fighters into friendly SAM umbrellas.
+  2. Rely on SAM/AAA coverage while holding air spawns.
+  3. Execute asymmetric strikes (STRIKE, SEAD, CAS) against high-value targets while enemy fighters are distracted.
 
 ## 5. TASKS
 
@@ -726,10 +725,10 @@ SITUATION UPDATE: The battlefield state has changed based on new intelligence an
 RECENT BATTLEFIELD EVENTS:
 ${logForAI.length > 0 ? logForAI.join('.\n') : "ISR contacts updated. Review new intelligence."}
 
-1. REVIEW HISTORY: Consider your previous 'mission_log' and the orders you recently issued. Do not issue duplicate orders to units already task-saturated.
+1. REVIEW HISTORY: Consider your previous 'mission_log' and the orders you recently issued. Do not issue duplicate orders to units already task-saturated. If existing tasks are proceeding nominally and no new high-priority targets emerged, consider launching background CAP or supporting assets if reserves permit (respecting the max 2 NEW deployments per turn limit).
 2. ASSESS NEW DATA: Prioritize the 'get_full_tactical_intel' macro-tool to evaluate active targets quickly and conserve your tool call budget. Use individual atomic tools only for specific, isolated queries.
 3. TAKE ACTION: 
-   - Issue 'new' orders to available assets to respond to unhandled threats or unfulfilled goals.
+   - Issue 'new' orders (max 2 per cycle) to address secondary goals or reinforce active sectors.
    - Issue 'RTB' commands to 'existing' active units if their goal is complete, or if the threat level has become unsurvivable.
 4. If the current situation is nominal and your previous orders are still sufficient, simply return {"mission_log": "Situation nominal, continuing execution of previous orders.", "actions": []}.
 5. DO NOT brute-force 'get_active_groups_by_mission'. If you need to see your deployed assets to redirect them, use 'get_all_active_groups' ONCE.
