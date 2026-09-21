@@ -1,203 +1,4 @@
 -------------------------------------------------------------------------
--- CUSTOM SETTINGS
---
--- MISSION_NAME: Name of the mission for the persistence file
---
--- HOST_IP: IP address where the AEM Commander app is running. It is 
--- designed to run on the same machine as DCS (127.0.0.1) or on a
--- different machine in the same LAN. Port 49080 must be available
--- and not blocked by firewalls.
---
--- SOCKET_MAX_RETRIES: Number of times the script will try to connect to
--- the AEM Commander companion app. If failed, network loop will stop so
--- the mission can continue to be player without external AI control.
---
--- AUTO_CONNECT: opens connection with companion app automatically when
--- mission starts, or adds an F10 menu option to connect manually.
--- IP_RANGE_*: if not AUTO_CONNECT allows you to change the IP directly
--- through the F10 menu before connecting.
--- FIND_IP: if AUTO_CONNECT, scans the local network for the companion 
--- app and connects to the first one found. Only works if the companion 
--- app is running on a different machine in the same LAN.
---
--------------------------------------------------------------------------
-
-MISSION_NAME = "Germany sandbox"  -- SET YOUR MISSION NAME HERE
-
-HOST_IP = "192.168.1.39"        -- CHANGE TO 127.0.0.1 or your LAN IP !!!
-SOCKET_MAX_RETRIES = 2
-
-AUTO_CONNECT = false
-IP_RANGE_FROM = 39
-IP_RANGE_TO = 45
-FIND_IP = AUTO_CONNECT and true
-
--------------------------------------------------------------------------
--- AI Commander
---
---	*_EW: prefix for EW groups on mission editor. They can be any type of
---	unit and will contribute with their sensors to the enemy's detection,
---	ground or aerial radar, naval units, jtac, etc.
---
---	*_SAM: prefix for SAM groups 
---
---	*_BORDER: late activation group defining the coalition's border. Its
---	first and last WPs will be virtually joined to create a polygon
---
---	STATIC_RESOURCE: prefix of static units that will be passed to the AI
---	commander for them to task. Their names must also contain at least 
---	one task it can perform: CAP, SEAD, CAS, STRIKE, ANTI-SHIP, ESCORT,
---	TRANSPORT
---		"[STATIC_RESOURCE]RED_PLACEHOLDER_SU24M_SEAD_Kuweires_00004"
---
---	TEMPLATE_PREFIX: prefix for late activation group templates that will
---	be used when AI commander issues orders (using MOOSE SPAWN class). 
---	Name must contain, strictly in this, order the coalition, task and 
---	type class name
---		"[TEMPLATE_PREFIX]RED SEAD Su-24M"
---
---	SCHEDULER_ISR_FREQ_*: seconds passed between each ISR update data 
---	passed to AI Commander
---
---  UNLIMITED_FUEL: AI spawned flights will have unlimited fuel
---
--------------------------------------------------------------------------
-
-RED_EW = "RED EW"
-RED_SAM = "RED SAM"
-RED_BORDER = "RED BORDER"
-
-BLUE_EW = "BLUE EW"
-BLUE_SAM = "BLUE SAM"
-BLUE_BORDER = "BLUE BORDER"
-
-STATIC_RESOURCE = "AEM_RES"
-TEMPLATE_PREFIX = "AEM_TPL_"
-RED_INFANTRY = "AEM_RED_INFANTRY"
-BLUE_INFANTRY = "AEM_BLUE_INFANTRY"
-
-SCHEDULER_ISR_FREQ_RED = 60
-SCHEDULER_ISR_FREQ_BLUE = 60
-
-UNLIMITED_FUEL = true
-
--------------------------------------------------------------------------
--- CSAR
---
---	*_RAFT: late activation group name for the water template
---	*_PILOT: late activation group name for the ground template
---	SINKING_SHIP: not used yet
---
---	__CSAR_SOS: filename that will be used as beacon. Add the file to
---  the mission by placing a "sound for country" trigger
---
--------------------------------------------------------------------------
-
-MODULE_CSAR = true
-BLUE_RAFT = "BLUE LIFE RAFT"
-BLUE_PILOT = "BLUE DOWNED PILOT"
-RED_RAFT = "RED LIFE RAFT"
-RED_PILOT = "RED DOWNED PILOT"
-__CSAR_SOS = "morse-sos.ogg"        -- ADD YOUR OWN SOUND FILE
-
--------------------------------------------------------------------------
--- CIVILIAN TRAFFIC
---
---  Generates neutral background traffic between airbases and zones.
---
---  CIV_TEMPLATES: name of the late activation templates
---  CIV_ZONE_PREFIX: to determine spawn and despawn zones
---  CIV_INIT_FLIGHTS: how many flights will spawn at mission start
---  CIV_MAX_FLIGHTS: max number of flights alive at any given time
---  CIV_MIN_DIST_METERS: minimum distance between origin and destination
---  CIV_ALLOWED_AIRBASES: table with the airports that can be used
---
--------------------------------------------------------------------------
-
-MODULE_CIV_TRAFFIC = true
-CIV_TEMPLATES = {
-	"CIV_TPL_B737",
-	"CIV_TPL_B737-1",
-	"CIV_TPL_B737-2",
-	"CIV_TPL_B737-3",
-	"CIV_TPL_B737-4",
-	"CIV_TPL_B737-5",
-	"CIV_TPL_B737-6",
-	"CIV_TPL_B737-7",
-	"CIV_TPL_A320", 
-	"CIV_TPL_A320-1", 
-	"CIV_TPL_A320-2",
-	"CIV_TPL_A320-3",
-	"CIV_TPL_A320-4",
-	"CIV_TPL_A320-5",
-	"CIV_TPL_A320-6",
-	"CIV_TPL_A320-7",
-	"CIV_TPL_A320-8",
-	"CIV_TPL_A320-9",
-	"CIV_TPL_A330",
-	"CIV_TPL_A330-1",
-	"CIV_TPL_A330-2",
-	"CIV_TPL_A330-3",
-	"CIV_TPL_A330-4",
-	"CIV_TPL_A330-5",
-	"CIV_TPL_A330-6"
-}
-CIV_ZONE_PREFIX = "CIV_ZONE"
-CIV_INIT_FLIGHTS = 5
-CIV_MAX_FLIGHTS = 20
-CIV_MIN_DIST_METERS = 185200 --  (185 km aprox)
-CIV_ALLOWED_AIRBASES = {
-    "Zweibruecken",
-    "Cologne",
-    "Duesseldorf",
-    "Frankfurt",
-    "Hannover",
-    "Bremen",
-    "Hamburg",
-    "Hamburg_Finkenwerder",
-    "Schkeuditz",
-    "Schoenefeld",
-    "Tegel",
-    "Kastrup",
-    "Sturup",
-    "Bornholm"
-}
-
--------------------------------------------------------------------------
--- Ballistic missiles
---
---	BALLISTIC_MISSILE_RANGE: max range of the available launchers, 290km
---  for SCUDs or 400km for Iskanders
---
--------------------------------------------------------------------------
-
-BALLISTIC_MISSILE_RANGE = 400000
-
--------------------------------------------------------------------------
--- Wildfires
---
---	Wildfires can start and expand over forest and urban areas
---
--------------------------------------------------------------------------
-
-MODULE_WILDFIRES = true
-WILDFIRE_MAX_PROPAGATION = 25
-FIRE_STEP_DISTANCE = 60  -- Distancia en metros entre focos (evita apelotonamiento)
-MIN_FIRE_SPACING   = 35  -- Distancia mínima a otros fuegos existentes
-DROP_RADIUS        = 80  -- Radio de efecto del agua en metros
-MAX_WATER_ALTITUDE = 75  -- Altitud máxima (AGL) en metros para soltar agua (~250 ft)
-MAX_WATER_SPEED    = 40  -- Velocidad máxima (m/s) para soltar agua (~75 nudos)
-
--------------------------------------------------------------------------
--- Debug messages
---
---	Show on screen messages (can be switched ingame with F10 menu)
---
--------------------------------------------------------------------------
-
-MODULE_DEBUG = true
-
--------------------------------------------------------------------------
 --
 -- // Code: DO NOT EDIT BEYOND THIS POINT //
 --
@@ -1671,13 +1472,13 @@ if MODULE_WILDFIRES then
 
 		if isOverWater and heightAGL <= 20 and speed <= 5 then
 			AEM_PlayerWater[name] = true
-			trigger.action.outTextForGroup(unit:GetGroup():GetID(), "💧 ¡Bambi Bucket lleno! Listo para sofocar incendios.", 7)
+			trigger.action.outTextForGroup(unit:GetGroup():GetID(), "¡Bambi Bucket lleno! Listo para sofocar incendios.", 7)
 		elseif heightAGL <= 5 and speed <= 2 then
 			-- Permite recargar en tierra/base
 			AEM_PlayerWater[name] = true
-			trigger.action.outTextForGroup(unit:GetGroup():GetID(), "💧 Tanque de agua rellenado en base.", 7)
+			trigger.action.outTextForGroup(unit:GetGroup():GetID(), "Tanque de agua rellenado en base.", 7)
 		else
-			trigger.action.outTextForGroup(unit:GetGroup():GetID(), "❌ No se puede cargar agua. Debes hacer estacionario bajo (<20m) sobre agua.", 7)
+			trigger.action.outTextForGroup(unit:GetGroup():GetID(), "No se puede cargar agua. Debes hacer estacionario bajo (<20m) sobre agua.", 7)
 		end
 	end
 
@@ -1688,7 +1489,7 @@ if MODULE_WILDFIRES then
 		local groupID = unit:GetGroup():GetID()
 
 		if not AEM_PlayerWater[name] then
-			trigger.action.outTextForGroup(groupID, "⚠️ No tienes agua en el tanque. Ve a un lago o base para recargar.", 7)
+			trigger.action.outTextForGroup(groupID, "No tienes agua en el tanque. Ve a un lago o base para recargar.", 7)
 			return
 		end
 
@@ -1698,12 +1499,12 @@ if MODULE_WILDFIRES then
 		local speed = unit:GetVelocityMPS()
 
 		if heightAGL > MAX_WATER_ALTITUDE then
-			trigger.action.outTextForGroup(groupID, "❌ Demasiado alto para soltar agua. Vuela a menos de 75m del suelo.", 7)
+			trigger.action.outTextForGroup(groupID, "Demasiado alto para soltar agua. Vuela a menos de 75m del suelo.", 7)
 			return
 		end
 
 		if speed > MAX_WATER_SPEED then
-			trigger.action.outTextForGroup(groupID, "❌ Demasiado rápido. Reduce la velocidad para una descarga precisa.", 7)
+			trigger.action.outTextForGroup(groupID, "Demasiado rápido. Reduce la velocidad para una descarga precisa.", 7)
 			return
 		end
 
@@ -1714,23 +1515,49 @@ if MODULE_WILDFIRES then
 		local extinguishedCount = AEM_ExtinguishFiresAt(coord, DROP_RADIUS)
 
 		if extinguishedCount > 0 then
-			trigger.action.outTextForGroup(groupID, string.format("💦 ¡Descarga exitosa! Se han sofocado %d focos de fuego.", extinguishedCount), 8)
+			trigger.action.outTextForGroup(groupID, string.format("¡Descarga exitosa! Se han sofocado %d focos de fuego.", extinguishedCount), 8)
 		else
-			trigger.action.outTextForGroup(groupID, "💦 Agua lanzada, pero no impactó contra ningún fuego activo.", 7)
+			trigger.action.outTextForGroup(groupID, "Agua lanzada, pero no impactó contra ningún fuego activo.", 7)
 		end
 	end
 	
-	-- TODO: 
-	-- local _test = GROUP:FindByName("WILDFIRE TARGET")
-	-- AEM_StartWildfire(_test:GetCoordinate(), 1)
-	-- messageToAll("Wildfire started", 15) 
-	
-	-- local menuRoot = missionCommands.addSubMenu("Bomberos")
-	-- missionCommands.addCommand("Lanzar Agua", menuRoot, function()
-    --    local _test = GROUP:FindByName("WILDFIRE TARGET")
-	-- 	AEM_ExtinguishFiresAt(_test:GetCoordinate())
-    --end)
-	-- TODO: 
+	local Wildfire_WeaponHandler = {}
+	function Wildfire_WeaponHandler:onEvent(event)
+		if event.id == world.event.S_EVENT_SHOT and event.weapon then
+			local weapon = event.weapon
+			
+			-- Filtrar por categoría de arma (Bombas, Cohetes, Misiles)
+			local desc = weapon:getDesc()
+			if desc and (desc.category == Weapon.Category.BOMB or desc.category == Weapon.Category.ROCKET or desc.category == Weapon.Category.MISSILE) then
+				
+				-- Rastreamos la posición del proyectil cada 50ms hasta que explota
+				timer.scheduleFunction(function(args, time)
+					if args.weapon and args.weapon:isExist() then
+						args.lastPos = args.weapon:getPoint()
+						return time + 0.05
+					else
+						-- El proyectil ha impactado/explotado
+						if args.lastPos then
+							local impactCoord = COORDINATE:NewFromVec3(args.lastPos)
+							local surface = impactCoord:GetSurfaceType()
+							
+							-- Solo encendemos fuego si impacta en tierra firme (no en agua ni carreteras/pistas)
+							if surface == land.SurfaceType.LAND then
+								local roll = math.random(1, 100)
+								if roll <= IGNITE_CHANCE then
+									AEM_StartWildfire(impactCoord, 1)
+									messageToAll("¡Explosión en zona de vegetación ha iniciado un incendio!", 10)
+									env.info("AEM Wildfire ignited by bomb impact at coordinates")
+								end
+							end
+						end
+						return nil
+					end
+				end, { weapon = weapon, lastPos = nil }, timer.getTime() + 0.05)
+			end
+		end
+	end
+	world.addEventHandler(Wildfire_WeaponHandler)
 
 end -- module wildfires
 
