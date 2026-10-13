@@ -176,6 +176,41 @@ MAX_WATER_SPEED = 40  -- Velocidad máxima (m/s) para soltar agua (~75 nudos)
 IGNITE_CHANCE = 10
 
 -------------------------------------------------------------------------
+-- QRA Interception
+--
+--  Simulates intercepion of random bogies
+
+--  QRA_BOGEY_PREFIX: prefijo en el editor para grupos intrusos
+--  QRA_BASE_CHANCE: probabilidad base inicial (%) de que el intruso obedezca.
+--  QRA_MAX_CHANCE: límite máximo de probabilidad (nunca será 100% seguro).
+--
+-------------------------------------------------------------------------
+
+MODULE_QRA = true
+QRA_BOGEY_TEMPLATE = "AEM_TPL_RED QRA BOGEY"
+QRA_BASE_CHANCE = 5
+QRA_MAX_CHANCE = 85
+RADIO_MESSAGES_FILES = {
+	"interception-1.ogg",
+	"interception-2.ogg",
+	"interception-3.ogg"
+}
+RADIO_MESSAGES_SUBTITLES = {
+	"Unknown aircraft, this is NATO fighter. You have been intercepted! You are approaching US airspace without valid clearance! I instruct you to immediately contact Air Traffic Control on frequency 251.100",
+	"Unidentified aircraft, this is a NATO fighter jet. You have entered restricted airspace without authorization. I am instructed by NATO air policing command to inform you that you are violating sovereign airspace! If you do not IMMEDIATELY comply with my instructions and alter your course, you will be shot down!",
+	"Unidentified aircraft, this is the last warning! CHANGE YOUR COURSE IMMEDIATELY of your will be shot down!"
+}
+
+-------------------------------------------------------------------------
+-- Persistence
+--
+-- PERSISTENCE_KEYWORD: Groups containing this string in their name 
+-- will have their exact unit locations, headings, and routes persisted.
+-------------------------------------------------------------------------
+
+PERSISTENCE_KEYWORD = "PERSIST"
+
+-------------------------------------------------------------------------
 -- Debug messages
 --
 --	Show on screen messages (can be switched ingame with F10 menu)

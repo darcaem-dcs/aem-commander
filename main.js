@@ -24,8 +24,11 @@ let authCredentialGlobal = null;
 
 // Persistence
 const PersistenceManager = require('./utils/persistence.js');
+const MizPatcher = require('./utils/mizPatcher.js');
+const AdmZip = require('adm-zip');
 let persistence = new PersistenceManager();
 let activeDeployments = {};
+let groupsToPersist = [];
 
 // Commanders
 const CoalitionArmedForces = require('./utils/coalitionArmedForces.js');
@@ -358,6 +361,10 @@ function routeDCSMessage(msg) {
         }
         return; // INIT doesn't need to go to AI commanders
     } else if (msg.type === "SAVE_STATE") {
+        if (msg.data && msg.data.persistent_groups) {
+            groupsToPersist = msg.data.persistent_groups;
+        }
+
         if (persistence.currentFile) {
             // Limpiamos los grupos viejos
             persistence.clearActiveGroups();
@@ -786,7 +793,7 @@ ipcMain.handle('select-json-file', async (event) => {
 });
 
 ipcMain.handle('select-and-start', async (event, authMethod, authCredential, modelName, commanderSide, instructionsRed, instructionsBlue, intervalTime, aggRed, aggBlue, enableEscalation, bmRed, bmBlue, unitProfiles) => {
-	
+
     startServer();
 
 	authMethodGlobal = authMethod;
@@ -861,16 +868,54 @@ ipcMain.handle('select-and-start', async (event, authMethod, authCredential, mod
 	return true;
 });
 
-ipcMain.handle('stop-monitor', () => {
+ipcMain.handle('stop-monitor', async () => {
     if (processIntervalId) {
         clearInterval(processIntervalId);
         processIntervalId = null;
     }
-	state.red.forces = null; 
+
+    // Execute .miz modification before clearing state
+    if (groupsToPersist && groupsToPersist.length > 0) {
+        const { response } = await dialog.showMessageBox(mainWindow, {
+            type: 'info',
+            title: 'Update Mission File',
+            message: 'Mission persistence data is available.\n\nPlease select the .miz file you want to update. A backup copy will be created automatically in the same folder.',
+            buttons: ['Select File', 'Skip Update'],
+            defaultId: 0,
+            cancelId: 1
+        });
+
+        if (response === 0) {
+            const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+                title: 'Select the .miz file to update',
+                properties: ['openFile'],
+                filters: [{ name: 'DCS Mission Files', extensions: ['miz'] }]
+            });
+
+            if (!canceled && filePaths.length > 0) {
+                const selectedFilePath = filePaths[0];
+                const patcher = new MizPatcher(selectedFilePath);
+                const success = patcher.process(groupsToPersist);
+                
+                if (success && mainWindow) {
+                    mainWindow.webContents.send('log-message', `Mission backup created and file updated: ${path.basename(selectedFilePath)}`, 'success');
+                } else if (mainWindow) {
+                    mainWindow.webContents.send('log-message', 'Failed to apply persistence to the selected mission file.', 'error');
+                }
+            } else {
+                if (mainWindow) mainWindow.webContents.send('log-message', 'Mission update skipped by user.', 'info');
+            }
+        } else {
+            if (mainWindow) mainWindow.webContents.send('log-message', 'Mission update skipped by user.', 'info');
+        }
+    }
+
+    state.red.forces = null; 
     state.blue.forces = null;
-	persistence = new PersistenceManager();
+    persistence = new PersistenceManager();
     activeDeployments = {};
-    mainWindow.webContents.send('log-message', 'Operations suspended by user.', 'info');
+    groupsToPersist = [];
+    if (mainWindow) mainWindow.webContents.send('log-message', 'Operations suspended by user.', 'info');
     stopServer();
     return true;
 });

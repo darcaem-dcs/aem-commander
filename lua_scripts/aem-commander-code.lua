@@ -31,6 +31,8 @@ local function printBootStatus()
     -- Feature Toggles
     env.info(" -> MODULE_CSAR: " .. tostring(MODULE_CSAR))
 	env.info(" -> MODULE_CIV_TRAFFIC: " .. tostring(MODULE_CIV_TRAFFIC))
+	env.info(" -> MODULE_WILDFIRES: " .. tostring(MODULE_WILDFIRES))
+	env.info(" -> MODULE_QRA: " .. tostring(MODULE_QRA))
 	env.info(" -> MODULE_DEBUG: " .. tostring(MODULE_DEBUG))
     
     -- Network info
@@ -1336,9 +1338,9 @@ if MODULE_CIV_TRAFFIC then
 end -- module civilian traffic
 
 -- ======================================================================
--- CIVILIAN TRAFFIC
+-- WILDFIRES
 --
--- Generates neutral background traffic between airbases and zones.
+-- WIP
 -- ======================================================================
 
 if MODULE_WILDFIRES then
@@ -1560,6 +1562,360 @@ if MODULE_WILDFIRES then
 	world.addEventHandler(Wildfire_WeaponHandler)
 
 end -- module wildfires
+
+-- ======================================================================
+-- QRA INTERCEPTION MODULE
+-- ======================================================================
+
+if MODULE_QRA then
+
+	local menuQRA = nil
+
+    AEM_QRA_ActiveBogeyGroup = nil
+    AEM_QRA_BogeyState = nil
+
+	local function CalculateInterceptVector(playerUnit, bogeyGroup)
+		local playerCoord = playerUnit:GetCoordinate()
+		local bogeyUnit = bogeyGroup:GetFirstUnitAlive()
+		if not bogeyUnit then return nil end
+
+		local bogeyCoord = bogeyUnit:GetCoordinate()
+
+		-- Datos BRA
+		local bearing = math.floor(playerCoord:HeadingTo(bogeyCoord))
+		local distMeters = playerCoord:Get2DDistance(bogeyCoord)
+		local distNM = math.floor(UTILS.MetersToNM(distMeters))
+		local altFt = math.floor(bogeyCoord.y * 3.28084)
+
+		-- Velocidades y rumbos
+		local pVelKts = playerUnit:GetVelocityKMH() * 0.539957
+		if pVelKts < 120 then pVelKts = 350 end -- Valor por defecto si el jugador está en pista/despegando
+
+		local bVelKts = bogeyUnit:GetVelocityKMH() * 0.539957
+		local bHeadingRad = math.rad(bogeyUnit:GetHeading() or 0)
+
+		-- Proyección de punto de colisión (Lead Pursuit)
+		local estTimeHours = distNM / math.max(1, (pVelKts + bVelKts))
+		local projDistMeters = (bVelKts * estTimeHours) * 1852
+		local projectedBogeyCoord = bogeyCoord:Translate(projDistMeters, math.deg(bHeadingRad))
+
+		local interceptHeading = math.floor(playerCoord:HeadingTo(projectedBogeyCoord))
+
+		return {
+			bearing = bearing,
+			distNM = distNM,
+			altFt = altFt,
+			interceptHeading = interceptHeading,
+			bogeySpeed = math.floor(bVelKts)
+		}
+
+	end
+
+	local function AEM_QRA_ForceTurnaround()
+		if not AEM_QRA_ActiveBogeyGroup or not AEM_QRA_ActiveBogeyGroup:IsAlive() then return end
+		if AEM_QRA_BogeyState.complied then return end
+
+		AEM_QRA_BogeyState.complied = true
+		AEM_QRA_ActiveBogeyGroup:ClearTasks()
+
+		local currentCoord = AEM_QRA_ActiveBogeyGroup:GetCoordinate()
+		local heading = AEM_QRA_ActiveBogeyGroup:GetHeading() or 0
+		local reverseHeading = (heading + 180) % 360
+		local rtbCoord = currentCoord:Translate(150000, reverseHeading)
+
+		AEM_QRA_ActiveBogeyGroup:Route({
+			currentCoord:WaypointAir(400, "Turning Point", "Fly Over", currentCoord.y),
+			rtbCoord:WaypointAir(450, "Turning Point", "Fly Over", currentCoord.y)
+		})
+
+		messageToAll("QRA alert deactivated: bogie is complying and turning", 15)
+		env.info("AEM QRA: Bogey complied and turned back.")
+
+		-- Eliminar menú F10 global
+		if menuQRA then
+			missionCommands.removeItem(menuQRA)
+			menuQRA = nil
+		end
+
+	end
+
+	local function QRA_RequestInterceptVector(playerUnit)
+		local groupID = playerUnit:GetGroup():GetID()
+
+		if not AEM_QRA_ActiveBogeyGroup or not AEM_QRA_ActiveBogeyGroup:IsAlive() then
+			trigger.action.outTextForGroup(groupID, "No active QRA", 10)
+			return
+		end
+
+		local data = CalculateInterceptVector(playerUnit, AEM_QRA_ActiveBogeyGroup)
+		if not data then
+			trigger.action.outTextForGroup(groupID, "Unable to get bogie's telemetry", 10)
+			return
+		end
+
+		local msg = string.format(
+			"[QRA] Interception vector:\n" ..
+			"• BRA: %03d° / %d NM / %d ft\n" ..
+			"• Interception course: %03d°\n" ..
+			"• Stimated bogie speed: %d kts",
+			data.bearing, data.distNM, data.altFt, data.interceptHeading, data.bogeySpeed
+		)
+		
+		trigger.action.outTextForGroup(groupID, msg, 15)
+	end
+
+	local function QRA_RadioWarning(playerUnit)
+		local groupID = playerUnit:GetGroup():GetID()
+		if not AEM_QRA_ActiveBogeyGroup or not AEM_QRA_ActiveBogeyGroup:IsAlive() then
+			trigger.action.outTextForGroup(groupID, "No active QRA.", 10)
+			return
+		end
+
+		local bogeyUnit = AEM_QRA_ActiveBogeyGroup:GetFirstUnitAlive()
+		local dist = playerUnit:GetCoordinate():Get2DDistance(bogeyUnit:GetCoordinate())
+
+		if dist > 500 then
+			trigger.action.outTextForGroup(groupID, string.format("Fly in formation with the bogie", 15))
+			return
+		end
+		
+		if AEM_QRA_BogeyState.radioMessages <= #RADIO_MESSAGES_FILES then
+			trigger.action.outSoundForGroup(groupID, RADIO_MESSAGES_FILES[AEM_QRA_BogeyState.radioMessages])
+			trigger.action.outTextForGroup(groupID, RADIO_MESSAGES_SUBTITLES[AEM_QRA_BogeyState.radioMessages], 15)
+			AEM_QRA_BogeyState.radioMessages = AEM_QRA_BogeyState.radioMessages + 1
+			AEM_QRA_BogeyState.score = AEM_QRA_BogeyState.score + 15
+		end
+		
+	end
+	
+	local function createInterceptionMenu()
+		
+		if menuQRA ~= nil then return end
+		menuQRA = missionCommands.addSubMenu("QRA interception", nil)
+		
+		missionCommands.addCommand("Request BRA", menuQRA, function()
+			local dcsPlayer = world.getPlayer()
+			if dcsPlayer then
+				local moosePlayer = UNIT:Find(dcsPlayer)
+				if moosePlayer then
+					QRA_RequestInterceptVector(moosePlayer) 
+				end
+			end
+		end)
+
+		missionCommands.addCommand("Radio message on guard", menuQRA, function()
+			local dcsPlayer = world.getPlayer()
+			if dcsPlayer then
+				local moosePlayer = UNIT:Find(dcsPlayer)
+				if moosePlayer then QRA_RadioWarning(moosePlayer) end
+			end
+		end)
+		
+	end
+	
+	function startQRAMission(startCoord, targetCoord, templateName)
+		if not MODULE_QRA then return end
+
+		templateName = templateName or QRA_BOGEY_TEMPLATE
+
+		-- If there is already an active bogie, to nothing
+		if AEM_QRA_ActiveBogeyGroup and AEM_QRA_ActiveBogeyGroup:IsAlive() then
+			return
+		end
+
+		-- Altitude and speed for the bogie (15k - 39k ft)
+		local altMeters = math.random(15000, 39000) * 0.3048
+		startCoord:SetAltitude(altMeters)
+		targetCoord:SetAltitude(altMeters)
+
+		local speedKnots = math.random(320, 420)
+		local distMeters = startCoord:Get2DDistance(targetCoord)
+		local baseHeading = startCoord:HeadingTo(targetCoord)
+
+		-- Generación de ruta aleatorizada con waypoints intermedios y desvíos laterales
+		local waypoints = {}
+		table.insert(waypoints, startCoord:WaypointAir(speedKnots, "Turning Point", "Fly Over", altMeters))
+
+		local numMidPoints = math.random(2, 6)
+		for i = 1, numMidPoints do
+			local fraction = i / (numMidPoints + 1)
+			local baseMidCoord = startCoord:Translate(distMeters * fraction, baseHeading)
+			
+			-- Desvío aleatorio lateral de hasta 80 km
+			local offsetCoord = baseMidCoord:GetRandomCoordinateInRadius(80000, 5000)
+			local midAlt = altMeters + (math.random(-1500, 1500) * 0.3048)
+			offsetCoord:SetAltitude(midAlt)
+
+			table.insert(waypoints, offsetCoord:WaypointAir(speedKnots, "Turning Point", "Fly Over", midAlt))
+		end
+
+		table.insert(waypoints, targetCoord:WaypointAir(speedKnots, "Turning Point", "Fly Over", altMeters))
+
+		-- Spawn del intruso mediante plantilla MOOSE
+		local SpawnObj = SPAWN:New(templateName)
+		SpawnObj:OnSpawnGroup(function(NewGroup)
+			AEM_QRA_ActiveBogeyGroup = NewGroup
+
+			AEM_QRA_BogeyState = {
+				score = QRA_BASE_CHANCE or 5,
+				rockedWings = false,
+				flared = false,
+				complied = false,
+				radioMessages = 1
+			}
+
+			NewGroup:Route(waypoints)
+			
+			local playerCoalition = coalition.side.BLUE -- Default to blue if no player active yet
+			local dcsPlayer = world.getPlayer()
+			if dcsPlayer then
+				playerCoalition = dcsPlayer:getCoalition()
+			end
+			local bullseyeMsg = ""
+			local bullseyeVec3 = coalition.getMainRefPoint(playerCoalition)
+			if bullseyeVec3 then
+				local bullseyeCoord = COORDINATE:NewFromVec3(bullseyeVec3)
+				local bogeyCoord = NewGroup:GetCoordinate()
+				local brg = math.floor(bullseyeCoord:HeadingTo(bogeyCoord))
+				local distNM = math.floor(UTILS.MetersToNM(bullseyeCoord:Get2DDistance(bogeyCoord)))
+				local altFt = math.floor(bogeyCoord.y * 3.28084)
+				
+				bullseyeMsg = string.format("\nBullseye: %03d° / %d NM / %d ft", brg, distNM, altFt)
+			end
+		
+			messageToAll("QRA ALERT: new bogie not responding to ATC calls. "..bullseyeMsg, 15)
+			env.info("AEM QRA: Bogey spawned successfully -> " .. NewGroup:GetName())
+			
+			createInterceptionMenu()
+			
+			timer.scheduleFunction(function(args, time)
+				if not AEM_QRA_ActiveBogeyGroup or not AEM_QRA_ActiveBogeyGroup:IsAlive() then return nil end
+				if AEM_QRA_BogeyState.complied then return nil end
+				
+				local finalChance = math.min(QRA_MAX_CHANCE, AEM_QRA_BogeyState.score)
+				local roll = math.random(1, 100)
+				
+				env.info("AEM QRA: scheduled check (10 min). Roll: " .. roll .. " vs Chance: " .. finalChance)
+				
+				if roll <= finalChance then
+					AEM_QRA_ForceTurnaround()
+					return nil -- Detener temporizador
+				else
+					return time + 600 -- Repetir en 10 minutos
+				end
+			end, {}, timer.getTime() + 600)
+			
+			timer.scheduleFunction(function(args, time)
+				if not AEM_QRA_ActiveBogeyGroup or not AEM_QRA_ActiveBogeyGroup:IsAlive() then return nil end
+				if AEM_QRA_BogeyState.complied then return nil end
+				
+				local bogeyUnit = AEM_QRA_ActiveBogeyGroup:GetFirstUnitAlive()
+				local dcsPlayer = world.getPlayer()
+				
+				if bogeyUnit and dcsPlayer and dcsPlayer:isExist() then
+					local moosePlayer = UNIT:Find(dcsPlayer)
+					if moosePlayer and moosePlayer:IsAlive() then
+						local pCoord = moosePlayer:GetCoordinate()
+						local bCoord = bogeyUnit:GetCoordinate()
+						
+						local dist = pCoord:Get2DDistance(bCoord)
+						local altDiffFt = math.abs(pCoord.y - bCoord.y) * 3.28084
+						
+						-- Verificación: < 200m (0.107 NM) distancia 2D y < 200 ft altitud
+						if dist <= 200 and altDiffFt <= 200 then
+							AEM_QRA_BogeyState.score = math.min(QRA_MAX_CHANCE, AEM_QRA_BogeyState.score + 1)
+							env.info("AEM QRA: player in close formation. Increasing score to " .. AEM_QRA_BogeyState.score .. "%")
+						end
+					end
+					
+					local finalChance = math.min(QRA_MAX_CHANCE, AEM_QRA_BogeyState.score)
+					local roll = math.random(1, 100)
+										
+					env.info("AEM QRA: check roll: " .. roll .. " vs Chance: " .. finalChance)
+										
+					if roll <= finalChance then
+						AEM_QRA_ForceTurnaround()
+					end
+				end
+				
+				return time + 60 -- Repetir en 1 minuto
+			end, {}, timer.getTime() + 60)
+			
+		end)
+
+		SpawnObj:SpawnFromCoordinate(startCoord)
+
+	end
+
+	-- Función pública llamada desde Node.js (o script) para iniciar el QRA
+	-- Params:
+	--   startLat, startLon: Coordenadas de origen
+	--   targetLat, targetLon: Coordenadas de destino final
+	--   templateName: (Opcional) Nombre del grupo plantilla en el ME
+	function AEM_StartQRAMission(startLat, startLon, targetLat, targetLon, templateName)
+		local startCoord = COORDINATE:NewFromLLDD(startLat, startLon)
+		local targetCoord = COORDINATE:NewFromLLDD(targetLat, targetLon)
+		startQRAMission(startCoord, targetCoord, templateName)
+	end
+
+	-- Event Handler: Detección automática de Disparos de Advertencia (Cañón)
+	local QRA_ShootHandler = {}
+	function QRA_ShootHandler:onEvent(event)
+		-- Detectamos cualquier disparo
+		if event.id == world.event.S_EVENT_SHOOT and event.initiator then
+			
+			-- Verificamos que hay un QRA activo y no se ha rendido ya
+			if not AEM_QRA_ActiveBogeyGroup or not AEM_QRA_ActiveBogeyGroup:IsAlive() then return end
+			if AEM_QRA_BogeyState.complied then return end
+			
+			-- Solo nos interesa si el que dispara es un jugador humano
+			if not event.initiator:getPlayerName() then return end
+			
+			local weapon = event.weapon
+			if weapon then
+				local desc = weapon:getDesc()
+				
+				-- Comprobamos si el arma disparada es un Cañón (Categoría 0 = SHELL)
+				if desc and desc.category == Weapon.Category.SHELL then
+					local bogeyUnit = AEM_QRA_ActiveBogeyGroup:GetFirstUnitAlive()
+					if bogeyUnit then
+						-- Usamos vec3 para el cálculo directo de distancia sin sobrecargar a MOOSE
+						local pCoord = event.initiator:getPoint()
+						local bCoord = bogeyUnit:getPoint()
+						
+						local dx = pCoord.x - bCoord.x
+						local dz = pCoord.z - bCoord.z
+						local dist = math.sqrt(dx*dx + dz*dz)
+						
+						-- Si el jugador dispara a menos de 4 km del objetivo (aprox 2 NM)
+						if dist < 4000 then
+							local timeNow = timer.getTime()
+							
+							-- Aplicamos un "cooldown" de 60 segundos para que una ráfaga no sume infinitos puntos
+							if not AEM_QRA_BogeyState.lastGunWarning or (timeNow - AEM_QRA_BogeyState.lastGunWarning > 60) then
+								AEM_QRA_BogeyState.lastGunWarning = timeNow
+								AEM_QRA_BogeyState.score = math.min(QRA_MAX_CHANCE, AEM_QRA_BogeyState.score + 25)
+								
+								if AEM_QRA_BogeyState.complied then return end
+								
+								local finalChance = math.min(QRA_MAX_CHANCE, AEM_QRA_BogeyState.score)
+								local roll = math.random(1, 100)
+								
+								env.info("AEM QRA: check roll: " .. roll .. " vs Chance: " .. finalChance)
+								
+								if roll <= finalChance then
+									AEM_QRA_ForceTurnaround()
+								end
+							end
+						end
+					end
+				end
+			end
+		end
+	end
+	world.addEventHandler(QRA_ShootHandler)
+
+end -- module QRA
 
 -- ======================================================================
 -- Field command
@@ -2479,18 +2835,53 @@ local function switchDebug()
 	trigger.action.outText("AEM Commander debug messages " .. ("activated" and MODULE_DEBUG or "deactivated"), t)
 end
 
+local function GetPersistentGroups()
+    local groupsData = {}
+    local ActiveSet = SET_GROUP:New():FilterStart()
+    
+    ActiveSet:ForEachGroupAlive(function(group)
+        local groupName = group:GetName()
+        if groupName and string.find(groupName, PERSISTENCE_KEYWORD) then
+            local gData = {
+                name = groupName,
+                units = {}
+            }
+            for _, unit in ipairs(group:GetUnits()) do
+                if unit and unit:IsAlive() then
+                    local pos = unit:GetPointVec3()
+                    local heading = unit:GetHeading()
+                    
+                    -- DCS velocity vector to knots
+                    local vel = unit:GetVelocity()
+                    local speedMps = math.sqrt(vel.x^2 + vel.y^2 + vel.z^2)
+                    local speedKts = speedMps * 1.94384
+
+                    table.insert(gData.units, {
+                        name = unit:GetName(),
+                        x = pos.x,
+                        y = pos.z, -- z in DCS vec3 maps to y in the mission file
+                        heading = math.rad(heading), -- ME uses radians
+                        speed = speedKts
+                    })
+                end
+            end
+            table.insert(groupsData, gData)
+        end
+    end)
+    return groupsData
+end
+
 local function forcePersistenceSave()
     if FlushEvents then FlushEvents() end
     
-    -- 2. Recalcula y envía la posición actual de TODO (garantiza telemetría perfecta al segundo)
     local activeRed = GetActiveForcesData(RedActiveSet)
     SendToNode("ACTIVE", "RED", activeRed)
     local activeBlue = GetActiveForcesData(BlueActiveSet)
     SendToNode("ACTIVE", "BLUE", activeBlue)
     
-    -- 3. Le dice a Node.js que guarde (ahora Node.js utilizará el array ACTIVE que acaba de llegar)
     if tcp_conn then
-        SendToNode("SAVE_STATE", "ALL", {})
+        local persistData = GetPersistentGroups()
+        SendToNode("SAVE_STATE", "ALL", { persistent_groups = persistData })
         messageToAll("AEM Commander: Requesting state save...", 10)
     else
         messageToAll("AEM Commander: Save failed. HQ not connected.", 10)
