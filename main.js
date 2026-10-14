@@ -363,6 +363,8 @@ function routeDCSMessage(msg) {
     } else if (msg.type === "SAVE_STATE") {
         if (msg.data && msg.data.persistent_groups) {
             groupsToPersist = msg.data.persistent_groups;
+            logger.info(`Received ${groupsToPersist.length} groups to persist from DCS.`);
+            logger.info(`${JSON.stringify(groupsToPersist)}`);
         }
 
         if (persistence.currentFile) {

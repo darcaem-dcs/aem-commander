@@ -2850,11 +2850,10 @@ local function GetPersistentGroups()
                 if unit and unit:IsAlive() then
                     local pos = unit:GetPointVec3()
                     local heading = unit:GetHeading()
-                    
-                    -- DCS velocity vector to knots
-                    local vel = unit:GetVelocity()
-                    local speedMps = math.sqrt(vel.x^2 + vel.y^2 + vel.z^2)
-                    local speedKts = speedMps * 1.94384
+                    local speedKts = 0
+                    if unit.GetVelocityKMH then
+                        speedKts = unit:GetVelocityKMH() * 0.539957
+                    end
 
                     table.insert(gData.units, {
                         name = unit:GetName(),
