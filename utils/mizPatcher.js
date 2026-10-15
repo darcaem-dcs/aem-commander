@@ -166,28 +166,36 @@ class MizPatcher {
                     explicitlyProcessedGroupIds.add(groupBlock.substring(start, end).trim());
                 }
 
-                // 2. Determine exact DCS spawn heading based on route vector
-                let pStart = groupBlock.indexOf('["points"] =');
-                let w1Start = groupBlock.indexOf('[1] =', pStart);
-                let w1End = this.getClosingBraceIndex(groupBlock, w1Start);
-                let w2Start = groupBlock.indexOf('[2] =', w1End);
-                let w3Start = groupBlock.indexOf('[3] =', w1End); 
+                const isGroundUnit = groupBlock.includes('["spans"]');
+                let spawnHeading = leadUnit.heading;
 
-                let targetX = null, targetY = null;
-                let spawnHeading = leadUnit.heading; // Fallback to telemetry heading
+                // Calculate Vector Heading for Naval/Air (Fallback to telemetry if unavailable)
+                if (!isGroundUnit) {
+                    let pStart = groupBlock.indexOf('["points"] =');
+                    let w1Start = groupBlock.indexOf('[1] =', pStart);
+                    let w1End = this.getClosingBraceIndex(groupBlock, w1Start);
+                    let w2Start = groupBlock.indexOf('[2] =', w1End);
+                    let w2End = w2Start !== -1 ? this.getClosingBraceIndex(groupBlock, w2Start) : -1;
+                    let w3Start = w2End !== -1 ? groupBlock.indexOf('[3] =', w2End) : -1; 
+                    
+                    let targetBlock = null;
+                    if (w3Start !== -1) {
+                        targetBlock = groupBlock.substring(w3Start, this.getClosingBraceIndex(groupBlock, w3Start));
+                    } else if (w2Start !== -1) {
+                        targetBlock = groupBlock.substring(w2Start, w2End);
+                    }
 
-                if (w2Start !== -1 && w3Start !== -1) {
-                    const w3Block = groupBlock.substring(w3Start, this.getClosingBraceIndex(groupBlock, w3Start));
-                    targetX = this.extractNumber(w3Block, '["x"] = ');
-                    targetY = this.extractNumber(w3Block, '["y"] = ');
-
-                    if (targetX !== null && targetY !== null) {
-                        spawnHeading = Math.atan2(targetY - leadUnit.y, targetX - leadUnit.x);
-                        if (spawnHeading < 0) spawnHeading += 2 * Math.PI;
+                    if (targetBlock) {
+                        let targetX = this.extractNumber(targetBlock, '["x"] = ');
+                        let targetY = this.extractNumber(targetBlock, '["y"] = ');
+                        if (targetX !== null && targetY !== null) {
+                            spawnHeading = Math.atan2(targetY - leadUnit.y, targetX - leadUnit.x);
+                            if (spawnHeading < 0) spawnHeading += 2 * Math.PI;
+                        }
                     }
                 }
 
-                // 3. Update units and capture origin transforms
+                // 2. Update units and capture origin transforms
                 for (const unit of group.units) {
                     const uIndex = groupBlock.indexOf(`["name"] = "${unit.name}"`);
                     if (uIndex !== -1) {
@@ -217,42 +225,57 @@ class MizPatcher {
                                 origHeading: origHeading,
                                 newX: unit.x,
                                 newY: unit.y,
-                                spawnHeading: spawnHeading // Use calculated spawn heading!
+                                spawnHeading: isGroundUnit ? unit.heading : spawnHeading 
                             };
                         }
 
                         unitBlock = this.setAbsolute(unitBlock, unit.x, unit.y);
-                        // Inject spawnHeading into the carrier so it perfectly matches the vector
-                        unitBlock = this.setHeading(unitBlock, spawnHeading);
+                        unitBlock = this.setHeading(unitBlock, isGroundUnit ? unit.heading : spawnHeading);
                         groupBlock = groupBlock.substring(0, uStart) + unitBlock + groupBlock.substring(uEnd);
                     }
                 }
 
-                // 4. Update Group Root & Route Stacking
+                // 3. Update Group Root
                 let unitsStart = groupBlock.indexOf('["units"] ='); 
                 let unitsEnd = this.getClosingBraceIndex(groupBlock, unitsStart);
                 let rootBlock = groupBlock.substring(unitsEnd);
                 groupBlock = groupBlock.substring(0, unitsEnd) + this.setAbsolute(rootBlock, leadUnit.x, leadUnit.y);
 
-                pStart = groupBlock.indexOf('["points"] =');
-                w1Start = groupBlock.indexOf('[1] =', pStart);
-                w1End = this.getClosingBraceIndex(groupBlock, w1Start);
+                // 4. Flush the Road Geometry Array safely if present
+                let spansIdx = groupBlock.indexOf('["spans"] =');
+                if (spansIdx !== -1) {
+                    let spansEnd = this.getClosingBraceIndex(groupBlock, spansIdx);
+                    if (spansEnd !== -1) {
+                        groupBlock = groupBlock.substring(0, spansIdx) + '["spans"] = \n\t\t\t\t\t\t\t\t{\n\t\t\t\t\t\t\t\t}' + groupBlock.substring(spansEnd);
+                    }
+                }
+
+                // 5. Stack Waypoint 1 and Waypoint 2 to the exact location of the unit
+                let pStart = groupBlock.indexOf('["points"] =');
+                let w1Start = groupBlock.indexOf('[1] =', pStart);
+                let w1End = this.getClosingBraceIndex(groupBlock, w1Start);
                 let w1Block = groupBlock.substring(w1Start, w1End);
                 groupBlock = groupBlock.substring(0, w1Start) + this.setAbsolute(w1Block, leadUnit.x, leadUnit.y) + groupBlock.substring(w1End);
 
-                if (targetX !== null && targetY !== null) {
+                // Recalculate indexes because the string length changed
+                pStart = groupBlock.indexOf('["points"] =');
+                w1Start = groupBlock.indexOf('[1] =', pStart);
+                w1End = this.getClosingBraceIndex(groupBlock, w1Start);
+                let w2Start = groupBlock.indexOf('[2] =', w1End);
+                
+                if (w2Start !== -1) {
                     let w2End = this.getClosingBraceIndex(groupBlock, w2Start);
                     let w2Block = groupBlock.substring(w2Start, w2End);
-                    groupBlock = groupBlock.substring(0, w2Start) + this.setAbsolute(w2Block, targetX, targetY) + groupBlock.substring(w2End);
+                    groupBlock = groupBlock.substring(0, w2Start) + this.setAbsolute(w2Block, leadUnit.x, leadUnit.y) + groupBlock.substring(w2End);
                 }
 
                 missionText = missionText.substring(0, startIndex) + groupBlock + missionText.substring(endIndex);
                 isModified = true;
-                logger.info(`Persisted root group: ${group.name}`);
+                logger.info(`Persisted root group: ${group.name} | WP1 and WP2 Stacked.`);
             }
         }
 
-        // 5. Transform Linked Statics/Clients using 2D Rotation Matrix
+        // 6. Transform Linked Statics/Clients using 2D Rotation Matrix
         let curIdx = 0;
         let groupRoots = [];
         
