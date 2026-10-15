@@ -29,6 +29,7 @@ const AdmZip = require('adm-zip');
 let persistence = new PersistenceManager();
 let activeDeployments = {};
 let groupsToPersist = [];
+let missionAbsTime = 0;  // Absolute time in seconds since mission start, updated from DCS
 
 // Commanders
 const CoalitionArmedForces = require('./utils/coalitionArmedForces.js');
@@ -363,8 +364,8 @@ function routeDCSMessage(msg) {
     } else if (msg.type === "SAVE_STATE") {
         if (msg.data && msg.data.persistent_groups) {
             groupsToPersist = msg.data.persistent_groups;
+            missionAbsTime = msg.data.absolute_time || 0; // Update the absolute time from DCS
             logger.info(`Received ${groupsToPersist.length} groups to persist from DCS.`);
-            logger.info(`${JSON.stringify(groupsToPersist)}`);
         }
 
         if (persistence.currentFile) {
@@ -877,12 +878,12 @@ ipcMain.handle('stop-monitor', async () => {
     }
 
     // Execute .miz modification before clearing state
-    if (groupsToPersist && groupsToPersist.length > 0) {
+    if ((groupsToPersist && groupsToPersist.length > 0) || missionAbsTime > 0) {
         const { response } = await dialog.showMessageBox(mainWindow, {
             type: 'info',
             title: 'Update Mission File',
-            message: 'Mission persistence data is available.\n\nPlease select the .miz file you want to update. A backup copy will be created automatically in the same folder.',
-            buttons: ['Select File', 'Skip Update'],
+            message: 'Mission persistence data is available.\n\nPlease select the .miz file you were using to update it. A backup copy will be created automatically in the same folder.',
+            buttons: ['Select file', 'Do not update'],
             defaultId: 0,
             cancelId: 1
         });
@@ -897,7 +898,7 @@ ipcMain.handle('stop-monitor', async () => {
             if (!canceled && filePaths.length > 0) {
                 const selectedFilePath = filePaths[0];
                 const patcher = new MizPatcher(selectedFilePath);
-                const success = patcher.process(groupsToPersist);
+                const success = patcher.process(groupsToPersist, missionAbsTime);
                 
                 if (success && mainWindow) {
                     mainWindow.webContents.send('log-message', `Mission backup created and file updated: ${path.basename(selectedFilePath)}`, 'success');
@@ -917,6 +918,8 @@ ipcMain.handle('stop-monitor', async () => {
     persistence = new PersistenceManager();
     activeDeployments = {};
     groupsToPersist = [];
+    missionAbsTime = 0;
+
     if (mainWindow) mainWindow.webContents.send('log-message', 'Operations suspended by user.', 'info');
     stopServer();
     return true;

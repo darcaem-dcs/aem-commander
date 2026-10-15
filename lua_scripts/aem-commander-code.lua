@@ -2880,7 +2880,12 @@ local function forcePersistenceSave()
     
     if tcp_conn then
         local persistData = GetPersistentGroups()
-        SendToNode("SAVE_STATE", "ALL", { persistent_groups = persistData })
+        local absTime = timer.getAbsTime() -- Capture the absolute simulation time
+        
+        SendToNode("SAVE_STATE", "ALL", { 
+            persistent_groups = persistData,
+            absolute_time = absTime -- Send to Node.js
+        })
         messageToAll("AEM Commander: Requesting state save...", 10)
     else
         messageToAll("AEM Commander: Save failed. HQ not connected.", 10)
