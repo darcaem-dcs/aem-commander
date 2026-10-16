@@ -45,7 +45,12 @@ let redActive = false, blueActive = false;
 let state = {
     red: { forces: null, targets: null, territory: null, aiLogs: [] },
     blue: { forces: null, targets: null, territory: null, aiLogs: [] },
-    ballisticRangeKm: 290
+    ballisticRangeKm: 290,
+    enableAiCommander: true,
+    enablePersistence: true,
+    persistState: true,
+    persistPositions: true,
+    persistTime: true
 };
 
 // Threat analysis
@@ -368,7 +373,7 @@ function routeDCSMessage(msg) {
             logger.info(`Received ${groupsToPersist.length} groups to persist from DCS.`);
         }
 
-        if (persistence.currentFile) {
+        if (persistence.currentFile && state.persistState) {
             // Limpiamos los grupos viejos
             persistence.clearActiveGroups();
             
@@ -376,7 +381,6 @@ function routeDCSMessage(msg) {
             ['red', 'blue'].forEach(side => {
                 if (state[side].forces && state[side].forces.rawPersistenceData) {
                     state[side].forces.rawPersistenceData.forEach(groupData => {
-                        // Solo guardamos grupos manejados por AEM (que contengan persistence_data)
                         if (groupData.persistence_data) {
                             persistence.addActiveGroup(groupData.id, side, groupData);
                         }
@@ -447,7 +451,7 @@ function routeDCSMessage(msg) {
         });
 		
         // Update state and notify renderer if any changes occurred
-		if (stateChanged && persistence.currentFile) {
+		if (stateChanged && persistence.currentFile && state.persistState) {
             persistence.saveState();
             if (mainWindow) {
                 mainWindow.webContents.send('persistence-updated', persistence.state.mission_info.updated_at);
@@ -508,7 +512,7 @@ function routeDCSMessage(msg) {
                         } else {
                             state[coal].aiLogs.push(`A unit from ${event.groupName} has been destroyed`);
                         }
-                        if (persistence.currentFile) {
+                        if (persistence.currentFile && state.persistState) {
                             if (persistence.state.eventThreatBonus == null) persistence.state.eventThreatBonus = {};
                             persistence.state.eventThreatBonus[coal] = state[coal].eventThreatBonus;
                             persistence.saveState();
@@ -520,8 +524,8 @@ function routeDCSMessage(msg) {
 							state[coal].eventThreatBonus = (state[coal].eventThreatBonus || 0) + 30;
                             targets.addTarget(`csar-${event.name}`, 999, 'csar', event.lat, event.lon, null);
                             state[coal].aiLogs.push('One of our pilots has ejected safely and needs to be rescued. A new csar mission has been added to the targets list');
-                            if (persistence.currentFile) {
-                                if (persistence.state.eventThreatBonus == null) persistence.state.eventThreatBonus = {};
+                            if (persistence.currentFile && state.persistState) {
+                            if (persistence.state.eventThreatBonus == null) persistence.state.eventThreatBonus = {};
                                 persistence.state.eventThreatBonus[coal] = state[coal].eventThreatBonus;
                                 persistence.saveState();
                             }
@@ -795,17 +799,43 @@ ipcMain.handle('select-json-file', async (event) => {
     return filePaths[0];
 });
 
-ipcMain.handle('select-and-start', async (event, authMethod, authCredential, modelName, commanderSide, instructionsRed, instructionsBlue, intervalTime, aggRed, aggBlue, enableEscalation, bmRed, bmBlue, unitProfiles) => {
+ipcMain.handle('select-and-start', async (event, enableAiCommander, enablePersistence, persistState, persistPositions, persistTime, authMethod, authCredential, modelName, commanderSide, instructionsRed, instructionsBlue, intervalTime, aggRed, aggBlue, enableEscalation, bmRed, bmBlue, unitProfiles) => {
 
     startServer();
 
-	authMethodGlobal = authMethod;
-    authCredentialGlobal = authCredential;
-	currentModelName = modelName;
-	
-	state.escalationEnabled = enableEscalation;
+    state.enableAiCommander = enableAiCommander;
+    state.enablePersistence = enablePersistence;
+    state.persistState = persistState;
+    state.persistPositions = persistPositions;
+    state.persistTime = persistTime;
 
-    if (persistence.currentFile) {
+    // Only apply AI dependencies if the AI Commander is enabled
+    if (enableAiCommander) {
+        authMethodGlobal = authMethod;
+        authCredentialGlobal = authCredential;
+        currentModelName = modelName;
+        state.escalationEnabled = enableEscalation;
+        state.unitProfiles = unitProfiles;
+
+        if (commanderSide === 'red' || commanderSide === 'both') {
+            state.red.forces = new CoalitionArmedForces('red', instructionsRed);
+            state.red.targets = new CoalitionTargets('red');
+            state.red.territory = new CoalitionTerritory('red');
+            state.red.aggressiveness = aggRed;
+            state.red.isrThreatScore = 0;
+            state.red.eventThreatBonus = 0;
+        }
+        if (commanderSide === 'blue' || commanderSide === 'both') {
+            state.blue.forces = new CoalitionArmedForces('blue', instructionsBlue);
+            state.blue.targets = new CoalitionTargets('blue');
+            state.blue.territory = new CoalitionTerritory('blue');
+            state.blue.aggressiveness = aggBlue;
+            state.blue.isrThreatScore = 0;
+            state.blue.eventThreatBonus = 0;
+        }
+    }
+
+    if (enablePersistence && state.persistState && persistence.currentFile) {
         if (!persistence.state.mission_info) persistence.state.mission_info = {};
         persistence.state.mission_info.instructionsRed = instructionsRed;
         persistence.state.mission_info.instructionsBlue = instructionsBlue;
@@ -813,60 +843,40 @@ ipcMain.handle('select-and-start', async (event, authMethod, authCredential, mod
         persistence.state.mission_info.unitProfiles = unitProfiles;
         persistence.saveState();
     }
-
-    state.unitProfiles = unitProfiles;
 	
-    if (commanderSide === 'red' || commanderSide === 'both') {
-        state.red.forces = new CoalitionArmedForces('red', instructionsRed);
-        state.red.targets = new CoalitionTargets('red');
-        state.red.territory = new CoalitionTerritory('red');
-		state.red.aggressiveness = aggRed;
-		state.red.isrThreatScore = 0;
-		state.red.eventThreatBonus = 0;
-    }
-    if (commanderSide === 'blue' || commanderSide === 'both') {
-        state.blue.forces = new CoalitionArmedForces('blue', instructionsBlue);
-        state.blue.targets = new CoalitionTargets('blue');
-        state.blue.territory = new CoalitionTerritory('blue');
-		state.blue.aggressiveness = aggBlue;
-		state.blue.isrThreatScore = 0;
-		state.blue.eventThreatBonus = 0;
-    }
-	
-	const intervalMs = intervalTime * 1000;
-	
-	if (processIntervalId) clearInterval(processIntervalId);
+    if (processIntervalId) clearInterval(processIntervalId);
     
-    let isProcessing = false;
-    processIntervalId = setInterval(async () => {
-        // Prevent overlapping if the API takes longer than the interval time
-        if (isProcessing) {
-            logger.info("Previous commander cycle still running. Skipping this interval.");
-            return;
-        }
+    // Only run the AI Commander monitoring loop if it was enabled
+    if (enableAiCommander) {
+        const intervalMs = intervalTime * 1000;
+        let isProcessing = false;
         
-        isProcessing = true;
-        try {
-            // Run Red Commander first
-            if (state.red.forces) {
-                await processCommander('red');
+        processIntervalId = setInterval(async () => {
+            if (isProcessing) {
+                logger.info("Previous commander cycle still running. Skipping this interval.");
+                return;
             }
             
-            // If both commanders are active, add a delay (e.g., 10 seconds) to prevent 429 burst limits
-            if (state.red.forces && state.blue.forces) {
-                await new Promise(resolve => setTimeout(resolve, 10000));
+            isProcessing = true;
+            try {
+                if (state.red.forces) {
+                    await processCommander('red');
+                }
+                
+                if (state.red.forces && state.blue.forces) {
+                    await new Promise(resolve => setTimeout(resolve, 10000));
+                }
+                
+                if (state.blue.forces) {
+                    await processCommander('blue');
+                }
+            } catch (err) {
+                logger.error("Error in commander execution loop:", err);
+            } finally {
+                isProcessing = false;
             }
-            
-            // Run Blue Commander second
-            if (state.blue.forces) {
-                await processCommander('blue');
-            }
-        } catch (err) {
-            logger.error("Error in commander execution loop:", err);
-        } finally {
-            isProcessing = false;
-        }
-    }, intervalMs);
+        }, intervalMs);
+    }
 	
 	return true;
 });
@@ -877,8 +887,11 @@ ipcMain.handle('stop-monitor', async () => {
         processIntervalId = null;
     }
 
-    // Execute .miz modification before clearing state
-    if ((groupsToPersist && groupsToPersist.length > 0) || missionAbsTime > 0) {
+    // Execute .miz modification based on toggle preferences
+    let groupsToPatch = (state.enablePersistence && state.persistPositions) ? groupsToPersist : [];
+    let timeToPatch = (state.enablePersistence && state.persistTime) ? missionAbsTime : null;
+
+    if (state.enablePersistence && ((groupsToPatch && groupsToPatch.length > 0) || timeToPatch > 0)) {
         const { response } = await dialog.showMessageBox(mainWindow, {
             type: 'info',
             title: 'Update Mission File',
@@ -898,7 +911,9 @@ ipcMain.handle('stop-monitor', async () => {
             if (!canceled && filePaths.length > 0) {
                 const selectedFilePath = filePaths[0];
                 const patcher = new MizPatcher(selectedFilePath);
-                const success = patcher.process(groupsToPersist, missionAbsTime);
+                
+                // Pass the strictly filtered arrays/nulls based on user toggles
+                const success = patcher.process(groupsToPatch, timeToPatch);
                 
                 if (success && mainWindow) {
                     mainWindow.webContents.send('log-message', `Mission backup created and file updated: ${path.basename(selectedFilePath)}`, 'success');
