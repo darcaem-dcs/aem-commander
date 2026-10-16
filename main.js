@@ -809,32 +809,35 @@ ipcMain.handle('select-and-start', async (event, enableAiCommander, enablePersis
     state.persistPositions = persistPositions;
     state.persistTime = persistTime;
 
-    // Only apply AI dependencies if the AI Commander is enabled
+    // ALWAYS initialize tracking state so the map and telemetry work
+    state.escalationEnabled = enableEscalation;
+    state.unitProfiles = unitProfiles;
+
+    if (commanderSide === 'red' || commanderSide === 'both') {
+        state.red.forces = new CoalitionArmedForces('red', instructionsRed);
+        state.red.targets = new CoalitionTargets('red');
+        state.red.territory = new CoalitionTerritory('red');
+        state.red.aggressiveness = aggRed;
+        state.red.isrThreatScore = 0;
+        state.red.eventThreatBonus = 0;
+    }
+    if (commanderSide === 'blue' || commanderSide === 'both') {
+        state.blue.forces = new CoalitionArmedForces('blue', instructionsBlue);
+        state.blue.targets = new CoalitionTargets('blue');
+        state.blue.territory = new CoalitionTerritory('blue');
+        state.blue.aggressiveness = aggBlue;
+        state.blue.isrThreatScore = 0;
+        state.blue.eventThreatBonus = 0;
+    }
+
+    // Only set AI authentication if the AI Commander is enabled
     if (enableAiCommander) {
         authMethodGlobal = authMethod;
         authCredentialGlobal = authCredential;
         currentModelName = modelName;
-        state.escalationEnabled = enableEscalation;
-        state.unitProfiles = unitProfiles;
-
-        if (commanderSide === 'red' || commanderSide === 'both') {
-            state.red.forces = new CoalitionArmedForces('red', instructionsRed);
-            state.red.targets = new CoalitionTargets('red');
-            state.red.territory = new CoalitionTerritory('red');
-            state.red.aggressiveness = aggRed;
-            state.red.isrThreatScore = 0;
-            state.red.eventThreatBonus = 0;
-        }
-        if (commanderSide === 'blue' || commanderSide === 'both') {
-            state.blue.forces = new CoalitionArmedForces('blue', instructionsBlue);
-            state.blue.targets = new CoalitionTargets('blue');
-            state.blue.territory = new CoalitionTerritory('blue');
-            state.blue.aggressiveness = aggBlue;
-            state.blue.isrThreatScore = 0;
-            state.blue.eventThreatBonus = 0;
-        }
     }
 
+    // Apply JSON state file generation/update if requested
     if (enablePersistence && state.persistState && persistence.currentFile) {
         if (!persistence.state.mission_info) persistence.state.mission_info = {};
         persistence.state.mission_info.instructionsRed = instructionsRed;
@@ -843,7 +846,7 @@ ipcMain.handle('select-and-start', async (event, enableAiCommander, enablePersis
         persistence.state.mission_info.unitProfiles = unitProfiles;
         persistence.saveState();
     }
-	
+    
     if (processIntervalId) clearInterval(processIntervalId);
     
     // Only run the AI Commander monitoring loop if it was enabled
@@ -877,8 +880,8 @@ ipcMain.handle('select-and-start', async (event, enableAiCommander, enablePersis
             }
         }, intervalMs);
     }
-	
-	return true;
+    
+    return true;
 });
 
 ipcMain.handle('stop-monitor', async () => {
