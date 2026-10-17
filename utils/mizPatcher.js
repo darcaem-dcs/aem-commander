@@ -223,6 +223,8 @@ class MizPatcher {
 
                     const isGroundUnit = groupBlock.includes('["spans"]');
                     let spawnHeading = leadUnit.heading;
+                    let targetX = null;
+                    let targetY = null;
 
                     // Calculate Vector Heading for Naval/Air
                     if (!isGroundUnit) {
@@ -241,17 +243,14 @@ class MizPatcher {
                         }
 
                         if (targetBlock) {
-                            let targetX = this.extractNumber(targetBlock, '["x"] = ');
-                            let targetY = this.extractNumber(targetBlock, '["y"] = ');
+                            targetX = this.extractNumber(targetBlock, '["x"] = ');
+                            targetY = this.extractNumber(targetBlock, '["y"] = ');
                             if (targetX !== null && targetY !== null) {
                                 spawnHeading = Math.atan2(targetY - leadUnit.y, targetX - leadUnit.x);
                                 if (spawnHeading < 0) spawnHeading += 2 * Math.PI;
                             }
                         }
                     }
-
-                    let groupDeltaX = 0;
-                    let groupDeltaY = 0;
 
                     // 2. Update units and capture origin transforms
                     for (let unitIdx = 0; unitIdx < group.units.length; unitIdx++) {
@@ -286,11 +285,6 @@ class MizPatcher {
                                     newY: unit.y,
                                     spawnHeading: isGroundUnit ? unit.heading : spawnHeading 
                                 };
-
-                                if (unitIdx === 0) {
-                                    groupDeltaX = unit.x - origX;
-                                    groupDeltaY = unit.y - origY;
-                                }
                             }
 
                             unitBlock = this.setAbsolute(unitBlock, unit.x, unit.y);
