@@ -1,0 +1,623 @@
+[
+  {
+    "name": "IL",
+    "callsign": "SPO",
+    "type": "DME",
+    "frequency_mhz": 115.9,
+    "channel": 106,
+    "lat": 68.090876,
+    "lon": 21.691239
+  },
+  {
+    "name": "KM",
+    "callsign": "IL",
+    "type": "HOMER",
+    "frequency_mhz": 0.32,
+    "channel": null,
+    "lat": 67.273887,
+    "lon": 14.724322
+  },
+  {
+    "name": "I",
+    "callsign": "KMV",
+    "type": "HOMER",
+    "frequency_mhz": 0.44,
+    "channel": null,
+    "lat": 64.947098,
+    "lon": 34.494417
+  },
+  {
+    "name": "IO",
+    "callsign": "I",
+    "type": "ILS_NEAR_HOMER",
+    "frequency_mhz": 0.6,
+    "channel": null,
+    "lat": 67.476008,
+    "lon": 33.541861
+  },
+  {
+    "name": "TG",
+    "callsign": "IO",
+    "type": "ILS_FAR_HOMER",
+    "frequency_mhz": 1.21,
+    "channel": null,
+    "lat": 67.493239,
+    "lon": 33.486301
+  },
+  {
+    "name": "OG",
+    "callsign": "TG",
+    "type": "HOMER",
+    "frequency_mhz": 0.35,
+    "channel": null,
+    "lat": 67.146417,
+    "lon": 20.74422
+  },
+  {
+    "name": "NAT",
+    "callsign": "OG",
+    "type": "ILS_FAR_HOMER",
+    "frequency_mhz": 0.32,
+    "channel": null,
+    "lat": 67.103345,
+    "lon": 20.950895
+  },
+  {
+    "name": "enontekio",
+    "callsign": "NAT",
+    "type": "VOR_DME",
+    "frequency_mhz": 113.0,
+    "channel": 77,
+    "lat": 66.746476,
+    "lon": 21.322729
+  },
+  {
+    "name": "enontekio",
+    "callsign": "ET",
+    "type": "ILS_GLIDESLOPE",
+    "frequency_mhz": 111.3,
+    "channel": null,
+    "lat": 68.368371,
+    "lon": 23.431362
+  },
+  {
+    "name": "IVALO",
+    "callsign": "ET",
+    "type": "ILS_LOCALIZER",
+    "frequency_mhz": 111.3,
+    "channel": null,
+    "lat": 68.352907,
+    "lon": 23.406158
+  },
+  {
+    "name": "IVALO",
+    "callsign": "iv",
+    "type": "ILS_GLIDESLOPE",
+    "frequency_mhz": 212.0,
+    "channel": null,
+    "lat": 68.613852,
+    "lon": 27.420317
+  },
+  {
+    "name": "kemi",
+    "callsign": "iv",
+    "type": "ILS_LOCALIZER",
+    "frequency_mhz": 212.0,
+    "channel": null,
+    "lat": 68.597925,
+    "lon": 27.377829
+  },
+  {
+    "name": "kemi",
+    "callsign": "ke",
+    "type": "ILS_GLIDESLOPE",
+    "frequency_mhz": 110.9,
+    "channel": null,
+    "lat": 65.789776,
+    "lon": 24.582205
+  },
+  {
+    "name": "KUUSAMO",
+    "callsign": "ke",
+    "type": "ILS_LOCALIZER",
+    "frequency_mhz": 110.9,
+    "channel": null,
+    "lat": 65.768598,
+    "lon": 24.578158
+  },
+  {
+    "name": "KUUSAMO",
+    "callsign": "KO",
+    "type": "ILS_GLIDESLOPE",
+    "frequency_mhz": 110.3,
+    "channel": null,
+    "lat": 65.992218,
+    "lon": 29.223027
+  },
+  {
+    "name": "KITTILA",
+    "callsign": "KO",
+    "type": "ILS_LOCALIZER",
+    "frequency_mhz": 110.3,
+    "channel": null,
+    "lat": 65.978239,
+    "lon": 29.264668
+  },
+  {
+    "name": "KITTILA",
+    "callsign": "KT",
+    "type": "ILS_GLIDESLOPE",
+    "frequency_mhz": 111.9,
+    "channel": null,
+    "lat": 67.693309,
+    "lon": 24.849231
+  },
+  {
+    "name": "ROVANIEMI",
+    "callsign": "KT",
+    "type": "ILS_LOCALIZER",
+    "frequency_mhz": 111.9,
+    "channel": null,
+    "lat": 67.714603,
+    "lon": 24.837988
+  },
+  {
+    "name": "rovaniemi",
+    "callsign": "ro",
+    "type": "ILS_LOCALIZER",
+    "frequency_mhz": 111.7,
+    "channel": null,
+    "lat": 66.551531,
+    "lon": 25.805009
+  },
+  {
+    "name": "ROVANIEMI",
+    "callsign": "ROI",
+    "type": "VOR_DME",
+    "frequency_mhz": 117.7,
+    "channel": 124,
+    "lat": 66.562533,
+    "lon": 25.820399
+  },
+  {
+    "name": "andoya",
+    "callsign": "RO",
+    "type": "ILS_GLIDESLOPE",
+    "frequency_mhz": 111.7,
+    "channel": null,
+    "lat": 66.57442,
+    "lon": 25.845293
+  },
+  {
+    "name": "ANDOYA",
+    "callsign": "and",
+    "type": "VOR_DME",
+    "frequency_mhz": 112.2,
+    "channel": null,
+    "lat": 69.287831,
+    "lon": 16.141413
+  },
+  {
+    "name": "alta",
+    "callsign": "OYA",
+    "type": "TACAN",
+    "frequency_mhz": null,
+    "channel": 28,
+    "lat": 69.286251,
+    "lon": 16.144315
+  },
+  {
+    "name": "alta",
+    "callsign": "AT",
+    "type": "ILS_LOCALIZER",
+    "frequency_mhz": 108.9,
+    "channel": null,
+    "lat": 69.971912,
+    "lon": 23.391668
+  },
+  {
+    "name": "alta",
+    "callsign": "AT",
+    "type": "ILS_GLIDESLOPE",
+    "frequency_mhz": 108.9,
+    "channel": null,
+    "lat": 69.981056,
+    "lon": 23.352695
+  },
+  {
+    "name": "BODO",
+    "callsign": "ATA",
+    "type": "VOR_DME",
+    "frequency_mhz": 117.4,
+    "channel": null,
+    "lat": 69.977414,
+    "lon": 23.371993
+  },
+  {
+    "name": "BODO",
+    "callsign": "BO",
+    "type": "ILS_GLIDESLOPE",
+    "frequency_mhz": 110.3,
+    "channel": null,
+    "lat": 67.266378,
+    "lon": 14.341383
+  },
+  {
+    "name": "BODO",
+    "callsign": "BDO",
+    "type": "VOR_DME",
+    "frequency_mhz": 117.55,
+    "channel": 122,
+    "lat": 67.26656,
+    "lon": 14.364874
+  },
+  {
+    "name": "BODO",
+    "callsign": "BD",
+    "type": "ILS_GLIDESLOPE",
+    "frequency_mhz": 108.7,
+    "channel": null,
+    "lat": 67.272442,
+    "lon": 14.391316
+  },
+  {
+    "name": "BODO",
+    "callsign": "BOO",
+    "type": "TACAN",
+    "frequency_mhz": null,
+    "channel": 45,
+    "lat": 67.266299,
+    "lon": 14.361435
+  },
+  {
+    "name": "BODO",
+    "callsign": "BO",
+    "type": "ILS_LOCALIZER",
+    "frequency_mhz": 110.3,
+    "channel": null,
+    "lat": 67.272439,
+    "lon": 14.404079
+  },
+  {
+    "name": "BARDUFOSS",
+    "callsign": "BD",
+    "type": "ILS_LOCALIZER",
+    "frequency_mhz": 108.7,
+    "channel": null,
+    "lat": 67.272807,
+    "lon": 14.404359
+  },
+  {
+    "name": "BARDUFOSS",
+    "callsign": "BF",
+    "type": "ILS_GLIDESLOPE",
+    "frequency_mhz": 108.7,
+    "channel": null,
+    "lat": 69.052032,
+    "lon": 18.561688
+  },
+  {
+    "name": "BARDUFOSS",
+    "callsign": "BDF",
+    "type": "VOR_DME",
+    "frequency_mhz": 114.2,
+    "channel": 89,
+    "lat": 69.064825,
+    "lon": 18.466246
+  },
+  {
+    "name": "EVENES",
+    "callsign": "BF",
+    "type": "ILS_LOCALIZER",
+    "frequency_mhz": 108.7,
+    "channel": null,
+    "lat": 69.057549,
+    "lon": 18.516214
+  },
+  {
+    "name": "EVENES",
+    "callsign": "ev",
+    "type": "ILS_GLIDESLOPE",
+    "frequency_mhz": 108.9,
+    "channel": null,
+    "lat": 68.500738,
+    "lon": 16.674327
+  },
+  {
+    "name": "EVENES",
+    "callsign": "ev",
+    "type": "ILS_LOCALIZER",
+    "frequency_mhz": 108.9,
+    "channel": null,
+    "lat": 68.47619,
+    "lon": 16.679865
+  },
+  {
+    "name": "EVS",
+    "callsign": "EVD",
+    "type": "VOR_DME",
+    "frequency_mhz": 117.35,
+    "channel": null,
+    "lat": 68.457275,
+    "lon": 16.681906
+  },
+  {
+    "name": "KIRKENES",
+    "callsign": "Evenes",
+    "type": "TACAN",
+    "frequency_mhz": 134.0,
+    "channel": 67,
+    "lat": 68.491937,
+    "lon": 16.673235
+  },
+  {
+    "name": "KIRKENES",
+    "callsign": "KIK",
+    "type": "VOR_DME",
+    "frequency_mhz": 112.0,
+    "channel": null,
+    "lat": 69.723517,
+    "lon": 29.867316
+  },
+  {
+    "name": "KIRKENES",
+    "callsign": "KR",
+    "type": "ILS_GLIDESLOPE",
+    "frequency_mhz": 110.3,
+    "channel": null,
+    "lat": 69.725685,
+    "lon": 29.902477
+  },
+  {
+    "name": "banak",
+    "callsign": "KR",
+    "type": "ILS_LOCALIZER",
+    "frequency_mhz": 110.3,
+    "channel": null,
+    "lat": 69.721532,
+    "lon": 29.861209
+  },
+  {
+    "name": "banak",
+    "callsign": "ba",
+    "type": "ILS_GLIDESLOPE",
+    "frequency_mhz": 108.3,
+    "channel": 20,
+    "lat": 70.059883,
+    "lon": 24.978103
+  },
+  {
+    "name": "BANAK",
+    "callsign": "ba",
+    "type": "ILS_GLIDESLOPE",
+    "frequency_mhz": 108.3,
+    "channel": null,
+    "lat": 70.059666,
+    "lon": 24.979124
+  },
+  {
+    "name": "ENNA",
+    "callsign": "BNA",
+    "type": "VOR_DME",
+    "frequency_mhz": 114.4,
+    "channel": 91,
+    "lat": 70.176266,
+    "lon": 24.948432
+  },
+  {
+    "name": "banak",
+    "callsign": "BNK",
+    "type": "TACAN",
+    "frequency_mhz": 111.0,
+    "channel": 47,
+    "lat": 70.065619,
+    "lon": 24.969704
+  },
+  {
+    "name": "TC",
+    "callsign": "ba",
+    "type": "ILS_LOCALIZER",
+    "frequency_mhz": 108.3,
+    "channel": null,
+    "lat": 70.081661,
+    "lon": 24.970528
+  },
+  {
+    "name": "TR",
+    "callsign": "tc",
+    "type": "ILS_LOCALIZER",
+    "frequency_mhz": 110.9,
+    "channel": null,
+    "lat": 69.670738,
+    "lon": 18.910561
+  },
+  {
+    "name": "TR",
+    "callsign": "tr",
+    "type": "ILS_LOCALIZER",
+    "frequency_mhz": 109.9,
+    "channel": null,
+    "lat": 69.696189,
+    "lon": 18.927541
+  },
+  {
+    "name": "TC",
+    "callsign": "TR",
+    "type": "ILS_GLIDESLOPE",
+    "frequency_mhz": 109.9,
+    "channel": null,
+    "lat": 69.688337,
+    "lon": 18.920056
+  },
+  {
+    "name": "kiruna",
+    "callsign": "TC",
+    "type": "ILS_GLIDESLOPE",
+    "frequency_mhz": 110.9,
+    "channel": null,
+    "lat": 69.674612,
+    "lon": 18.915173
+  },
+  {
+    "name": "kiruna",
+    "callsign": "KRA",
+    "type": "VOR_DME",
+    "frequency_mhz": 115.2,
+    "channel": 99,
+    "lat": 67.819159,
+    "lon": 20.337697
+  },
+  {
+    "name": "OP",
+    "callsign": "nq",
+    "type": "ILS_GLIDESLOPE",
+    "frequency_mhz": 110.3,
+    "channel": 0,
+    "lat": 67.828273,
+    "lon": 20.351338
+  },
+  {
+    "name": "kiruna",
+    "callsign": "OP",
+    "type": "HOMER",
+    "frequency_mhz": 0.36,
+    "channel": null,
+    "lat": 67.887545,
+    "lon": 20.452711
+  },
+  {
+    "name": "NX",
+    "callsign": "nq",
+    "type": "ILS_LOCALIZER",
+    "frequency_mhz": 110.3,
+    "channel": 0,
+    "lat": 67.809341,
+    "lon": 20.314502
+  },
+  {
+    "name": "ARV",
+    "callsign": "nx",
+    "type": "ILS_GLIDESLOPE",
+    "frequency_mhz": 111.5,
+    "channel": null,
+    "lat": 65.587226,
+    "lon": 19.295169
+  },
+  {
+    "name": "NX",
+    "callsign": "arv",
+    "type": "ILS_GLIDESLOPE",
+    "frequency_mhz": 109.35,
+    "channel": null,
+    "lat": 65.597806,
+    "lon": 19.263059
+  },
+  {
+    "name": "ARV",
+    "callsign": "nx",
+    "type": "ILS_LOCALIZER",
+    "frequency_mhz": 111.5,
+    "channel": null,
+    "lat": 65.599936,
+    "lon": 19.251909
+  },
+  {
+    "name": "KALLAX",
+    "callsign": "arv",
+    "type": "ILS_LOCALIZER",
+    "frequency_mhz": 109.35,
+    "channel": null,
+    "lat": 65.581383,
+    "lon": 19.308821
+  },
+  {
+    "name": "KALLAX",
+    "callsign": "SPA",
+    "type": "ILS_LOCALIZER",
+    "frequency_mhz": 109.9,
+    "channel": null,
+    "lat": 65.556679,
+    "lon": 22.093108
+  },
+  {
+    "name": "KALLAX",
+    "callsign": "PA",
+    "type": "ILS_LOCALIZER",
+    "frequency_mhz": 110.3,
+    "channel": null,
+    "lat": 65.530817,
+    "lon": 22.150798
+  },
+  {
+    "name": "KALLAX",
+    "callsign": "PA",
+    "type": "ILS_GLIDESLOPE",
+    "frequency_mhz": 110.3,
+    "channel": null,
+    "lat": 65.553185,
+    "lon": 22.104544
+  },
+  {
+    "name": "VIDSEL",
+    "callsign": "SPA",
+    "type": "ILS_GLIDESLOPE",
+    "frequency_mhz": 109.9,
+    "channel": null,
+    "lat": 65.535287,
+    "lon": 22.144513
+  },
+  {
+    "name": "VIDSEL",
+    "callsign": "VDL",
+    "type": "ILS_GLIDESLOPE",
+    "frequency_mhz": 109.5,
+    "channel": null,
+    "lat": 65.872232,
+    "lon": 20.169496
+  },
+  {
+    "name": "IRD",
+    "callsign": "VDL",
+    "type": "ILS_LOCALIZER",
+    "frequency_mhz": 109.5,
+    "channel": null,
+    "lat": 65.881272,
+    "lon": 20.120534
+  },
+  {
+    "name": "IPF",
+    "callsign": "ird",
+    "type": "ILS_LOCALIZER",
+    "frequency_mhz": 108.5,
+    "channel": null,
+    "lat": 68.794244,
+    "lon": 32.728113
+  },
+  {
+    "name": "IRD",
+    "callsign": "ipf",
+    "type": "ILS_LOCALIZER",
+    "frequency_mhz": 110.3,
+    "channel": null,
+    "lat": 68.764782,
+    "lon": 32.782387
+  },
+  {
+    "name": "IPF",
+    "callsign": "ird",
+    "type": "ILS_GLIDESLOPE",
+    "frequency_mhz": 108.5,
+    "channel": null,
+    "lat": 68.774404,
+    "lon": 32.760946
+  },
+  {
+    "name": "ipf",
+    "callsign": "ipf",
+    "type": "ILS_GLIDESLOPE",
+    "frequency_mhz": 110.3,
+    "channel": null,
+    "lat": 68.788632,
+    "lon": 32.734679
+  }
+]
