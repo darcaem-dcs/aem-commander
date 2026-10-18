@@ -310,10 +310,16 @@ function routeDCSMessage(msg) {
 	
 	if (msg.type === "INIT") {
         const incomingMission = msg.data.mission_name;
+        const currentTheatre = msg.data.theatre;
         
         if (msg.data.ballistic_range) {
             state.ballisticRangeKm = Math.floor(msg.data.ballistic_range / 1000);
             logger.info(`Dynamic Ballistic Missile Range set to: ${state.ballisticRangeKm} km`);
+        }
+
+        // Send the theatre name to the frontend immediately
+        if (mainWindow) {
+            mainWindow.webContents.send('dcs-init', { theatre: currentTheatre });
         }
 
         if (persistence.currentFile) {
@@ -1036,6 +1042,41 @@ ipcMain.handle('create-new-persistence-file', async (event, intendedMissionName)
         updatedAt: persistence.state.mission_info.created_at,
         createdAt: persistence.state.mission_info.created_at
     };
+});
+
+// Helper to get the correct path in both dev and production packaged builds
+function getBeaconsFolderPath() {
+    if (app.isPackaged) {
+        return path.join(process.resourcesPath, 'beacons');
+    }
+    return path.join(__dirname, 'beacons');
+}
+
+ipcMain.handle('get-map-beacons', async (event, theatreName) => {
+    if (!theatreName) return [];
+
+    const beaconsDir = getBeaconsFolderPath();
+    // Sanitize the name just in case and look for [Theatre].json
+    const safeTheatreName = path.basename(theatreName); 
+
+logger.info(theatreName + " -> " + safeTheatreName);
+
+    const filePath = path.join(beaconsDir, `${safeTheatreName}.json`);
+
+    if (!fs.existsSync(filePath)) {
+        logger.info(`No beacon file found for map: ${safeTheatreName} (Expected at: ${filePath})`);
+        return [];
+    }
+
+    try {
+        const fileData = fs.readFileSync(filePath, 'utf8');
+        const beaconList = JSON.parse(fileData);
+        logger.info(`Loaded ${beaconList.length} beacons for ${safeTheatreName}`);
+        return beaconList;
+    } catch (err) {
+        logger.error(`Error reading beacons file for ${safeTheatreName}:`, err);
+        return [];
+    }
 });
 
 app.whenReady().then(createWindow);

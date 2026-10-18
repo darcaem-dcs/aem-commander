@@ -117,7 +117,8 @@ local function AEM_ConnectTCP()
 		messageToAll("AEM Commander: connection with HQ established", 15)
 		SendToNode("INIT", "ALL", { 
             mission_name = MISSION_NAME, 
-            ballistic_range = BALLISTIC_MISSILE_RANGE 
+            ballistic_range = BALLISTIC_MISSILE_RANGE,
+            theatre = env.mission.theatre
         })
         if menuConnectServer ~= nil then
             missionCommands.removeItem(menuConnectServer)

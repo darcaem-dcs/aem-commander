@@ -48,5 +48,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
      * Persistence file handlers
      */
     selectPersistenceFile: () => ipcRenderer.invoke('select-persistence-file'),
-    createNewPersistenceFile: (missionName) => ipcRenderer.invoke('create-new-persistence-file', missionName)
+    createNewPersistenceFile: (missionName) => ipcRenderer.invoke('create-new-persistence-file', missionName),
+
+    /**
+     * Loads map beacons for a specific DCS theatre.
+     */
+    getMapBeacons: (theatreName) => ipcRenderer.invoke('get-map-beacons', theatreName),
+
+    /**
+     * Listens for the initial DCS connection to get the theatre name.
+     */
+    onDcsInit: (callback) => ipcRenderer.on('dcs-init', (event, data) => callback(data))
 });
