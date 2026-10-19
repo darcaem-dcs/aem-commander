@@ -58,5 +58,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /**
      * Listens for the initial DCS connection to get the theatre name.
      */
-    onDcsInit: (callback) => ipcRenderer.on('dcs-init', (event, data) => callback(data))
+    onDcsInit: (callback) => ipcRenderer.on('dcs-init', (event, data) => callback(data)),
+
+    /**
+     * Triggers the Lua script injection process.
+     */
+    injectLuaScript: (settings) => ipcRenderer.invoke('inject-lua-script', settings),
+
+    /**
+     * Extracts existing settings from a .miz file.
+     */
+    extractMizSettings: () => ipcRenderer.invoke('extract-miz-settings')
 });

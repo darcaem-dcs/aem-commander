@@ -442,6 +442,97 @@ class MizPatcher {
 
         return false;
     }
+
+    injectScripts(filesToInject) {
+        logger.info(`--- STARTING LUA SCRIPT INJECTION ---`);
+        if (!fs.existsSync(this.mizFilePath)) return false;
+
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const originalName = path.basename(this.mizFilePath, '.miz');
+        const backupPath = path.join(path.dirname(this.mizFilePath), `${originalName}_script_backup_${timestamp}.miz`);
+        
+        fs.copyFileSync(this.mizFilePath, backupPath);
+        logger.info(`Mission backup created: ${backupPath}`);
+
+        const zip = new AdmZip(this.mizFilePath);
+        const missionEntry = zip.getEntry('mission');
+        if (!missionEntry) return false;
+
+        let missionText = zip.readAsText(missionEntry, 'utf8');
+
+        // 1. Add all Lua script files to the zip archive's l10n/DEFAULT folder
+        filesToInject.forEach(file => {
+            zip.addFile(`l10n/DEFAULT/${file.name}`, Buffer.from(file.content, 'utf8'));
+            logger.info(`Injected ${file.name} into archive.`);
+        });
+
+        // 2. Find the triggers ["custom"] block in the mission file
+        const customTrigIdx = missionText.indexOf('["custom"] =');
+        if (customTrigIdx === -1) {
+            logger.error("Could not find trigger block in mission file.");
+            return false;
+        }
+
+        const openBraceIdx = missionText.indexOf('{', customTrigIdx);
+        const closeBraceIdx = this.getClosingBraceIndex(missionText, openBraceIdx);
+        let customBlock = missionText.substring(openBraceIdx, closeBraceIdx);
+
+        // Check if our trigger is already injected to avoid duplicating it
+        if (customBlock.includes("AEM Commander Auto-Inject")) {
+            logger.info("Script trigger is already present in the mission file. Overwrote the Lua script files only.");
+            zip.writeZip(this.mizFilePath);
+            return true;
+        }
+
+        // 3. Find the next available contiguous array index for the trigger
+        let newIndex = 1;
+        while (true) {
+            let regex = new RegExp(`\\[${newIndex}\\]\\s*=`);
+            if (!regex.test(customBlock)) {
+                break; // We found the next empty index!
+            }
+            newIndex++;
+        }
+
+        // 4. Dynamically build the actions list based on the files array
+        let actionsString = "";
+        filesToInject.forEach((file, index) => {
+            actionsString += `
+                    [${index + 1}] = 
+                    {
+                        ["file"] = "${file.name}",
+                        ["predicate"] = "a_do_script_file",
+                    },`;
+        });
+
+        // 5. Build the new "MISSION START" trigger string
+        let triggerBlock = `
+            [${newIndex}] = 
+            {
+                ["rules"] = {},
+                ["eventlist"] = "",
+                ["actions"] = 
+                {${actionsString}
+                },
+                ["predicate"] = "triggerStart",
+                ["color"] = { [1] = 255, [2] = 255, [3] = 255, [4] = 255 },
+                ["name"] = "AEM Commander Auto-Inject",
+            },
+        `;
+
+        // 6. Inject just before the closing brace of the custom block
+        let insertPos = customBlock.lastIndexOf('}');
+        customBlock = customBlock.substring(0, insertPos) + triggerBlock + customBlock.substring(insertPos);
+
+        missionText = missionText.substring(0, openBraceIdx) + customBlock + missionText.substring(closeBraceIdx);
+
+        // 7. Save back to the zip archive
+        missionEntry.setData(Buffer.from(missionText, 'utf8'));
+        zip.writeZip(this.mizFilePath);
+        
+        logger.info(`Successfully injected script trigger at index ${newIndex}`);
+        return true;
+    }
 }
 
 module.exports = MizPatcher;
