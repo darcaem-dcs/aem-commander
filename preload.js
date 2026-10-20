@@ -68,5 +68,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /**
      * Extracts existing settings from a .miz file.
      */
-    extractMizSettings: () => ipcRenderer.invoke('extract-miz-settings')
+    extractMizSettings: () => ipcRenderer.invoke('extract-miz-settings'),
+
+    /**
+     * Returns the path of the selected audio file for CSAR SOS.
+     */
+    selectAudioFile: () => ipcRenderer.invoke('select-audio-file')
 });

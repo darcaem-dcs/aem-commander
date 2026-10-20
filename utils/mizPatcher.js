@@ -443,7 +443,7 @@ class MizPatcher {
         return false;
     }
 
-    injectScripts(filesToInject) {
+    injectScripts(luaFiles, mediaFiles = []) {
         logger.info(`--- STARTING LUA SCRIPT INJECTION ---`);
         if (!fs.existsSync(this.mizFilePath)) return false;
 
@@ -464,6 +464,11 @@ class MizPatcher {
         filesToInject.forEach(file => {
             zip.addFile(`l10n/DEFAULT/${file.name}`, Buffer.from(file.content, 'utf8'));
             logger.info(`Injected ${file.name} into archive.`);
+        });
+
+        mediaFiles.forEach(file => {
+            zip.addFile(`l10n/DEFAULT/${file.name}`, file.buffer);
+            logger.info(`Injected media ${file.name} into archive.`);
         });
 
         // 2. Find the triggers ["custom"] block in the mission file

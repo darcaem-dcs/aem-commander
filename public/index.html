@@ -413,7 +413,7 @@
                 <!-- CSAR -->
                 <div id="paneCsar" class="module-pane">
                     <h2>CSAR Module</h2>
-                    <p style="font-size: 0.9em; color: var(--text-muted); margin-bottom: 20px;">Spawns downed pilots when aircraft are destroyed, allowing human players to fly search and rescue missions.</p>
+                    <p style="font-size: 0.9em; color: var(--text-muted); margin-bottom: 20px;">Spawns downed pilots when aircraft are destroyed, allowing human players to fly search and rescue missions. You must define in the mission editor late activation groups for ground and naval spawns for both coalitions.</p>
                     
                     <div id="contentCsar" class="module-content-inner">
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
@@ -428,8 +428,18 @@
                                 <input type="text" id="injRedPilot" class="input-field" value="RED DOWNED PILOT">
                             </div>
                             <div style="grid-column: span 2;">
-                                <label>SOS Audio Filename (Optional):</label>
-                                <input type="text" id="injCsarSos" class="input-field" value="morse-sos.ogg">
+                                <label>SOS Audio File:</label>
+                                <p style="font-size: 0.8em; color: var(--text-muted); margin-top: 4px; margin-bottom: 0;">Distress signal that will be transmited through a random frequency and can be used to home in on the location of downed pilots.</p>
+                                <div style="display: flex; flex-direction: column; gap: 8px;">
+                                    <label style="font-weight: normal; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                                        <input type="radio" name="csarSosOpt" value="default" checked style="accent-color: var(--accent-blue);"> Use Default (morse-sos.ogg)
+                                    </label>
+                                    <label style="font-weight: normal; cursor: pointer; display: flex; align-items: center; gap: 10px;">
+                                        <input type="radio" name="csarSosOpt" value="custom" style="accent-color: var(--accent-blue);"> Custom File:
+                                        <input type="text" id="injCsarSosPath" class="input-field" placeholder="Select an .ogg or .wav file..." readonly style="flex: 1; padding: 6px; opacity: 0.5;">
+                                        <button id="btnSelectSos" class="btn-icon" style="margin: 0; padding: 6px 12px; opacity: 0.5;" disabled>Browse...</button>
+                                    </label>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -438,33 +448,69 @@
                 <!-- CIVILIAN TRAFFIC -->
                 <div id="paneCiv" class="module-pane">
                     <h2>Civilian Traffic Module</h2>
-                    <p style="font-size: 0.9em; color: var(--text-muted); margin-bottom: 20px;">Generates random background civilian air traffic between designated airbases and zones to bring the world to life.</p>
+                    <p style="font-size: 0.9em; color: var(--text-muted); margin-bottom: 20px;">Generates random background civilian air traffic between designated airbases and zones to bring the world to life. NOTE: this is designed for airliners, so it uses "OpenBig" parking spots. You can use the <a href="https://e.pcloud.link/publink/show?code=kZnSSnZ0Qsvw5tKgvzON5OYcKDWMJJrL7yX" target="_blank" style="color: var(--accent-blue); text-decoration: none; font-weight: bold;">Civilian Aircraft Mod</a> (not afiliated, just sharing the link).</p>
                     
                     <div id="contentCiv" class="module-content-inner">
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
-                            <div>
-                                <label>Civ Templates (Comma separated):</label>
-                                <textarea id="injCivTemplates" class="input-field">CIV_TPL_B737, CIV_TPL_A320</textarea>
-                            </div>
-                            <div>
-                                <label>Allowed Airbases (Comma separated):</label>
-                                <textarea id="injCivAirbases" class="input-field">Antonio B. Won Pat Intl, Saipan Intl, Rota Intl</textarea>
-                            </div>
-                            <div>
-                                <label>Custom Zone Prefix (Optional):</label>
-                                <input type="text" id="injCivZone" class="input-field" value="CIV_ZONE">
-                            </div>
-                            <div>
-                                <label>Min Distance (Nautical Miles):</label>
-                                <input type="number" id="injCivDist" class="input-field" value="100">
-                            </div>
-                            <div>
-                                <label>Flights (Initial / Max):</label>
-                                <div style="display: flex; gap: 10px;">
-                                    <input type="number" id="injCivInit" class="input-field" value="5" min="1">
-                                    <input type="number" id="injCivMax" class="input-field" value="20" min="1">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; align-items: stretch;">
+                            
+                            <!-- Left Column: Settings -->
+                            <div style="display: flex; flex-direction: column; gap: 15px;">
+                                <div>
+                                    <label>Map / Theatre:</label>
+                                    <select id="injCivMap" class="input-field">
+                                        <option value="Caucasus">Caucasus</option>
+                                        <option value="Nevada">Nevada</option>
+                                        <option value="Normandy">Normandy</option>
+                                        <option value="PersianGulf">Persian Gulf</option>
+                                        <option value="TheChannel">The Channel</option>
+                                        <option value="Syria">Syria</option>
+                                        <option value="MarianaIslands">Mariana Islands</option>
+                                        <option value="SouthAtlantic">South Atlantic</option>
+                                        <option value="SinaiMap">Sinai</option>
+                                        <option value="Kola">Kola</option>
+                                        <option value="Afghanistan">Afghanistan</option>
+                                        <option value="Iraq">Iraq</option>
+                                        <option value="GermanyCW">Germany (Cold War)</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label>Civ Templates (Comma separated):</label>
+                                    <p style="font-size: 0.8em; color: var(--text-muted); margin-top: 4px; margin-bottom: 0;">Group name of the late activation groups that will be used randomly to generate civilian aircraft with different liveries.</p>
+                                    <textarea id="injCivTemplates" class="input-field" style="min-height: 50px;">CIV_TPL_B737, CIV_TPL_A320</textarea>
+                                </div>
+                                <div>
+                                    <label>Custom Zone Prefix (Optional):</label>
+                                    <p style="font-size: 0.8em; color: var(--text-muted); margin-top: 4px; margin-bottom: 0;">You can define zones in the mission editor that will also be used for the civilian traffic to spawn and/or be directed to.</p>
+                                    <input type="text" id="injCivZone" class="input-field" value="CIV_ZONE">
+                                </div>
+                                <div>
+                                    <label>Min Distance (Nautical Miles):</label>
+                                    <p style="font-size: 0.8em; color: var(--text-muted); margin-top: 4px; margin-bottom: 0;">Every civilian flight will be assigned a flight plan greater that this value.</p>
+                                    <input type="number" id="injCivDist" class="input-field" value="100">
+                                </div>
+                                <div>
+                                    <label>Flights (Initial / Max):</label>
+                                    <p style="font-size: 0.8em; color: var(--text-muted); margin-top: 4px; margin-bottom: 0;">Number of civilian flights to spawn at the start of the mission, and maximum alive at the same time.</p>
+                                    <div style="display: flex; gap: 10px;">
+                                        <input type="number" id="injCivInit" class="input-field" value="5" min="1">
+                                        <input type="number" id="injCivMax" class="input-field" value="20" min="1">
+                                    </div>
                                 </div>
                             </div>
+
+                            <!-- Right Column: Airbases -->
+                            <div style="display: flex; flex-direction: column; height: 100%;">
+                                <label>Allowed Airbases:</label>
+                                <p style="font-size: 0.8em; color: var(--text-muted); margin-top: 4px; margin-bottom: 0;">Where the civilian aircraft can spawn and be directed to.</p>
+                                <div id="injCivAirbasesContainer" class="input-field" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; background: var(--bg-body); max-height: 310px;">
+                                    <!-- Checkboxes will be injected here dynamically by JS -->
+                                </div>
+                                <div style="margin-top: 8px; display: flex; gap: 10px;">
+                                    <button id="btnSelectAllAirbases" class="btn-icon" style="padding: 6px 12px; font-size: 0.85em;">Select All</button>
+                                    <button id="btnDeselectAllAirbases" class="btn-icon" style="padding: 6px 12px; font-size: 0.85em;">Deselect All</button>
+                                </div>
+                            </div>
+                            
                         </div>
                     </div>
                 </div>
@@ -520,7 +566,12 @@
         </div>
 
         <div class="header-info" id="sectionStatus">
-            <div><strong>Status:</strong> <span id="statusText" class="stopped">Inactive</span></div>
+            <div>
+                <strong>Status:</strong> <span id="statusText" class="stopped">Inactive</span>
+                <span id="activeMissionDisplay" style="margin-left: 20px; color: var(--accent-blue); display: none; font-weight: bold;">
+                    <i class="fa-solid fa-file-code" style="margin-right: 5px;"></i><span id="activeMissionName"></span>
+                </span>
+            </div>
         </div>
 
         <div id="battlefieldView">
@@ -597,6 +648,54 @@
     </div>
 
     <script>
+        // --- DCS AIRBASE DICTIONARY ---
+        const DCS_AIRBASES = {
+            "Caucasus": ["Anapa-Vityazevo", "Batumi", "Beslan", "Gelendzhik", "Gudauta", "Kobuleti", "Krasnodar-Center", "Krasnodar-Pashkovsky", "Krymsk", "Kutaisi", "Maykop-Khanskaya", "Mineralnye Vody", "Mozdok", "Nalchik", "Novorossiysk", "Senaki-Kolkhi", "Sochi-Adler", "Soganlug", "Sukhumi-Babushara", "Tbilisi-Lochini", "Vaziani"],
+            "Nevada": ["Beatty", "Boulder City", "Creech", "Echo Bay", "Groom Lake", "Henderson Executive", "Jean", "Laughlin", "Lincoln County", "McCarran International", "Mesquite", "Mina", "Nellis", "North Las Vegas", "Pahute Mesa", "Tonopah", "Tonopah Test Range"],
+            "Normandy": ["Abbeville Drucat", "Alderney", "Amiens-Glisy", "Argentan", "Avranches Le Val-Saint-Pere", "Azeville", "Barville", "Bazenville", "Beaumont-le-Roger", "Beauvais-Tille", "Bembridg", "Beny-sur-Mer", "Bernay Saint Martin", "Beuzeville", "Biggin Hill", "Biniville", "Broglie", "Brucheville", "Cardonville", "Carpiquet", "Chailey", "Chippelle", "Conches", "Cormeilles-en-Vexin", "Creil", "Cretteville", "Cricqueville-en-Bessin", "Deanland", "Deauville", "Detling", "Deux Jumeaux", "Dinan-Trelivan", "Dunkirk-Mardyck", "Eastchurch", "Essay", "Evreux", "Farnborough", "Fecamp-Benouville", "Flers", "Ford", "Friston", "Funtington", "Goulet", "Gravesend", "Guernsey", "Guyancourt", "Hauterive", "Hawkinge", "Headcorn", "Heathrow", "High Halden", "Holmsley South", "Jersey", "Kenley", "Lantheuil", "Lashenden", "Le Molay", "Lessay", "Lignerolles", "Longues-sur-Mer", "Lonrai", "Lymington", "Lympne", "Manston", "Maupertus", "Meautis", "Merville Calonne", "Needs Oar Point", "Northolt", "Odiham", "Orly", "Picauville", "Poix", "Ronai", "Rouen-Boos", "Rucqueville", "Saint Pierre du Mont", "Saint-Andre-de-lEure", "Saint-Aubin", "Saint-Omer Wizernes", "Saint-Pol-Bryas", "Sainte-Croix-sur-Mer", "Sainte-Laurent-sur-Mer", "Sommervieu", "Stoney Cross", "Tangmere", "Triqueville", "Villacoublay", "Vrigny", "West Malling"],
+            "PersianGulf": ["Abu Dhabi Intl", "Abu Musa Island", "Al Ain Intl", "Al Dhafra AFB", "Al Maktoum Intl", "Al Minhad AFB", "Al-Bateen", "Bandar Abbas Intl", "Bandar Lengeh", "Bandar-e-Jask", "Dubai Intl", "Fujairah Intl", "Havadarya", "Jiroft", "Kerman", "Khasab", "Kish Intl", "Lar", "Lavan Island", "Liwa AFB", "Qeshm Island", "Quasoura_airport", "Ras Al Khaimah Intl", "Sas Al Nakheel", "Sharjah Intl", "Shiraz Intl", "Sir Abu Nuayr", "Sirri Island", "Tunb Island AFB", "Tunb Kochak"],
+            "TheChannel": ["Abbeville Drucat", "Biggin Hill", "Detling", "Dunkirk Mardyck", "Eastchurch", "Hawkinge", "Headcorn", "High Halden", "Lympne", "Manston", "Merville Calonne", "Saint Omer Longuenesse"],
+            "Syria": ["Abu al-Duhur", "Adana Sakirpasa", "Adiyaman", "Akrotiri", "Al-Dumayr", "Al Qusayr", "Aleppo", "An Nasiriyah", "At Tanf", "Bassel Al-Assad", "Beirut-Rafic Hariri", "Ben Gurion", "Chukurova", "Damascus", "Deir ez-Zor", "Diyarbakir", "Ercan", "Eyn Shemer", "Gaziantep", "Gazipasa", "Gecitkale", "Gulechoba", "H3", "H3 Northwest", "H3 Southwest", "H4", "H4 Emergency", "HC01", "HC02", "HC03", "HC04", "HC05", "HC06", "HI01", "HI02", "HI03", "HI05", "HI06", "HI07", "HI08", "HI09", "HI11", "HI12", "HI13", "HI14", "HI15", "HI16", "HI17", "HI18", "HI20", "HI21", "HI22", "HI23", "HI24", "HI25", "HI26", "HJ01", "HJ02", "HJ03", "HJ04", "HL01", "HL02", "HL03", "HL04", "HL05", "HL06", "HL07", "HL08", "HL09", "HL10", "HL11", "HL12", "HL13", "HMed00", "HMed01", "HMed02", "HMed03", "HMed04", "HMed05", "HMed06", "HMed07", "HMed08", "HMed09", "HMed10", "HMed11", "HMed12", "HMed13", "HMed14", "HMed15", "HMed16", "HMed17", "HMed18", "HMed19", "HMed20", "HMed21", "HMed22", "HMed23", "HMed24", "HMed25", "HMed26", "HMed27", "HMed28", "HMed29", "HMed30", "HOil01", "HOil02", "HOil03", "HOil04", "HOil05", "HOil06", "HS02", "HS03", "HS04", "HS05", "HS06", "HS07", "HS08", "HS09", "HS10", "HS11", "HS12", "HS13", "HS14", "HS15", "HS16", "HS17", "HS18", "HS19", "HS20", "HS21", "HS22", "HS23", "HS24", "HS25", "HS26", "HS27", "HS28", "HS29", "HS30", "HS31", "HS32", "HS33", "HS34", "HS35", "HS36", "HS37", "HS38", "HS39", "HS40", "HS41", "HS42", "HStad01", "HStad02", "HStad03", "HStad04", "HStad05", "HStad06", "HT01", "HT02", "H_med_orig_01", "H_med_orig_02", "H_med_orig_03", "H_med_orig_04", "H_med_orig_05", "H_med_orig_06", "H_med_orig_07", "H_med_orig_08", "H_med_orig_09", "Haifa", "Hama", "Hatay", "Hatzerim", "Hatzor", "Herzliya", "Incirlik", "Jirah", "Kahramanmaras", "Kedem", "Khalkhalah", "Kharab Ishk", "King Abdullah II", "King Hussein Air College", "Kingsfield", "Kiryat Shmona", "Konya", "Kuweires", "Lakatamia", "Larnaca", "Marj Ruhayyil", "Marj as Sultan North", "Marj as Sultan South", "Marka", "Megiddo", "Mezzeh", "Minakh", "Muwaffaq Salti", "Naqoura", "Nevatim", "Nicosia", "Palmachim", "Palmyra", "Paphos", "Pinarbashi", "Prince Hassan", "Qabr as Sitt", "Ramat David", "Rayak", "Rene Mouawad", "Rosh Pina", "Ruwayshid", "Sanliurfa", "Sanliurfa Heliport", "Sayqal", "Shayrat", "T2", "T3", "Tabqa", "Taftanaz", "Tal Siman", "Tel Nof", "Teyman", "Tha'lah", "Tiyas", "Wujah Al Hajar", "Zarqa"],
+            "MarianaIslands": ["Andersen AFB", "Antonio B. Won Pat Intl", "North West Field", "Olf Orote", "Pagan Airstrip", "Rota Intl", "Saipan Intl", "Tinian Intl", "Agana", "Airfield 3", "Charon Kanoa", "Gurguan Point", "Isley", "Kagman", "Marpi", "Orote", "Pagan", "Rota", "Ushi"],
+            "SouthAtlantic": ["Almirante Schroeders", "Comandante Luis Piedrabuena", "Cullen", "El Calafate", "Franco Bianco", "Gobernador Gregores", "Goose Green", "Gull Point", "Hipico Flying Club", "Mount Pleasant", "O'Higgins", "Pampa Guanaco", "Port Stanley", "Porvenir", "Puerto Natales", "Puerto Santa Cruz", "Puerto Williams", "Punta Arenas", "Rio Chico", "Rio Gallegos", "Rio Grande", "Rio Turbio", "San Carlos FOB", "San Julian", "Tolhuin", "Ushuaia", "Ushuaia Helo Port"],
+            "SinaiMap": ["Abu Rudeis", "Abu Suwayr", "Al Bahr al Ahmar", "Al Ismailiyah", "Al Khatatbah", "Al Mansurah", "Al Rahmaniyah Air Base", "As Salihiyah", "AzZaqaziq", "Baluza", "Ben-Gurion", "Beni Suef", "Bilbeis Air Base", "Bir Hasanah", "Birma Air Base", "Borg El Arab International Airport", "Cairo International Airport", "Cairo West", "Damascus Intl", "Difarsuwar Airfield", "Ein Shamer", "El Arish", "El Gora", "El Minya", "Fayed", "Gebel El Basur Air Base", "Hatzerim", "Hatzor", "Hurghada International Airport", "Inshas Airbase", "Jiyanklis Air Base", "Kedem", "Khalkhalah Air Base", "Kibrit Air Base", "King Feisal Air Base", "Kom Awshim", "Megiddo", "Melez", "Mezzeh Air Base", "Nevatim", "Ovda", "Palmachim", "Quwaysina", "Rafic Hariri Intl", "Ramat David", "Ramon Airbase", "Ramon International Airport", "Sde Dov", "Sharm El Sheikh International Airport", "St Catherine", "Taba International Airport", "Tabuk", "TabukHeliBase", "Tel Nof", "Wadi Abu Rish", "Wadi al Jandali"],
+            "Kola": ["Afrikanda", "Alakurtti", "Alta", "Andoya", "Arvidsjaur", "Banak", "Bardufoss", "Boden Heli Base", "Bodo", "Enontekio", "Evenes", "Hemavan", "Hosio", "Ivalo", "Jokkmokk", "Kalevala", "Kalixfors", "Kallax", "Kemi Tornio", "Kilpyavr", "Kirkenes", "Kiruna", "Kittila", "Koshka Yavr", "Kuusamo", "Luostari Pechenga", "Monchegorsk", "Murmansk International", "Olenya", "Poduzhemye", "Rovaniemi", "Severomorsk-1", "Severomorsk-3", "Sodankyla", "Vidsel", "Vuojarvi"],
+            "Afghanistan": ["Bagram", "Bamyan", "Bost", "Camp Bastion", "Camp Bastion Heliport", "Chaghcharan", "Dwyer", "FOB Camp Dubs", "FOB Clark", "FOB Salerno", "FOB Thunder", "Farah", "Gardez", "Ghazni Heliport", "Herat", "Jalalabad", "Kabul", "Kandahar", "Kandahar Heliport", "Khost", "Maymana Zahiraddin Faryabi", "Nimroz", "Qala i Naw", "Sharana", "Shindand", "Shindand Heliport", "Tarinkot", "Urgoon Heliport"],
+            "Iraq": ["Al-Asad Airbase", "Al-Kut Airport", "Al-Sahra Airport", "Al-Salam Airbase", "Al-Taji Airport", "Al-Taquddum Airport", "Baghdad International Airport", "Balad Airbase", "Bashur Airport", "Erbil International Airport", "H-2 Airbase", "H-3 Main Airbase", "H-3 Northwest Airbase", "H-3 Southwest Airbase", "K1 Base", "Kirkuk International Airport", "Mosul International Airport", "Qayyarah Airfield West", "Sulaimaniyah International Airport"],
+            "GermanyCW": ["Adelsheim", "Airracing Frankfurt", "Airracing Koblenz", "Airracing Lubeck", "Allstedt", "Altes Lager", "Bad Durkheim", "Barth", "Bienenfarm", "Bindersleben", "Bitburg", "Bornholm", "Brand", "Brandis", "Braunschweig", "Bremen", "Briest", "Buchel", "Buckeburg", "Celle", "Chojna", "Cochstedt", "Cologne", "Damgarten", "Dedelow", "Dessau", "Dusseldorf", "Falkenberg", "Fassberg", "Finow", "Frankfurt", "Fritzlar", "Fulda", "Gardelegen", "Garz", "Gatow", "Gelnhausen", "Giebelstadt", "Glindbruchkippe", "Gross Mohrdorf", "Grosse Wiese", "Gutersloh", "H FRG 01", "H FRG 02", "H FRG 03", "H FRG 04", "H FRG 05", "H FRG 06", "H FRG 07", "H FRG 08", "H FRG 09", "H FRG 10", "H FRG 11", "H FRG 12", "H FRG 13", "H FRG 14", "H FRG 15", "H FRG 16", "H FRG 17", "H FRG 18", "H FRG 19", "H FRG 20", "H FRG 21", "H FRG 23", "H FRG 25", "H FRG 27", "H FRG 30", "H FRG 31", "H FRG 32", "H FRG 34", "H FRG 38", "H FRG 39", "H FRG 40", "H FRG 41", "H FRG 42", "H FRG 43", "H FRG 44", "H FRG 45", "H FRG 46", "H FRG 47", "H FRG 48", "H FRG 49", "H FRG 50", "H FRG 51", "H GDR 01", "H GDR 02", "H GDR 03", "H GDR 04", "H GDR 05", "H GDR 06", "H GDR 07", "H GDR 08", "H GDR 09", "H GDR 10", "H GDR 11", "H GDR 12", "H GDR 13", "H GDR 14", "H GDR 15", "H GDR 16", "H GDR 17", "H GDR 18", "H GDR 19", "H GDR 21", "H GDR 22", "H GDR 24", "H GDR 25", "H GDR 26", "H GDR 30", "H GDR 31", "H GDR 32", "H GDR 33", "H GDR 34", "H Med FRG 01", "H Med FRG 02", "H Med FRG 04", "H Med FRG 06", "H Med FRG 11", "H Med FRG 12", "H Med FRG 13", "H Med FRG 14", "H Med FRG 15", "H Med FRG 16", "H Med FRG 17", "H Med FRG 21", "H Med FRG 24", "H Med FRG 26", "H Med FRG 27", "H Med FRG 29", "H Med GDR 01", "H Med GDR 02", "H Med GDR 03", "H Med GDR 08", "H Med GDR 09", "H Med GDR 10", "H Med GDR 11", "H Med GDR 12", "H Med GDR 13", "H Med GDR 14", "H Med GDR 16", "H Radar FRG 02", "H Radar GDR 01", "H Radar GDR 02", "H Radar GDR 03", "H Radar GDR 04", "H Radar GDR 05", "H Radar GDR 06", "H Radar GDR 07", "H Radar GDR 08", "H Radar GDR 09", "Hahn", "Haina", "Hamburg", "Hamburg Finkenwerder", "Hannover", "Hasselfelde", "Heidelberg", "Herrenteich", "Hildesheim", "Hockenheim", "Holzdorf", "Kammermark", "Kastrup", "Kiel", "Kothen", "Laage", "Landstuhl", "Langenselbold", "Larz", "Leipzig Mockau", "Lubeck", "Luneburg", "Mahlwinkel", "Mainz Finthen", "Marxwalde", "Mendig", "Merseburg", "Neubrandenburg", "Neuruppin", "Nordholz", "Northeim", "Norvenich", "Ober-Morlen", "Obermehler Schlotheim", "Oranienburg", "Parchim", "Peenemunde", "Perwenitz", "Pferdsfeld", "Pinnow", "Pottschutthohe", "Ramstein", "Revinge", "Rinteln", "Schkeuditz", "Schonefeld", "Schweinfurt", "Sembach", "Sittensen", "Spangdahlem", "Sperenberg", "Sprendlingen", "Stendal", "Sturup", "Szczecin-Goleniow", "Tagra", "Tegel", "Tempelhof", "Templin", "Thurland", "Tutow", "Uelzen", "Uetersen", "Ummern", "Verden-Scharnhorst", "Walldorf", "Waren Vielist", "Werneuchen", "Weser Wumme", "Wiesbaden", "Wismar", "Wittstock", "Worms", "Wunstorf", "Zerbst", "Zollschen", "Zweibrucken"]
+        };
+
+        const mapSelect = document.getElementById('injCivMap');
+        const airbasesContainer = document.getElementById('injCivAirbasesContainer');
+
+        function renderAirbases(selectedMap, preSelected = []) {
+            airbasesContainer.innerHTML = '';
+            const bases = DCS_AIRBASES[selectedMap] || [];
+            bases.forEach(base => {
+                const isChecked = preSelected.includes(base) ? 'checked' : '';
+                const label = document.createElement('label');
+                label.style = 'display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--text-main); font-size: 0.85em; padding: 2px 4px;';
+                label.innerHTML = `<input type="checkbox" class="airbase-checkbox" value="${base}" ${isChecked} style="accent-color: var(--accent-blue); width: 14px; height: 14px;"> ${base}`;
+                airbasesContainer.appendChild(label);
+            });
+        }
+
+        // Initialize with default map
+        renderAirbases(mapSelect.value);
+
+        // Update when user changes the dropdown
+        mapSelect.addEventListener('change', (e) => {
+            renderAirbases(e.target.value);
+        });
+
+        // Select All / Deselect All buttons
+        document.getElementById('btnSelectAllAirbases').addEventListener('click', () => {
+            document.querySelectorAll('.airbase-checkbox').forEach(cb => cb.checked = true);
+        });
+        document.getElementById('btnDeselectAllAirbases').addEventListener('click', () => {
+            document.querySelectorAll('.airbase-checkbox').forEach(cb => cb.checked = false);
+        });
+
         const btnSelectStart = document.getElementById('btnSelectStart');
         const btnStop = document.getElementById('btnStop');
         const btnSelectJson = document.getElementById('btnSelectJson');
@@ -1000,6 +1099,10 @@
         let activeTheatre = null;
 
         window.electronAPI.onDcsInit((data) => {
+            if (data.missionName && document.getElementById('activeMissionName').innerText === '') {
+                // Only set it if it hasn't already been set by the Load or Inject buttons
+                updateActiveMissionDisplay(`Connected: ${data.missionName}`);
+            }
             if (data.theatre) {
                 activeTheatre = data.theatre;
                 addLog(`Detected DCS Map: ${activeTheatre}`, 'info');
@@ -1414,11 +1517,15 @@
                 bluePilot: document.getElementById('injBluePilot').value,
                 redRaft: document.getElementById('injRedRaft').value,
                 redPilot: document.getElementById('injRedPilot').value,
-                csarSos: document.getElementById('injCsarSos').value || 'morse-sos.ogg',
+                useDefaultSos: document.querySelector('input[name="csarSosOpt"]:checked').value === 'default',
+                customSosPath: document.getElementById('injCsarSosPath').value,
+                csarSosFileName: document.querySelector('input[name="csarSosOpt"]:checked').value === 'default' ? 
+                                 'morse-sos.ogg' : 
+                                 document.getElementById('injCsarSosPath').value.split('\\').pop().split('/').pop(),
 
                 moduleCiv: document.getElementById('toggleCiv').checked,
                 civTemplates: parseArray(document.getElementById('injCivTemplates').value),
-                civAirbases: parseArray(document.getElementById('injCivAirbases').value),
+                civAirbases: Array.from(document.querySelectorAll('.airbase-checkbox:checked')).map(cb => cb.value),
                 civZone: document.getElementById('injCivZone').value || 'CIV_ZONE',
                 civInit: parseInt(document.getElementById('injCivInit').value) || 5,
                 civMax: parseInt(document.getElementById('injCivMax').value) || 20,
@@ -1432,9 +1539,10 @@
             };
             
             const result = await window.electronAPI.injectLuaScript(settings);
-            if (result) {
-                addLog('Scripts successfully injected into the .miz file.', 'success');
-                showFeedback('Scripts successfully injected into the .miz file!', true);
+            if (result && result.success) {
+                addLog(`Scripts successfully injected into ${result.fileName}`, 'success');
+                showFeedback(`Scripts successfully injected into ${result.fileName}!`, true);
+                updateActiveMissionDisplay(`Target File: ${result.fileName}`);
             } else {
                 addLog('Script injection failed or cancelled.', 'error');
                 showFeedback('Script injection failed or was cancelled.', false);
@@ -1496,14 +1604,27 @@
                     setVal('injBluePilot', s.bluePilot);
                     setVal('injRedRaft', s.redRaft);
                     setVal('injRedPilot', s.redPilot);
-                    setVal('injCsarSos', s.csarSos);
+                    
+                    if (s.csarSos === 'morse-sos.ogg') {
+                        document.querySelector('input[name="csarSosOpt"][value="default"]').click();
+                    } else {
+                        document.querySelector('input[name="csarSosOpt"][value="custom"]').click();
+                        setVal('injCsarSosPath', s.csarSos);
+                    }
                 }
 
                 // Populate Civ Traffic
                 setCheck('toggleCiv', s.moduleCiv);
                 if (s.moduleCiv) {
                     setVal('injCivTemplates', s.civTemplates.join(', '));
-                    setVal('injCivAirbases', s.civAirbases.join(', '));
+                    
+                    // Update Map Dropdown if the map is recognized
+                    if (s.theatre && Array.from(document.getElementById('injCivMap').options).some(opt => opt.value === s.theatre)) {
+                        document.getElementById('injCivMap').value = s.theatre;
+                    }
+                    // Re-render the list with the loaded checkboxes marked as checked
+                    renderAirbases(document.getElementById('injCivMap').value, s.civAirbases);
+
                     setVal('injCivZone', s.civZone);
                     setVal('injCivInit', s.civInit);
                     setVal('injCivMax', s.civMax);
@@ -1531,11 +1652,43 @@
                     showFeedback(`Settings loaded, but the AEM Trigger is missing in ${result.fileName}. You must Inject to fix this!`, false);
                 }
                 
+                // Update the status bar
+                updateActiveMissionDisplay(`Loaded File: ${result.fileName}`);
+                
             } else {
                 addLog(`Failed to load settings: ${result.error}`, 'error');
                 showFeedback(`Failed to load: ${result.error}`, false);
             }
         });
+
+        // CSAR Audio Selector Logic
+        const sosRadios = document.querySelectorAll('input[name="csarSosOpt"]');
+        const sosPathInput = document.getElementById('injCsarSosPath');
+        const btnSelectSos = document.getElementById('btnSelectSos');
+
+        sosRadios.forEach(radio => {
+            radio.addEventListener('change', () => {
+                const isCustom = document.querySelector('input[name="csarSosOpt"]:checked').value === 'custom';
+                sosPathInput.style.opacity = isCustom ? '1' : '0.5';
+                btnSelectSos.style.opacity = isCustom ? '1' : '0.5';
+                btnSelectSos.disabled = !isCustom;
+            });
+        });
+
+        btnSelectSos.addEventListener('click', async (e) => {
+            e.preventDefault();
+            const filePath = await window.electronAPI.selectAudioFile();
+            if (filePath) sosPathInput.value = filePath;
+        });
+
+        function updateActiveMissionDisplay(name) {
+            const display = document.getElementById('activeMissionDisplay');
+            const nameSpan = document.getElementById('activeMissionName');
+            if (name) {
+                nameSpan.innerText = name;
+                display.style.display = 'inline-block';
+            }
+        }
     </script>
 </body>
 </html>

@@ -5,7 +5,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "package-win": "electron-packager . aem-json-monitor --overwrite --asar=true --platform=win32 --arch=x64 --icon=./icon.ico --prune=true --out=release-builds --extra-resource=beacons --extra-resource=lua_scripts --version-string.CompanyName=CE --version-string.FileDescription=AEMJsonMonitor --version-string.ProductName=\"AEM JSON Monitor\"",
+    "package-win": "electron-packager . aem-json-monitor --overwrite --asar=true --platform=win32 --arch=x64 --icon=./icon.ico --prune=true --out=release-builds --extra-resource=beacons --extra-resource=lua_scripts --extra-resource=media --version-string.CompanyName=CE --version-string.FileDescription=AEMJsonMonitor --version-string.ProductName=\"AEM JSON Monitor\"",
     "package-mac": "electron-builder --mac --x64"
   },
   "build": {
@@ -19,6 +19,10 @@
       {
         "from": "lua_scripts",
         "to": "lua_scripts"
+      },
+      {
+        "from": "media",
+        "to": "media"
       }
     ],
     "mac": {

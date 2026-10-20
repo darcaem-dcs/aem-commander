@@ -319,7 +319,10 @@ function routeDCSMessage(msg) {
 
         // Send the theatre name to the frontend immediately
         if (mainWindow) {
-            mainWindow.webContents.send('dcs-init', { theatre: currentTheatre });
+            mainWindow.webContents.send('dcs-init', { 
+                theatre: currentTheatre,
+                missionName: incomingMission
+            });
         }
 
         if (persistence.currentFile) {
@@ -1181,10 +1184,37 @@ PERSISTENCE_KEYWORD = "${settings.modulePersist ? settings.persistKeyword : 'DO_
     filesToInject.push({ name: "aem-commander-values.lua", content: dynamicValuesContent });
     filesToInject.push({ name: "aem-commander-code.lua", content: readFileSafe("aem-commander-code.lua") });
 
-    const patcher = new MizPatcher(selectedMiz);
-    const success = patcher.injectScripts(filesToInject);
+    // Handle Media Files
+    let mediaFiles = [];
+    if (settings.moduleCsar) {
+        if (settings.useDefaultSos) {
+            const defaultSosPath = app.isPackaged ? path.join(process.resourcesPath, 'media', 'morse-sos.ogg') : path.join(__dirname, 'media', 'morse-sos.ogg');
+            if (fs.existsSync(defaultSosPath)) {
+                mediaFiles.push({ name: "morse-sos.ogg", buffer: fs.readFileSync(defaultSosPath) });
+            } else {
+                logger.warn("Default SOS file not found at " + defaultSosPath);
+            }
+        } else if (settings.customSosPath) {
+            if (fs.existsSync(settings.customSosPath)) {
+                mediaFiles.push({ name: settings.csarSosFileName, buffer: fs.readFileSync(settings.customSosPath) });
+            } else {
+                // If path doesn't exist on disk, assume it was previously loaded from a .miz and is already inside the archive
+                logger.info(`Custom SOS path ${settings.customSosPath} not found locally. Assuming it's already in the .miz.`);
+            }
+        }
+    }
 
-    return success;
+    const patcher = new MizPatcher(selectedMiz);
+    const success = patcher.injectScripts(filesToInject, mediaFiles);
+
+    if (success) {
+        logger.info(`Successfully injected AEM Commander scripts into ${selectedMiz}`);
+        // Return an object containing the success status and the file name
+        return { success: true, fileName: path.basename(selectedMiz) };
+    } else {
+        return { success: false };
+    }
+
 });
 
 ipcMain.handle('extract-miz-settings', async () => {
@@ -1205,6 +1235,10 @@ ipcMain.handle('extract-miz-settings', async () => {
         if (!missionEntry) return { success: false, error: 'Invalid .miz file (no mission file found).' };
         const missionText = zip.readAsText(missionEntry, 'utf8');
         const hasTrigger = missionText.includes("AEM Commander Auto-Inject");
+
+        // Extract the theatre/map name directly from the DCS mission file
+        const theatreMatch = missionText.match(/\["theatre"\]\s*=\s*"([^"]+)"/);
+        const theatre = theatreMatch ? theatreMatch[1] : null;
 
         // 2. Check if the values file was injected
         const valuesEntry = zip.getEntry('l10n/DEFAULT/aem-commander-values.lua');
@@ -1262,6 +1296,7 @@ ipcMain.handle('extract-miz-settings', async () => {
             modulePersist: getStr('PERSISTENCE_KEYWORD') !== 'DO_NOT_PERSIST_ANYTHING',
             persistKeyword: getStr('PERSISTENCE_KEYWORD'),
             
+            theatre: theatre,
             hasTrigger: hasTrigger
         };
 
@@ -1269,6 +1304,16 @@ ipcMain.handle('extract-miz-settings', async () => {
     } catch (err) {
         return { success: false, error: err.message };
     }
+});
+
+ipcMain.handle('select-audio-file', async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+        title: 'Select CSAR SOS Audio File',
+        properties: ['openFile'],
+        filters: [{ name: 'Audio Files', extensions: ['ogg', 'wav'] }]
+    });
+    if (canceled || filePaths.length === 0) return null;
+    return filePaths[0];
 });
 
 app.whenReady().then(createWindow);
