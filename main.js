@@ -1316,4 +1316,29 @@ ipcMain.handle('select-audio-file', async () => {
     return filePaths[0];
 });
 
+ipcMain.handle('get-log-content', async () => {
+    try {
+        const logPath = path.join(app.getPath('logs'), 'aem_commander.log');
+        if (fs.existsSync(logPath)) {
+            return fs.readFileSync(logPath, 'utf8');
+        }
+        return "Log file is empty or does not exist yet.";
+    } catch (err) {
+        return `Error reading log file: ${err.message}`;
+    }
+});
+
+ipcMain.handle('clear-log-content', async () => {
+    try {
+        const logPath = path.join(app.getPath('logs'), 'aem_commander.log');
+        if (fs.existsSync(logPath)) {
+            fs.writeFileSync(logPath, '', 'utf8');
+        }
+        return true;
+    } catch (err) {
+        logger.error("Failed to clear log file:", err);
+        return false;
+    }
+});
+
 app.whenReady().then(createWindow);

@@ -73,5 +73,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /**
      * Returns the path of the selected audio file for CSAR SOS.
      */
-    selectAudioFile: () => ipcRenderer.invoke('select-audio-file')
+    selectAudioFile: () => ipcRenderer.invoke('select-audio-file'),
+
+    /** Show log */
+    getLogContent: () => ipcRenderer.invoke('get-log-content'),
+    clearLogContent: () => ipcRenderer.invoke('clear-log-content')
 });

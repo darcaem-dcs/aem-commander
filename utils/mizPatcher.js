@@ -443,7 +443,7 @@ class MizPatcher {
         return false;
     }
 
-    injectScripts(luaFiles, mediaFiles = []) {
+    injectScripts(filesToInject, mediaFiles = []) {
         logger.info(`--- STARTING LUA SCRIPT INJECTION ---`);
         if (!fs.existsSync(this.mizFilePath)) return false;
 
