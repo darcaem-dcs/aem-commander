@@ -443,8 +443,8 @@ class MizPatcher {
         return false;
     }
 
-    injectScripts(filesToInject, mediaFiles = []) {
-        logger.info(`--- STARTING LUA SCRIPT INJECTION ---`);
+    injectScripts(luaFiles, mediaFiles = []) {
+        logger.info(`--- STARTING LUA SCRIPT & MEDIA INJECTION ---`);
         if (!fs.existsSync(this.mizFilePath)) return false;
 
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -455,87 +455,124 @@ class MizPatcher {
         logger.info(`Mission backup created: ${backupPath}`);
 
         const zip = new AdmZip(this.mizFilePath);
+
+        // 1. Add Lua and Media files to the archive
+        luaFiles.forEach(file => zip.addFile(`l10n/DEFAULT/${file.name}`, Buffer.from(file.content, 'utf8')));
+        mediaFiles.forEach(file => zip.addFile(`l10n/DEFAULT/${file.name}`, file.buffer));
+
+        // 2. Read existing DCS configuration files
         const missionEntry = zip.getEntry('mission');
         if (!missionEntry) return false;
 
         let missionText = zip.readAsText(missionEntry, 'utf8');
+        let dictText = zip.getEntry('l10n/DEFAULT/dictionary') ? zip.readAsText('l10n/DEFAULT/dictionary', 'utf8') : "dictionary = {\n}\n";
+        let mapResText = zip.getEntry('l10n/DEFAULT/mapResource') ? zip.readAsText('l10n/DEFAULT/mapResource', 'utf8') : "mapResource = {\n}\n";
 
-        // 1. Add all Lua script files to the zip archive's l10n/DEFAULT folder
-        filesToInject.forEach(file => {
-            zip.addFile(`l10n/DEFAULT/${file.name}`, Buffer.from(file.content, 'utf8'));
-            logger.info(`Injected ${file.name} into archive.`);
-        });
-
-        mediaFiles.forEach(file => {
-            zip.addFile(`l10n/DEFAULT/${file.name}`, file.buffer);
-            logger.info(`Injected media ${file.name} into archive.`);
-        });
-
-        // 2. Find the triggers ["custom"] block in the mission file
-        const customTrigIdx = missionText.indexOf('["custom"] =');
-        if (customTrigIdx === -1) {
-            logger.error("Could not find trigger block in mission file.");
-            return false;
+        // 3. Find and thoroughly wipe any existing AEM injections to prevent duplicates
+        let oldIdx = -1;
+        const existingMatch = missionText.match(/\[(\d+)\]\s*=\s*\{[\s\S]*?\["name"\]\s*=\s*"AEM Commander Auto-Inject"/);
+        if (existingMatch) {
+            oldIdx = parseInt(existingMatch[1], 10);
         }
 
-        const openBraceIdx = missionText.indexOf('{', customTrigIdx);
-        const closeBraceIdx = this.getClosingBraceIndex(missionText, openBraceIdx);
-        let customBlock = missionText.substring(openBraceIdx, closeBraceIdx);
-
-        // Check if our trigger is already injected to avoid duplicating it
-        if (customBlock.includes("AEM Commander Auto-Inject")) {
-            logger.info("Script trigger is already present in the mission file. Overwrote the Lua script files only.");
-            zip.writeZip(this.mizFilePath);
-            return true;
+        missionText = missionText.replace(/\t*\[\d+\]\s*=\s*"[^"]*AEM_RES_moose_lua[^"]*",?\s*\n/g, "");
+        missionText = missionText.replace(/\t*\[\d+\]\s*=\s*\{[\s\S]*?\["name"\]\s*=\s*"AEM Commander Auto-Inject",\s*\},?\s*\n/g, "");
+        
+        if (oldIdx !== -1) {
+            missionText = missionText.replace(new RegExp(`\\t*\\[${oldIdx}\\]\\s*=\\s*true,?\\s*\\n`, 'g'), "");
+            missionText = missionText.replace(new RegExp(`\\t*\\[${oldIdx}\\]\\s*=\\s*"return\\(true\\)",?\\s*\\n`, 'g'), "");
+            missionText = missionText.replace(new RegExp(`\\t*\\[${oldIdx}\\]\\s*=\\s*"if mission\\.trig\\.conditions\\[${oldIdx}\\]\\(\\) then mission\\.trig\\.actions\\[${oldIdx}\\]\\(\\) end",?\\s*\\n`, 'g'), "");
         }
+        // Failsafe cleanup for the [99999] bug from the previous attempt
+        missionText = missionText.replace(/\t*\[99999\]\s*=\s*true,?\s*\n/g, "");
+        missionText = missionText.replace(/\t*\[99999\]\s*=\s*"return\(true\)",?\s*\n/g, "");
+        missionText = missionText.replace(/\t*\[99999\]\s*=\s*"if mission\.trig\.conditions\[99999\]\(\) then mission\.trig\.actions\[99999\]\(\) end",?\s*\n/g, "");
 
-        // 3. Find the next available contiguous array index for the trigger
-        let newIndex = 1;
-        while (true) {
-            let regex = new RegExp(`\\[${newIndex}\\]\\s*=`);
-            if (!regex.test(customBlock)) {
-                break; // We found the next empty index!
+        // 4. Calculate the true sequential end of the user's trigger list
+        let maxIdx = 0;
+        const flagMatch = missionText.match(/\["flag"\]\s*=\s*\{([\s\S]*?)\}/);
+        if (flagMatch) {
+            const regex = /\[(\d+)\]/g;
+            let match;
+            while ((match = regex.exec(flagMatch[1])) !== null) {
+                maxIdx = Math.max(maxIdx, parseInt(match[1], 10));
             }
-            newIndex++;
         }
+        const nIdx = maxIdx + 1; // Our appended position at the end of the array!
 
-        // 4. Dynamically build the actions list based on the files array
-        let actionsString = "";
-        filesToInject.forEach((file, index) => {
-            actionsString += `
-                    [${index + 1}] = 
-                    {
-                        ["file"] = "${file.name}",
-                        ["predicate"] = "a_do_script_file",
-                    },`;
+        // 5. Clean formatting and prepare Dictionary/MapResource updates
+        const dictLastBrace = dictText.lastIndexOf('}');
+        if (dictLastBrace !== -1) dictText = dictText.substring(0, dictLastBrace);
+
+        const mapLastBrace = mapResText.lastIndexOf('}');
+        if (mapLastBrace !== -1) mapResText = mapResText.substring(0, mapLastBrace);
+
+        let scriptExecs = "";
+        let uiActions = "";
+        
+        luaFiles.forEach((file, index) => {
+            const resKey = `AEM_RES_${file.name.replace(/[^a-zA-Z0-9]/g, '_')}`; 
+            
+            dictText += `    ["${resKey}"] = "${file.name}",\n`;
+            mapResText += `    ["${resKey}"] = "${file.name}",\n`;
+            
+            scriptExecs += `a_do_script_file(getValueResourceByKey(\\"${resKey}\\"));`;
+            
+            uiActions += `
+                        [${index + 1}] = {
+                            ["file"] = "${resKey}",
+                            ["predicate"] = "a_do_script_file",
+                        },`;
         });
 
-        // 5. Build the new "MISSION START" trigger string
-        let triggerBlock = `
-            [${newIndex}] = 
-            {
+        dictText += "} -- end of dictionary\n";
+        mapResText += "} -- end of mapResource\n";
+
+        // 6. Inject our triggers explicitly at the end of the lists (nIdx)
+        const insertIntoBlock = (text, blockName, insertString) => {
+            const regex = new RegExp(`(\\["${blockName}"\\]\\s*=\\s*\\{\\s*)`);
+            if (text.match(regex)) return text.replace(regex, `$1${insertString}\n`);
+            return text;
+        };
+
+        missionText = insertIntoBlock(missionText, "actions", `\t\t\t[${nIdx}] = "${scriptExecs}",`);
+        missionText = insertIntoBlock(missionText, "conditions", `\t\t\t[${nIdx}] = "return(true)",`);
+        missionText = insertIntoBlock(missionText, "flag", `\t\t\t[${nIdx}] = true,`);
+        
+        if (missionText.includes('["funcStartup"]')) {
+            missionText = insertIntoBlock(missionText, "funcStartup", `\t\t\t[${nIdx}] = "if mission.trig.conditions[${nIdx}]() then mission.trig.actions[${nIdx}]() end",`);
+        } else {
+            missionText = missionText.replace(/\["trig"\]\s*=\s*\{/, `["trig"] = {\n\t\t["funcStartup"] = {\n\t\t\t[${nIdx}] = "if mission.trig.conditions[${nIdx}]() then mission.trig.actions[${nIdx}]() end",\n\t\t},`);
+        }
+
+        const uiTrigger = `\t\t\t[${nIdx}] = {
                 ["rules"] = {},
                 ["eventlist"] = "",
-                ["actions"] = 
-                {${actionsString}
+                ["comment"] = "AEM Commander Auto-Inject",
+                ["name"] = "AEM Commander Auto-Inject",
+                ["actions"] = {${uiActions}
                 },
                 ["predicate"] = "triggerStart",
                 ["color"] = { [1] = 255, [2] = 255, [3] = 255, [4] = 255 },
-                ["name"] = "AEM Commander Auto-Inject",
-            },
-        `;
-
-        // 6. Inject just before the closing brace of the custom block
-        let insertPos = customBlock.lastIndexOf('}');
-        customBlock = customBlock.substring(0, insertPos) + triggerBlock + customBlock.substring(insertPos);
-
-        missionText = missionText.substring(0, openBraceIdx) + customBlock + missionText.substring(closeBraceIdx);
-
-        // 7. Save back to the zip archive
-        missionEntry.setData(Buffer.from(missionText, 'utf8'));
-        zip.writeZip(this.mizFilePath);
+            },`;
         
-        logger.info(`Successfully injected script trigger at index ${newIndex}`);
+        if (missionText.includes('["trigrules"]')) {
+            missionText = insertIntoBlock(missionText, "trigrules", uiTrigger);
+        } else {
+            missionText = missionText.replace(/^mission\s*=\s*\{/m, `mission = {\n\t["trigrules"] = {\n${uiTrigger}\n\t},`);
+        }
+
+        // 7. Delete old files and write updated files back into the ZIP
+        if (zip.getEntry('mission')) zip.deleteFile('mission');
+        if (zip.getEntry('l10n/DEFAULT/dictionary')) zip.deleteFile('l10n/DEFAULT/dictionary');
+        if (zip.getEntry('l10n/DEFAULT/mapResource')) zip.deleteFile('l10n/DEFAULT/mapResource');
+
+        zip.addFile('mission', Buffer.from(missionText, 'utf8'));
+        zip.addFile('l10n/DEFAULT/dictionary', Buffer.from(dictText, 'utf8')); 
+        zip.addFile('l10n/DEFAULT/mapResource', Buffer.from(mapResText, 'utf8')); 
+        
+        zip.writeZip(this.mizFilePath);
+        logger.info(`Successfully appended trigger at position [${nIdx}] and patched dictionaries.`);
         return true;
     }
 }

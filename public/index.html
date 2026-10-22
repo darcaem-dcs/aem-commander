@@ -1546,7 +1546,10 @@
                 csarSosFileName: document.querySelector('input[name="csarSosOpt"]:checked').value === 'default' ? 
                                  'morse-sos.ogg' : 
                                  document.getElementById('injCsarSosPath').value.split('\\').pop().split('/').pop(),
-
+                csarSos: document.querySelector('input[name="csarSosOpt"]:checked').value === 'default' ? 
+                         'morse-sos.ogg' : 
+                         document.getElementById('injCsarSosPath').value.split('\\').pop().split('/').pop(),
+                         
                 moduleCiv: document.getElementById('toggleCiv').checked,
                 civTemplates: parseArray(document.getElementById('injCivTemplates').value),
                 civAirbases: Array.from(document.querySelectorAll('.airbase-checkbox:checked')).map(cb => cb.value),
