@@ -1101,7 +1101,6 @@ ipcMain.handle('inject-lua-script', async (event, settings) => {
     // Dependencies
     if (settings.includeMoose) filesToInject.push({ name: "moose.lua", content: readFileSafe("moose.lua") });
     if (settings.includeMist) filesToInject.push({ name: "mist.lua", content: readFileSafe("mist.lua") });
-    filesToInject.push({ name: "json.lua", content: readFileSafe("json.lua") });
 
     // Format Lua arrays helper
     const toLuaArray = (arr) => `{${arr.map(s => `"${s}"`).join(', ')}}`;
