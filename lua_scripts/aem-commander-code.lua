@@ -1531,6 +1531,10 @@ if MODULE_CSAR then	-- activate module CSAR
 			local parachuteCoord = COORDINATE:NewFromVec3(rawVec3)
 			local altMeters = parachuteCoord:GetY()
 			local ejectCoalition = chuteObject:getCoalition()
+
+            if ejectCoalition ~= coalition.side.BLUE and ejectCoalition ~= coalition.side.RED then
+                return -- Ignore neutral ejections
+            end
 			
 			local staggerDelay = math.random(0, 15)
 			local fallTime = math.max(altMeters / 5.5, 5) + staggerDelay 
