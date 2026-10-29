@@ -468,26 +468,53 @@ class MizPatcher {
         let dictText = zip.getEntry('l10n/DEFAULT/dictionary') ? zip.readAsText('l10n/DEFAULT/dictionary', 'utf8') : "dictionary = {\n}\n";
         let mapResText = zip.getEntry('l10n/DEFAULT/mapResource') ? zip.readAsText('l10n/DEFAULT/mapResource', 'utf8') : "mapResource = {\n}\n";
 
-        // 3. Find and thoroughly wipe any existing AEM injections to prevent duplicates
-        let oldIdx = -1;
-        const existingMatch = missionText.match(/\[(\d+)\]\s*=\s*\{[\s\S]*?\["name"\]\s*=\s*"AEM Commander Auto-Inject"/);
-        if (existingMatch) {
-            oldIdx = parseInt(existingMatch[1], 10);
-        }
-
-        missionText = missionText.replace(/\t*\[\d+\]\s*=\s*"[^"]*AEM_RES_moose_lua[^"]*",?\s*\n/g, "");
-        missionText = missionText.replace(/\t*\[\d+\]\s*=\s*\{[\s\S]*?\["name"\]\s*=\s*"AEM Commander Auto-Inject",\s*\},?\s*\n/g, "");
+        // 3. Find and thoroughly wipe ALL existing AEM injections to prevent duplicates
+        let aemIds = new Set();
         
-        if (oldIdx !== -1) {
-            missionText = missionText.replace(new RegExp(`\\t*\\[${oldIdx}\\]\\s*=\\s*true,?\\s*\\n`, 'g'), "");
-            missionText = missionText.replace(new RegExp(`\\t*\\[${oldIdx}\\]\\s*=\\s*"return\\(true\\)",?\\s*\\n`, 'g'), "");
-            missionText = missionText.replace(new RegExp(`\\t*\\[${oldIdx}\\]\\s*=\\s*"if mission\\.trig\\.conditions\\[${oldIdx}\\]\\(\\) then mission\\.trig\\.actions\\[${oldIdx}\\]\\(\\) end",?\\s*\\n`, 'g'), "");
+        // 3a. Find IDs from trigrules
+        const ruleRegex = /\[(\d+)\]\s*=\s*\{[\s\S]*?\["name"\]\s*=\s*"AEM Commander Auto-Inject"/g;
+        let match;
+        while ((match = ruleRegex.exec(missionText)) !== null) {
+            aemIds.add(match[1]);
         }
-        // Failsafe cleanup for the [99999] bug from the previous attempt
-        missionText = missionText.replace(/\t*\[99999\]\s*=\s*true,?\s*\n/g, "");
-        missionText = missionText.replace(/\t*\[99999\]\s*=\s*"return\(true\)",?\s*\n/g, "");
-        missionText = missionText.replace(/\t*\[99999\]\s*=\s*"if mission\.trig\.conditions\[99999\]\(\) then mission\.trig\.actions\[99999\]\(\) end",?\s*\n/g, "");
+        
+        // 3b. Find IDs from actions (fallback in case trigrules regex missed)
+        const actionRegex = /\[(\d+)\]\s*=\s*".*?AEM_RES_aem_commander_code_lua.*?"/g;
+        while ((match = actionRegex.exec(missionText)) !== null) {
+            aemIds.add(match[1]);
+        }
 
+        // 3c. Clean up ALL sections for EVERY found ID
+        aemIds.forEach(id => {
+            // Remove from actions (using .*? to safely bypass escaped quotes)
+            missionText = missionText.replace(new RegExp(`[ \\t]*\\[${id}\\]\\s*=\\s*".*?AEM_RES_.*?",?\\s*\\n`, 'g'), "");
+            
+            // Remove from flag, conditions, funcStartup
+            missionText = missionText.replace(new RegExp(`[ \\t]*\\[${id}\\]\\s*=\\s*true,?\\s*\\n`, 'g'), "");
+            missionText = missionText.replace(new RegExp(`[ \\t]*\\[${id}\\]\\s*=\\s*"return\\(true\\)",?\\s*\\n`, 'g'), "");
+            missionText = missionText.replace(new RegExp(`[ \\t]*\\[${id}\\]\\s*=\\s*"if mission\\.trig\\.conditions\\[${id}\\]\\(\\) then mission\\.trig\\.actions\\[${id}\\]\\(\\) end",?\\s*\\n`, 'g'), "");
+            
+            // Safely remove the entire trigrules block using the brace counter
+            let ruleStartMatch = new RegExp(`[ \\t]*\\[${id}\\]\\s*=\\s*\\{`).exec(missionText);
+            if (ruleStartMatch) {
+                let startBlock = ruleStartMatch.index;
+                let braceStart = missionText.indexOf('{', startBlock);
+                let endBlock = this.getClosingBraceIndex(missionText, braceStart);
+                
+                if (endBlock !== -1) {
+                    if (missionText[endBlock] === ',') endBlock++;
+                    if (missionText[endBlock] === '\r') endBlock++;
+                    if (missionText[endBlock] === '\n') endBlock++;
+                    missionText = missionText.substring(0, startBlock) + missionText.substring(endBlock);
+                }
+            }
+        });
+
+        // 3d. Failsafe cleanup for the [99999] bug from previous attempts
+        missionText = missionText.replace(/[ \t]*\[99999\]\s*=\s*true,?\s*\n/g, "");
+        missionText = missionText.replace(/[ \t]*\[99999\]\s*=\s*"return\(true\)",?\s*\n/g, "");
+        missionText = missionText.replace(/[ \t]*\[99999\]\s*=\s*"if mission\.trig\.conditions\[99999\]\(\) then mission\.trig\.actions\[99999\]\(\) end",?\s*\n/g, "");
+        
         // 4. Calculate the true sequential end of the user's trigger list
         let maxIdx = 0;
         const flagMatch = missionText.match(/\["flag"\]\s*=\s*\{([\s\S]*?)\}/);
