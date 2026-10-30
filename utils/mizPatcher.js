@@ -471,33 +471,39 @@ class MizPatcher {
         // 3. Find and thoroughly wipe ALL existing AEM injections to prevent duplicates
         let aemIds = new Set();
         
-        // 3a. Find IDs from trigrules
-        const ruleRegex = /\[(\d+)\]\s*=\s*\{[\s\S]*?\["name"\]\s*=\s*"AEM Commander Auto-Inject"/g;
+        // 3a. Find IDs from actions safely by strictly bounding to Lua string limits
+        const actionRegex = /\[(\d+)\]\s*=\s*("(?:[^"\\]|\\.)*")/g;
         let match;
-        while ((match = ruleRegex.exec(missionText)) !== null) {
-            aemIds.add(match[1]);
-        }
-        
-        // 3b. Find IDs from actions (fallback in case trigrules regex missed)
-        const actionRegex = /\[(\d+)\]\s*=\s*".*?AEM_RES_aem_commander_code_lua.*?"/g;
         while ((match = actionRegex.exec(missionText)) !== null) {
-            aemIds.add(match[1]);
+            // Only flag the ID if the string actually contains our code identifier
+            if (match[2].includes("AEM_RES_aem_commander_code_lua")) {
+                aemIds.add(match[1]);
+            }
         }
 
-        // 3c. Clean up ALL sections for EVERY found ID
-        aemIds.forEach(id => {
-            // Remove from actions (using .*? to safely bypass escaped quotes)
-            missionText = missionText.replace(new RegExp(`[ \\t]*\\[${id}\\]\\s*=\\s*".*?AEM_RES_.*?",?\\s*\\n`, 'g'), "");
+        // 3b. Safely find and remove the entire trigrules UI block(s) using brace counting
+        let nameIdx;
+        while ((nameIdx = missionText.indexOf('"AEM Commander Auto-Inject"')) !== -1) {
+            let startBlock = -1;
+            let braces = 0;
             
-            // Remove from flag, conditions, funcStartup
-            missionText = missionText.replace(new RegExp(`[ \\t]*\\[${id}\\]\\s*=\\s*true,?\\s*\\n`, 'g'), "");
-            missionText = missionText.replace(new RegExp(`[ \\t]*\\[${id}\\]\\s*=\\s*"return\\(true\\)",?\\s*\\n`, 'g'), "");
-            missionText = missionText.replace(new RegExp(`[ \\t]*\\[${id}\\]\\s*=\\s*"if mission\\.trig\\.conditions\\[${id}\\]\\(\\) then mission\\.trig\\.actions\\[${id}\\]\\(\\) end",?\\s*\\n`, 'g'), "");
+            for (let i = nameIdx; i >= 0; i--) {
+                if (missionText[i] === '}') braces++;
+                if (missionText[i] === '{') braces--;
+                if (braces === -1) { 
+                    let bracketStart = missionText.lastIndexOf('[', i);
+                    if (bracketStart !== -1) {
+                        let lineStart = missionText.lastIndexOf('\n', bracketStart);
+                        startBlock = lineStart !== -1 ? lineStart + 1 : bracketStart;
+                        
+                        let idMatch = missionText.substring(startBlock, i).match(/\[(\d+)\]/);
+                        if (idMatch) aemIds.add(idMatch[1]);
+                    }
+                    break; 
+                }
+            }
             
-            // Safely remove the entire trigrules block using the brace counter
-            let ruleStartMatch = new RegExp(`[ \\t]*\\[${id}\\]\\s*=\\s*\\{`).exec(missionText);
-            if (ruleStartMatch) {
-                let startBlock = ruleStartMatch.index;
+            if (startBlock !== -1) {
                 let braceStart = missionText.indexOf('{', startBlock);
                 let endBlock = this.getClosingBraceIndex(missionText, braceStart);
                 
@@ -506,8 +512,23 @@ class MizPatcher {
                     if (missionText[endBlock] === '\r') endBlock++;
                     if (missionText[endBlock] === '\n') endBlock++;
                     missionText = missionText.substring(0, startBlock) + missionText.substring(endBlock);
+                } else {
+                    break;
                 }
+            } else {
+                break; 
             }
+        }
+
+        // 3c. Clean up actions, flag, conditions, and funcStartup for EVERY found ID
+        aemIds.forEach(id => {
+            // Safe regex: deletes the string ONLY if it is contained within quotes and includes AEM_RES_
+            const safeStringRegex = new RegExp(`[ \\t]*\\[${id}\\]\\s*=\\s*"(?:[^"\\\\]|\\\\.)*?AEM_RES_(?:[^"\\\\]|\\\\.)*?",?\\s*\\n`, 'g');
+            missionText = missionText.replace(safeStringRegex, "");
+            
+            missionText = missionText.replace(new RegExp(`[ \\t]*\\[${id}\\]\\s*=\\s*true,?\\s*\\n`, 'g'), "");
+            missionText = missionText.replace(new RegExp(`[ \\t]*\\[${id}\\]\\s*=\\s*"return\\(true\\)",?\\s*\\n`, 'g'), "");
+            missionText = missionText.replace(new RegExp(`[ \\t]*\\[${id}\\]\\s*=\\s*"if mission\\.trig\\.conditions\\[${id}\\]\\(\\) then mission\\.trig\\.actions\\[${id}\\]\\(\\) end",?\\s*\\n`, 'g'), "");
         });
 
         // 3d. Failsafe cleanup for the [99999] bug from previous attempts

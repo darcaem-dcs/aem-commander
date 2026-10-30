@@ -657,6 +657,10 @@ function AEM_DeathHandler:onEvent(event)
         if not success or (category ~= Object.Category.UNIT and category ~= Object.Category.STATIC) then
             return
         end
+
+        if event.initiator.getPlayerName and event.initiator:getPlayerName() then
+            return
+        end
         
         local targetGroupName = nil
         local targetUnitName = nil
@@ -2331,7 +2335,7 @@ if MODULE_BFM then
         CheckTimer = nil
     }
 
-    -- Deep copy template from the mission file (Native DCS) to allow payload manipulation
+    -- Deep copy template and extract Country ID
     local function getMissionTemplate(templateName)
         for _, coa_data in pairs(env.mission.coalition) do
             if coa_data.country then
@@ -2339,26 +2343,25 @@ if MODULE_BFM then
                     if country.plane and country.plane.group then
                         for _, group in pairs(country.plane.group) do
                             if group.name == templateName then
-                                -- Basic deep copy
                                 local function deepCopy(obj)
                                     if type(obj) ~= 'table' then return obj end
                                     local res = {}
                                     for k, v in pairs(obj) do res[deepCopy(k)] = deepCopy(v) end
                                     return res
                                 end
-                                return deepCopy(group)
+                                return deepCopy(group), country.id
                             end
                         end
                     end
                 end
             end
         end
-        return nil
+        return nil, nil
     end
 
     -- Swaps the AI with identical kinematic state and fuel
-    local function SwapAircraft(oldUnit, templateName, targetCoalitionId, applyFuel)
-        local templateData = getMissionTemplate(templateName)
+    local function SwapAircraft(oldUnit, templateName, applyFuel)
+        local templateData, countryId = getMissionTemplate(templateName)
         if not templateData then 
             env.info("AEM BFM: Could not find template " .. templateName)
             return nil 
@@ -2372,6 +2375,9 @@ if MODULE_BFM then
 
         templateData.x = pos.x
         templateData.y = pos.z
+
+        templateData.lateActivation = false
+        templateData.hidden = false
         
         local unitData = templateData.units[1]
         unitData.x = pos.x
@@ -2380,14 +2386,33 @@ if MODULE_BFM then
         unitData.alt_type = "BARO"
         unitData.speed = speed
         unitData.heading = heading
+        
+        -- Clear any ground parking data inherited from the template
+        unitData.parking = nil
+        unitData.parking_id = nil
 
         if applyFuel then
             local fuelRatio = oldUnit:getFuel()
             unitData.payload = unitData.payload or {}
             unitData.payload.fuel = (BFM_MAX_FUEL_LBS * 0.453592) * fuelRatio
         end
+        
+        -- Override the ME route with a single generic mid-air waypoint
+        templateData.route = {
+            points = {
+                [1] = {
+                    action = "Turning Point",
+                    type = "Turning Point",
+                    x = pos.x,
+                    y = pos.z,
+                    alt = pos.y,
+                    alt_type = "BARO",
+                    speed = speed,
+                    task = { id = "ComboTask", params = { tasks = {} } }
+                }
+            }
+        }
 
-        -- Randomize names to prevent DCS ID collisions
         local uid = timer.getTime()
         templateData.name = templateName .. "_" .. uid
         templateData.groupId = nil
@@ -2397,58 +2422,78 @@ if MODULE_BFM then
         local oldGroupName = oldUnit:getGroup():getName()
         Group.getByName(oldGroupName):destroy()
 
-        local newGroup = coalition.addGroup(targetCoalitionId, Group.Category.AIRPLANE, templateData)
-        return newGroup
+        return coalition.addGroup(countryId, Group.Category.AIRPLANE, templateData)
     end
 
-    -- Knock It Off Logic (Reset to formation)
     local function KnockItOff(reasonMsg)
         if BFM.State ~= "ENGAGED" then return end
         BFM.State = "FORMATION"
 
         if BFM.PlayerUnit and BFM.PlayerUnit:isExist() then
             trigger.action.outTextForGroup(BFM.PlayerUnit:getGroup():getID(), "KNOCK IT OFF, KNOCK IT OFF! " .. reasonMsg, 10)
-            BFM.PlayerUnit:getGroup():getController():setCommand({id = 'SetImmortal', params = {value = false}})
         end
 
         if BFM.AIUnit and BFM.AIUnit:isExist() then
-            local playerCoa = BFM.PlayerUnit:getCoalition()
-            -- Swap back to friendly, carrying fuel state over
-            local friendlyGroup = SwapAircraft(BFM.AIUnit, BFM_FRIENDLY_TEMPLATE, playerCoa, true)
+            local friendlyGroup = SwapAircraft(BFM.AIUnit, BFM_FRIENDLY_TEMPLATE, true)
             
             if friendlyGroup then
-                timer.scheduleFunction(function()
-                    local moosGroup = GROUP:FindByName(friendlyGroup:getName())
-                    BFM.AIUnit = moosGroup:GetFirstUnitAlive():GetDCSObject()
-                    local escortTask = moosGroup:TaskEscort(UNIT:Find(BFM.PlayerUnit), {x=50, y=0, z=50})
-                    moosGroup:SetTask(escortTask)
-                end, nil, timer.getTime() + 1)
+                local checkDcsTimer
+                checkDcsTimer = TIMER:New(function()
+                    if friendlyGroup and friendlyGroup:isExist() and #friendlyGroup:getUnits() > 0 then
+                        BFM.AIUnit = friendlyGroup:getUnits()[1]
+                           
+                        if BFM.PlayerUnit and BFM.PlayerUnit:isExist() and BFM.PlayerUnit:getLife() >= 1 then
+                            local playerDcsGroup = BFM.PlayerUnit:getGroup()
+                            if playerDcsGroup and playerDcsGroup:isExist() then
+                                -- Use Escort instead of Follow, and use setTask to execute instantly
+                                local escortTask = {
+                                    id = 'Escort',
+                                    params = {
+                                        groupId = playerDcsGroup:getID(),
+                                        pos = {x = -50, y = -10, z = 50},
+                                        last_WptIndexFlag = false,
+                                        engagementDistMax = 0,
+                                        targetTypes = {}
+                                    }
+                                }
+                                friendlyGroup:getController():setTask(escortTask)
+                            end
+                        else
+                            local orbitTask = { id = 'Orbit', params = { pattern = 'Circle' } }
+                            friendlyGroup:getController():setTask(orbitTask)
+                        end
+                           
+                        checkDcsTimer:Stop()
+                    end
+                end)
+                checkDcsTimer:Start(0.1, 0.1)
             end
-        end
-
-        -- Stop the hard deck checker
-        if BFM.CheckTimer then 
-            BFM.CheckTimer:Stop() 
-            BFM.CheckTimer = nil 
         end
     end
 
-    -- Separation & Merge Logic
     local function ExecuteFightOn()
         if BFM.State ~= "FORMATION" then return end
         BFM.State = "SEPARATION"
         
         trigger.action.outTextForGroup(BFM.PlayerUnit:getGroup():getID(), "Separating. Standby for the merge...", 10)
 
-        -- Command AI to turn 90 degrees away to create separation
         local aiMooseGroup = GROUP:FindByName(BFM.AIUnit:getGroup():getName())
         local curHeading = aiMooseGroup:GetHeading()
-        local sepCoord = aiMooseGroup:GetCoordinate():Translate(10000, curHeading + 90)
-        aiMooseGroup:RouteTo(sepCoord, aiMooseGroup:GetVelocityKMH())
+        local curCoord = aiMooseGroup:GetCoordinate()
+        local sepCoord = aiMooseGroup:GetCoordinate():Translate(10000, curHeading + 30)
+        local speed = aiMooseGroup:GetVelocityKMH()
 
-        BFM.CheckTimer = TIMER:New(function(self)
+        aiMooseGroup:ClearTasks()
+
+        local waypoints = {}
+        table.insert(waypoints, curCoord:WaypointAir(speed, "Turning Point", "Fly Over", curCoord.y))
+        table.insert(waypoints, sepCoord:WaypointAir(speed, "Turning Point", "Fly Over", curCoord.y))
+        aiMooseGroup:Route(waypoints)
+
+        BFM.CheckTimer = TIMER:New(function()
             if not BFM.PlayerUnit or not BFM.PlayerUnit:isExist() or not BFM.AIUnit or not BFM.AIUnit:isExist() then
-                self:Stop() return
+                if BFM.CheckTimer then BFM.CheckTimer:Stop() end
+                return
             end
 
             local distMeters = BFM.PlayerUnit:getPoint()
@@ -2457,39 +2502,51 @@ if MODULE_BFM then
             local distNM = math.sqrt(dx^2 + dz^2) / 1852
 
             if distNM >= 1.5 then
-                self:Stop()
+                if BFM.CheckTimer then BFM.CheckTimer:Stop() end
+                
                 BFM.State = "ENGAGED"
                 trigger.action.outTextForGroup(BFM.PlayerUnit:getGroup():getID(), "TURN IN... FIGHT'S ON!", 10)
 
-                -- Make player immortal
                 BFM.PlayerUnit:getGroup():getController():setCommand({id = 'SetImmortal', params = {value = true}})
 
-                -- Swap Friendly to Adversary
-                local enemyCoa = (BFM.PlayerUnit:getCoalition() == 1) and 2 or 1
-                local adversaryGroup = SwapAircraft(BFM.AIUnit, BFM_ADVERSARY_TEMPLATE, enemyCoa, true)
+                local adversaryGroup = SwapAircraft(BFM.AIUnit, BFM_ADVERSARY_TEMPLATE, true)
 
                 if adversaryGroup then
-                    timer.scheduleFunction(function()
-                        local moosAdvGroup = GROUP:FindByName(adversaryGroup:getName())
-                        BFM.AIUnit = moosAdvGroup:GetFirstUnitAlive():GetDCSObject()
-                        
-                        -- Attack Player
-                        local attackTask = moosAdvGroup:TaskAttackGroup(GROUP:FindByName(BFM.PlayerUnit:getGroup():getName()))
-                        moosAdvGroup:SetTask(attackTask)
-                    end, nil, timer.getTime() + 1)
+                    local checkDcsTimer
+                    checkDcsTimer = TIMER:New(function()
+                        if adversaryGroup and adversaryGroup:isExist() and #adversaryGroup:getUnits() > 0 then
+                            BFM.AIUnit = adversaryGroup:getUnits()[1]
+                            
+                            local targetGroup = BFM.PlayerUnit:getGroup()
+                            if targetGroup and targetGroup:isExist() then
+                                local attackTask = {
+                                    id = 'AttackGroup',
+                                    params = {
+                                        groupId = targetGroup:getID()
+                                    }
+                                }
+                                -- Use setTask instead of pushTask to execute instantly
+                                adversaryGroup:getController():setTask(attackTask)
+                            end
+                            checkDcsTimer:Stop()
+                        end
+                    end)
+                    checkDcsTimer:Start(0.1, 0.1)
                 end
 
-                -- Start Hard Deck & Safety Monitor
-                BFM.CheckTimer = TIMER:New(function(monitor)
-                    if BFM.State ~= "ENGAGED" then monitor:Stop() return end
+                BFM.CheckTimer = TIMER:New(function()
+                    if BFM.State ~= "ENGAGED" then 
+                        if BFM.CheckTimer then BFM.CheckTimer:Stop() end
+                        return 
+                    end
                     if not BFM.PlayerUnit:isExist() or not BFM.AIUnit:isExist() then return end
 
-                    -- Check MSL Hard Deck (y is MSL in DCS vec3, convert meters to feet)
                     local pAltFt = BFM.PlayerUnit:getPoint().y * 3.28084
                     local aiAltFt = BFM.AIUnit:getPoint().y * 3.28084
 
                     if pAltFt < BFM_HARD_DECK_FT or aiAltFt < BFM_HARD_DECK_FT then
                         KnockItOff("Hard deck violation.")
+                        if BFM.CheckTimer then BFM.CheckTimer:Stop() end
                     end
                 end)
                 BFM.CheckTimer:Start(2, 2)
@@ -2526,24 +2583,35 @@ if MODULE_BFM then
         BFM.State = "FORMATION"
 
         local playerGroup = dcsPlayer:getGroup()
-        local pAirbase = dcsPlayer:getPoint() -- Using point for proximity spawn
-        local pCoa = dcsPlayer:getCoalition()
+        local moosePlayer = UNIT:Find(dcsPlayer)
+        
+        if not moosePlayer then return end
+        
+        local playerCoord = moosePlayer:GetCoordinate()
 
         -- Spawn initial friendly wingman hot near player
         local SpawnObj = SPAWN:New(BFM_FRIENDLY_TEMPLATE)
         SpawnObj:OnSpawnGroup(function(NewGroup)
             BFM.AIUnit = NewGroup:GetFirstUnitAlive():GetDCSObject()
-            -- Assign escort
-            local escortTask = NewGroup:TaskEscort(UNIT:Find(dcsPlayer), {x=50, y=0, z=50})
-            NewGroup:SetTask(escortTask)
+            trigger.action.outTextForGroup(playerGroup:getID(), "BFM Sortie Initialized. AI Wingman is taxiing and will form up after takeoff.", 10)
             
-            trigger.action.outTextForGroup(playerGroup:getID(), "BFM Sortie Initialized. AI Wingman is forming up.", 10)
+            -- Use MOOSE AUFTRAG to automatically manage the taxi, takeoff, and join-up sequence
+            local flightGroup = FLIGHTGROUP:New(NewGroup)
+            local targetGroup = GROUP:FindByName(BFM.PlayerUnit:getGroup():getName())
+            local escortMission = AUFTRAG:NewESCORT(targetGroup, {x = -50, y = -10, z = 50})
+            flightGroup:AddMission(escortMission)
         end)
         
-        -- DCS coordinates vs Moose Coordinates handler
-        local spawnCoord = COORDINATE:NewFromVec3(pAirbase):Translate(500, 0) 
-        spawnCoord:SetAltitude(pAirbase.y)
-        SpawnObj:SpawnFromCoordinate(spawnCoord)
+        -- Identify closest airbase for proper ground spawning
+        local nearestBase = playerCoord:GetClosestAirbase()
+        if nearestBase and playerCoord:Get2DDistance(nearestBase:GetCoordinate()) < 8000 then
+            SpawnObj:SpawnAtAirbase(nearestBase, SPAWN.Takeoff.Hot)
+        else
+            -- Fallback just in case they initialized mid-air
+            local spawnCoord = playerCoord:Translate(500, 0) 
+            spawnCoord:SetAltitude(playerCoord:GetY())
+            SpawnObj:SpawnFromCoordinate(spawnCoord)
+        end
 
         missionCommands.addCommandForGroup(playerGroup:getID(), "Declare: Fight On", BFM.MenuPath, ExecuteFightOn, nil)
     end
@@ -3053,7 +3121,9 @@ function ProcessAIOrders(actions, coalitionStr)
                     -- Next check if it's a specific Unit
                     local unitObj = UNIT:FindByName(unitName)
                     if unitObj then
-                        unitObj:Destroy()
+                        if not unitObj:GetPlayerName() then
+                            unitObj:Destroy()
+                        end
                     else
                         -- Finally, check if it's a standard Group
                         local groupObj = GROUP:FindByName(unitName)
