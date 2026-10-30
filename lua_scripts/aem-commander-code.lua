@@ -2318,6 +2318,247 @@ if MODULE_QRA then
 end -- module QRA
 
 -- ======================================================================
+-- BFM TRAINER
+-- ======================================================================
+if MODULE_BFM then
+
+    local BFM = {
+        State = "IDLE", -- IDLE, FORMATION, SEPARATION, ENGAGED
+        PlayerUnit = nil,
+        AIUnit = nil,
+        AIGroupName = nil,
+        MenuPath = nil,
+        CheckTimer = nil
+    }
+
+    -- Deep copy template from the mission file (Native DCS) to allow payload manipulation
+    local function getMissionTemplate(templateName)
+        for _, coa_data in pairs(env.mission.coalition) do
+            if coa_data.country then
+                for _, country in pairs(coa_data.country) do
+                    if country.plane and country.plane.group then
+                        for _, group in pairs(country.plane.group) do
+                            if group.name == templateName then
+                                -- Basic deep copy
+                                local function deepCopy(obj)
+                                    if type(obj) ~= 'table' then return obj end
+                                    local res = {}
+                                    for k, v in pairs(obj) do res[deepCopy(k)] = deepCopy(v) end
+                                    return res
+                                end
+                                return deepCopy(group)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        return nil
+    end
+
+    -- Swaps the AI with identical kinematic state and fuel
+    local function SwapAircraft(oldUnit, templateName, targetCoalitionId, applyFuel)
+        local templateData = getMissionTemplate(templateName)
+        if not templateData then 
+            env.info("AEM BFM: Could not find template " .. templateName)
+            return nil 
+        end
+
+        local pos = oldUnit:getPoint()
+        local vel = oldUnit:getVelocity()
+        local pos3 = oldUnit:getPosition()
+        local heading = math.atan2(pos3.x.z, pos3.x.x)
+        local speed = math.sqrt(vel.x^2 + vel.y^2 + vel.z^2)
+
+        templateData.x = pos.x
+        templateData.y = pos.z
+        
+        local unitData = templateData.units[1]
+        unitData.x = pos.x
+        unitData.y = pos.z
+        unitData.alt = pos.y
+        unitData.alt_type = "BARO"
+        unitData.speed = speed
+        unitData.heading = heading
+
+        if applyFuel then
+            local fuelRatio = oldUnit:getFuel()
+            unitData.payload = unitData.payload or {}
+            unitData.payload.fuel = (BFM_MAX_FUEL_LBS * 0.453592) * fuelRatio
+        end
+
+        -- Randomize names to prevent DCS ID collisions
+        local uid = timer.getTime()
+        templateData.name = templateName .. "_" .. uid
+        templateData.groupId = nil
+        unitData.name = templateName .. "_Unit_" .. uid
+        unitData.unitId = nil
+
+        local oldGroupName = oldUnit:getGroup():getName()
+        Group.getByName(oldGroupName):destroy()
+
+        local newGroup = coalition.addGroup(targetCoalitionId, Group.Category.AIRPLANE, templateData)
+        return newGroup
+    end
+
+    -- Knock It Off Logic (Reset to formation)
+    local function KnockItOff(reasonMsg)
+        if BFM.State ~= "ENGAGED" then return end
+        BFM.State = "FORMATION"
+
+        if BFM.PlayerUnit and BFM.PlayerUnit:isExist() then
+            trigger.action.outTextForGroup(BFM.PlayerUnit:getGroup():getID(), "KNOCK IT OFF, KNOCK IT OFF! " .. reasonMsg, 10)
+            BFM.PlayerUnit:getGroup():getController():setCommand({id = 'SetImmortal', params = {value = false}})
+        end
+
+        if BFM.AIUnit and BFM.AIUnit:isExist() then
+            local playerCoa = BFM.PlayerUnit:getCoalition()
+            -- Swap back to friendly, carrying fuel state over
+            local friendlyGroup = SwapAircraft(BFM.AIUnit, BFM_FRIENDLY_TEMPLATE, playerCoa, true)
+            
+            if friendlyGroup then
+                timer.scheduleFunction(function()
+                    local moosGroup = GROUP:FindByName(friendlyGroup:getName())
+                    BFM.AIUnit = moosGroup:GetFirstUnitAlive():GetDCSObject()
+                    local escortTask = moosGroup:TaskEscort(UNIT:Find(BFM.PlayerUnit), {x=50, y=0, z=50})
+                    moosGroup:SetTask(escortTask)
+                end, nil, timer.getTime() + 1)
+            end
+        end
+
+        -- Stop the hard deck checker
+        if BFM.CheckTimer then 
+            BFM.CheckTimer:Stop() 
+            BFM.CheckTimer = nil 
+        end
+    end
+
+    -- Separation & Merge Logic
+    local function ExecuteFightOn()
+        if BFM.State ~= "FORMATION" then return end
+        BFM.State = "SEPARATION"
+        
+        trigger.action.outTextForGroup(BFM.PlayerUnit:getGroup():getID(), "Separating. Standby for the merge...", 10)
+
+        -- Command AI to turn 90 degrees away to create separation
+        local aiMooseGroup = GROUP:FindByName(BFM.AIUnit:getGroup():getName())
+        local curHeading = aiMooseGroup:GetHeading()
+        local sepCoord = aiMooseGroup:GetCoordinate():Translate(10000, curHeading + 90)
+        aiMooseGroup:RouteTo(sepCoord, aiMooseGroup:GetVelocityKMH())
+
+        BFM.CheckTimer = TIMER:New(function(self)
+            if not BFM.PlayerUnit or not BFM.PlayerUnit:isExist() or not BFM.AIUnit or not BFM.AIUnit:isExist() then
+                self:Stop() return
+            end
+
+            local distMeters = BFM.PlayerUnit:getPoint()
+            local dx = distMeters.x - BFM.AIUnit:getPoint().x
+            local dz = distMeters.z - BFM.AIUnit:getPoint().z
+            local distNM = math.sqrt(dx^2 + dz^2) / 1852
+
+            if distNM >= 1.5 then
+                self:Stop()
+                BFM.State = "ENGAGED"
+                trigger.action.outTextForGroup(BFM.PlayerUnit:getGroup():getID(), "TURN IN... FIGHT'S ON!", 10)
+
+                -- Make player immortal
+                BFM.PlayerUnit:getGroup():getController():setCommand({id = 'SetImmortal', params = {value = true}})
+
+                -- Swap Friendly to Adversary
+                local enemyCoa = (BFM.PlayerUnit:getCoalition() == 1) and 2 or 1
+                local adversaryGroup = SwapAircraft(BFM.AIUnit, BFM_ADVERSARY_TEMPLATE, enemyCoa, true)
+
+                if adversaryGroup then
+                    timer.scheduleFunction(function()
+                        local moosAdvGroup = GROUP:FindByName(adversaryGroup:getName())
+                        BFM.AIUnit = moosAdvGroup:GetFirstUnitAlive():GetDCSObject()
+                        
+                        -- Attack Player
+                        local attackTask = moosAdvGroup:TaskAttackGroup(GROUP:FindByName(BFM.PlayerUnit:getGroup():getName()))
+                        moosAdvGroup:SetTask(attackTask)
+                    end, nil, timer.getTime() + 1)
+                end
+
+                -- Start Hard Deck & Safety Monitor
+                BFM.CheckTimer = TIMER:New(function(monitor)
+                    if BFM.State ~= "ENGAGED" then monitor:Stop() return end
+                    if not BFM.PlayerUnit:isExist() or not BFM.AIUnit:isExist() then return end
+
+                    -- Check MSL Hard Deck (y is MSL in DCS vec3, convert meters to feet)
+                    local pAltFt = BFM.PlayerUnit:getPoint().y * 3.28084
+                    local aiAltFt = BFM.AIUnit:getPoint().y * 3.28084
+
+                    if pAltFt < BFM_HARD_DECK_FT or aiAltFt < BFM_HARD_DECK_FT then
+                        KnockItOff("Hard deck violation.")
+                    end
+                end)
+                BFM.CheckTimer:Start(2, 2)
+            end
+        end)
+        BFM.CheckTimer:Start(1, 1)
+    end
+
+    -- Hit Detector
+    local BFM_HitHandler = {}
+    function BFM_HitHandler:onEvent(event)
+        if BFM.State == "ENGAGED" and event.id == world.event.S_EVENT_HIT then
+            if event.initiator and event.target then
+                local initName = event.initiator:getName()
+                local tgtName = event.target:getName()
+                
+                local pName = BFM.PlayerUnit:getName()
+                local aiName = BFM.AIUnit:getName()
+
+                if (initName == pName and tgtName == aiName) or (initName == aiName and tgtName == pName) then
+                    KnockItOff("Good kill.")
+                end
+            end
+        end
+    end
+    world.addEventHandler(BFM_HitHandler)
+
+    -- F10 Menu Integration
+    local function InitBFMSortie()
+        local dcsPlayer = world.getPlayer()
+        if not dcsPlayer then return end
+        
+        BFM.PlayerUnit = dcsPlayer
+        BFM.State = "FORMATION"
+
+        local playerGroup = dcsPlayer:getGroup()
+        local pAirbase = dcsPlayer:getPoint() -- Using point for proximity spawn
+        local pCoa = dcsPlayer:getCoalition()
+
+        -- Spawn initial friendly wingman hot near player
+        local SpawnObj = SPAWN:New(BFM_FRIENDLY_TEMPLATE)
+        SpawnObj:OnSpawnGroup(function(NewGroup)
+            BFM.AIUnit = NewGroup:GetFirstUnitAlive():GetDCSObject()
+            -- Assign escort
+            local escortTask = NewGroup:TaskEscort(UNIT:Find(dcsPlayer), {x=50, y=0, z=50})
+            NewGroup:SetTask(escortTask)
+            
+            trigger.action.outTextForGroup(playerGroup:getID(), "BFM Sortie Initialized. AI Wingman is forming up.", 10)
+        end)
+        
+        -- DCS coordinates vs Moose Coordinates handler
+        local spawnCoord = COORDINATE:NewFromVec3(pAirbase):Translate(500, 0) 
+        spawnCoord:SetAltitude(pAirbase.y)
+        SpawnObj:SpawnFromCoordinate(spawnCoord)
+
+        missionCommands.addCommandForGroup(playerGroup:getID(), "Declare: Fight On", BFM.MenuPath, ExecuteFightOn, nil)
+    end
+
+    -- Build the root menu for the player
+    timer.scheduleFunction(function()
+        if not BFM.MenuPath then
+            BFM.MenuPath = missionCommands.addSubMenu("BFM Trainer", nil)
+            missionCommands.addCommand("Initialize BFM Sortie", BFM.MenuPath, InitBFMSortie, nil)
+        end
+    end, nil, timer.getTime() + 5)
+
+end
+
+-- ======================================================================
 -- Field command
 --
 -- Receive strategic tasking from commander and generate tactical orders

@@ -1176,6 +1176,13 @@ QRA_MAX_CHANCE = 85
 RADIO_MESSAGES_FILES = {}
 RADIO_MESSAGES_SUBTITLES = {}
 
+-- BFM TRAINER
+MODULE_BFM = ${settings.moduleBfm ? 'true' : 'false'}
+BFM_FRIENDLY_TEMPLATE = "${settings.bfmFriendly}"
+BFM_ADVERSARY_TEMPLATE = "${settings.bfmAdversary}"
+BFM_MAX_FUEL_LBS = ${settings.bfmFuel}
+BFM_HARD_DECK_FT = ${settings.bfmDeck}
+
 -- Persistence
 PERSISTENCE_KEYWORD = "${settings.modulePersist ? settings.persistKeyword : 'DO_NOT_PERSIST_ANYTHING'}"
 `;
@@ -1291,6 +1298,12 @@ ipcMain.handle('extract-miz-settings', async () => {
 
             moduleQra: getBool('MODULE_QRA'),
             qraBogey: getStr('QRA_BOGEY_TEMPLATE'),
+
+            moduleBfm: getBool('MODULE_BFM'),
+            bfmFriendly: getStr('BFM_FRIENDLY_TEMPLATE'),
+            bfmAdversary: getStr('BFM_ADVERSARY_TEMPLATE'),
+            bfmFuel: getNum('BFM_MAX_FUEL_LBS'),
+            bfmDeck: getNum('BFM_HARD_DECK_FT'),
 
             modulePersist: getStr('PERSISTENCE_KEYWORD') !== 'DO_NOT_PERSIST_ANYTHING',
             persistKeyword: getStr('PERSISTENCE_KEYWORD'),

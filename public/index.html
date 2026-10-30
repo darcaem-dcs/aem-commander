@@ -239,6 +239,10 @@
                         <span><i class="fa-solid fa-jet-fighter"></i> QRA</span>
                         <label class="switch" onclick="event.stopPropagation()"><input type="checkbox" id="toggleQra" checked><span class="slider"></span></label>
                     </div>
+                    <div class="nav-item" data-target="paneBfm">
+                    <span><i class="fa-solid fa-user-graduate"></i> BFM Trainer</span>
+                    <label class="switch" onclick="event.stopPropagation()"><input type="checkbox" id="toggleBfm" checked><span class="slider"></span></label>
+                </div>
                 </div>
 
                 <!-- CONTENT AREA -->
@@ -557,6 +561,31 @@
                         </div>
                     </div>
 
+                    <!-- BFM TRAINER -->
+                    <div id="paneBfm" class="module-pane">
+                        <h2>BFM Trainer Module</h2>
+                        <p style="font-size: 0.9em; color: var(--text-muted); margin-bottom: 20px;">Configures the 1v1 BFM training environment with dynamic hot-swapping and hit detection.</p>
+                        
+                        <div id="contentBfm" class="module-content-inner">
+                            <div class="config-grid">
+                                <div class="config-column">
+                                    <label>Friendly Escort Template:</label>
+                                    <input type="text" id="injBfmFriendly" class="input-field" value="AEM_BFM_FRIENDLY">
+                                    
+                                    <label style="margin-top: 15px;">Adversary Template:</label>
+                                    <input type="text" id="injBfmAdversary" class="input-field" value="AEM_BFM_ADVERSARY">
+                                </div>
+                                <div class="config-column">
+                                    <label>AI Max Fuel Capacity (lbs):</label>
+                                    <input type="number" id="injBfmFuel" class="input-field" value="7000" min="0">
+                                    
+                                    <label style="margin-top: 15px;">Hard Deck (feet MSL):</label>
+                                    <input type="number" id="injBfmDeck" class="input-field" value="10000" min="0">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                 </div>
             </div>
 		
@@ -805,6 +834,15 @@
                     setVal('injPersistKeyword', s.persistKeyword);
                 }
 
+                // Populate BFM
+                setCheck('toggleBfm', s.moduleBfm);
+                if (s.moduleBfm) {
+                    setVal('injBfmFriendly', s.bfmFriendly);
+                    setVal('injBfmAdversary', s.bfmAdversary);
+                    setVal('injBfmFuel', s.bfmFuel);
+                    setVal('injBfmDeck', s.bfmDeck);
+                }
+
                 // Advance to Step 2
                 currentFlow = 'load';
                 welcomeScreen.style.display = 'none';
@@ -948,6 +986,7 @@
         setupModuleToggle('toggleCsar', 'contentCsar');
         setupModuleToggle('toggleCiv', 'contentCiv');
         setupModuleToggle('toggleQra', 'contentQra');
+        setupModuleToggle('toggleBfm', 'contentBfm');
 		
 		// Persistence
 		const btnLoadPersistence = document.getElementById('btnLoadPersistence');
@@ -1732,6 +1771,12 @@
 
                 moduleQra: document.getElementById('toggleQra').checked,
                 qraBogey: document.getElementById('injQraBogey').value,
+
+                moduleBfm: document.getElementById('toggleBfm').checked,
+                bfmFriendly: document.getElementById('injBfmFriendly').value,
+                bfmAdversary: document.getElementById('injBfmAdversary').value,
+                bfmFuel: parseInt(document.getElementById('injBfmFuel').value) || 7000,
+                bfmDeck: parseInt(document.getElementById('injBfmDeck').value) || 10000,
 
                 modulePersist: document.getElementById('togglePersistence').checked,
                 persistKeyword: document.getElementById('injPersistKeyword').value

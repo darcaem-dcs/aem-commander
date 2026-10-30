@@ -210,6 +210,15 @@ RADIO_MESSAGES_SUBTITLES = {
 
 PERSISTENCE_KEYWORD = "PERSIST"
 
+-- ======================================================================
+-- BFM TRAINER
+-- ======================================================================
+MODULE_BFM = true
+BFM_FRIENDLY_TEMPLATE = "AEM_BFM_FRIENDLY"
+BFM_ADVERSARY_TEMPLATE = "AEM_BFM_ADVERSARY"
+BFM_MAX_FUEL_LBS = 7000
+BFM_HARD_DECK_FT = 10000
+
 -------------------------------------------------------------------------
 -- Debug messages
 --
