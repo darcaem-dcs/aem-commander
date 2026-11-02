@@ -2437,8 +2437,7 @@ if MODULE_BFM then
             local friendlyGroup = SwapAircraft(BFM.AIUnit, BFM_FRIENDLY_TEMPLATE, true)
             
             if friendlyGroup then
-                local checkDcsTimer
-                checkDcsTimer = TIMER:New(function()
+                local checkDcsTimer = TIMER:New(function()
                     if friendlyGroup and friendlyGroup:isExist() and #friendlyGroup:getUnits() > 0 then
                         BFM.AIUnit = friendlyGroup:getUnits()[1]
                            
@@ -2446,17 +2445,24 @@ if MODULE_BFM then
                             local playerDcsGroup = BFM.PlayerUnit:getGroup()
                             if playerDcsGroup and playerDcsGroup:isExist() then
                                 -- Use Escort instead of Follow, and use setTask to execute instantly
-                                local escortTask = {
-                                    id = 'Escort',
-                                    params = {
-                                        groupId = playerDcsGroup:getID(),
-                                        pos = {x = -50, y = -10, z = 50},
-                                        last_WptIndexFlag = false,
-                                        engagementDistMax = 0,
-                                        targetTypes = {}
-                                    }
-                                }
-                                friendlyGroup:getController():setTask(escortTask)
+                             --   local escortTask = {
+                               --     id = 'Escort',
+                                 --   params = {
+                                   --     groupId = playerDcsGroup:getID(),
+                                     --   pos = {x = -50, y = -10, z = 50},
+                                      --  last_WptIndexFlag = false,
+                                        --engagementDistMax = 0,
+                                        --targetTypes = {}
+                                   -- }
+                               -- }
+                               -- friendlyGroup:getController():setTask(escortTask)
+
+                                -- DEBUGTODO:
+                                local NewGroup = GROUP:FindByName(friendlyGroup:getName())
+                                local flightGroup = FLIGHTGROUP:New(NewGroup)
+                                local targetGroup = GROUP:FindByName(BFM.PlayerUnit:getGroup():getName())
+                                local escortMission = AUFTRAG:NewESCORT(targetGroup, {x = -50, y = -10, z = 50})
+                                flightGroup:AddMission(escortMission)
                             end
                         else
                             local orbitTask = { id = 'Orbit', params = { pattern = 'Circle' } }
@@ -2466,7 +2472,7 @@ if MODULE_BFM then
                         checkDcsTimer:Stop()
                     end
                 end)
-                checkDcsTimer:Start(0.1, 0.1)
+                checkDcsTimer:Start(3, 0.1) -- Delay 3 seconds
             end
         end
     end
