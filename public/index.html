@@ -172,13 +172,22 @@
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
             <h1 style="margin: 0;">Autonomous Engagement Monitor <span id="appVersion" style="font-size: 0.5em; color: var(--text-muted); vertical-align: middle; font-weight: normal;"></span></h1>
             
-            <div style="display: flex; gap: 10px;">
-                <button id="btnOpenAppLog" class="btn-icon" title="View System Log">
-                    <i class="fa-solid fa-file-lines"></i> View Log
+            <div style="position: relative; display: inline-block;">
+                <button id="btnMainMenu" class="btn-icon" title="Menu" style="padding: 8px 15px;">
+                    <i class="fa-solid fa-bars" style="margin-right: 5px;"></i> Menu
                 </button>
-                <button id="themeToggle" class="btn-icon" title="Toggle Dark/Light Mode">
-                    <i class="fa-solid fa-moon"></i>
-                </button>
+                <div id="mainMenuDropdown" class="card" style="display: none; position: absolute; right: 0; top: 100%; min-width: 220px; z-index: 1000; padding: 10px; flex-direction: column; gap: 8px; margin-top: 5px; border: 1px solid var(--border-color);">
+                    <button id="btnExtractLoadouts" class="btn-icon" style="text-align: left; border: none; width: 100%; display: flex; align-items: center; gap: 10px;">
+                        <i class="fa-solid fa-plane-circle-exclamation" style="width: 20px;"></i> Extract Loadouts
+                    </button>
+                    <hr style="border: 0; border-top: 1px solid var(--border-color); width: 100%; margin: 0;">
+                    <button id="btnOpenAppLog" class="btn-icon" style="text-align: left; border: none; width: 100%; display: flex; align-items: center; gap: 10px;">
+                        <i class="fa-solid fa-file-lines" style="width: 20px;"></i> View Log
+                    </button>
+                    <button id="themeToggle" class="btn-icon" style="text-align: left; border: none; width: 100%; display: flex; align-items: center; gap: 10px;">
+                        <i class="fa-solid fa-moon" style="width: 20px;"></i> Toggle Theme
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -948,6 +957,48 @@
         const bmCountRedInput = document.getElementById('bmCountRed');
         const bmCountBlueInput = document.getElementById('bmCountBlue');
 
+        // --- MAIN MENU DROPDOWN LOGIC ---
+        const btnMainMenu = document.getElementById('btnMainMenu');
+        const mainMenuDropdown = document.getElementById('mainMenuDropdown');
+
+        btnMainMenu.addEventListener('click', (e) => {
+            e.stopPropagation();
+            mainMenuDropdown.style.display = mainMenuDropdown.style.display === 'none' ? 'flex' : 'none';
+        });
+
+        // Close menu when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!mainMenuDropdown.contains(e.target) && e.target !== btnMainMenu) {
+                mainMenuDropdown.style.display = 'none';
+            }
+        });
+
+        // --- EXTRACT LOADOUTS LOGIC ---
+        document.getElementById('btnExtractLoadouts').addEventListener('click', async () => {
+            mainMenuDropdown.style.display = 'none';
+            
+            const loadingOverlay = document.getElementById('loadingOverlay');
+            document.getElementById('loadingText').innerText = "Extracting payloads...";
+            
+            // Don't show overlay immediately so OS dialog can paint first
+            const result = await window.electronAPI.extractLoadouts();
+            
+            if (!result || result.error === 'Cancelled') return;
+
+            // Show overlay during processing if dialog was accepted
+            loadingOverlay.style.display = 'flex';
+            
+            if (result.success) {
+                addLog(`Extracted ${result.count} airframes to ${result.fileName}`, 'success');
+                showFeedback(`Successfully extracted loadouts to ${result.fileName}!`, true);
+            } else {
+                addLog(`Failed to extract loadouts: ${result.error}`, 'error');
+                showFeedback(`Extraction failed: ${result.error}`, false);
+            }
+            
+            loadingOverlay.style.display = 'none';
+        });
+        
         // Module Toggles
         // --- SIDEBAR NAVIGATION LOGIC ---
         document.querySelectorAll('.nav-item').forEach(item => {

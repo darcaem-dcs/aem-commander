@@ -1353,4 +1353,35 @@ ipcMain.handle('clear-log-content', async () => {
     }
 });
 
+ipcMain.handle('extract-loadouts', async (event) => {
+    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+        title: 'Select Loadout Master .miz',
+        properties: ['openFile'],
+        filters: [{ name: 'DCS Mission Files', extensions: ['miz'] }]
+    });
+    
+    if (canceled || filePaths.length === 0) return { success: false, error: 'Cancelled' };
+
+    // Resolve the fixed loadouts directory based on dev/packaged environment
+    const loadoutsDir = app.isPackaged ? path.join(process.resourcesPath, 'loadouts') : path.join(__dirname, 'loadouts');
+    
+    // Ensure the directory exists
+    if (!fs.existsSync(loadoutsDir)) {
+        fs.mkdirSync(loadoutsDir, { recursive: true });
+    }
+
+    const savePath = path.join(loadoutsDir, 'loadouts.json');
+
+    try {
+        const LoadoutExtractor = require('./utils/loadoutExtractor.js');
+        const count = LoadoutExtractor.extractFromMaster(filePaths[0], savePath);
+        
+        logger.info(`Successfully extracted loadouts for ${count} airframes to ${savePath}`);
+        return { success: true, count, fileName: path.basename(savePath) };
+    } catch (err) {
+        logger.error(`Loadout extraction failed: ${err.message}`);
+        return { success: false, error: err.message };
+    }
+});
+
 app.whenReady().then(createWindow);

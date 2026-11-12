@@ -77,5 +77,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     /** Show log */
     getLogContent: () => ipcRenderer.invoke('get-log-content'),
-    clearLogContent: () => ipcRenderer.invoke('clear-log-content')
+    clearLogContent: () => ipcRenderer.invoke('clear-log-content'),
+
+    /**
+     * Extracts payload arrays from a master .miz file to build loadouts.json
+     */
+    extractLoadouts: () => ipcRenderer.invoke('extract-loadouts')
 });

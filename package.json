@@ -1,11 +1,11 @@
 {
   "name": "aem-commander",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "description": "Autonomous Engagement Monitor: DCS companion app that emulates the HQ issuing orders to armed forces.",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "package-win": "electron-packager . aem-json-monitor --overwrite --asar=true --platform=win32 --arch=x64 --icon=./icon.ico --prune=true --out=release-builds --extra-resource=beacons --extra-resource=lua_scripts --extra-resource=media --version-string.CompanyName=CE --version-string.FileDescription=AEMJsonMonitor --version-string.ProductName=\"AEM JSON Monitor\"",
+    "package-win": "electron-packager . aem-json-monitor --overwrite --asar=true --platform=win32 --arch=x64 --icon=./icon.ico --prune=true --out=release-builds --extra-resource=beacons --extra-resource=lua_scripts --extra-resource=media --extra-resource=loadouts --version-string.CompanyName=CE --version-string.FileDescription=AEMJsonMonitor --version-string.ProductName=\"AEM Commander\"",
     "package-mac": "electron-builder --mac --x64"
   },
   "build": {
@@ -23,6 +23,10 @@
       {
         "from": "media",
         "to": "media"
+      },
+      {
+        "from": "loadouts",
+        "to": "loadouts"
       }
     ],
     "mac": {
