@@ -980,19 +980,22 @@
             const loadingOverlay = document.getElementById('loadingOverlay');
             document.getElementById('loadingText').innerText = "Extracting payloads...";
             
-            // Don't show overlay immediately so OS dialog can paint first
+            // Allow DOM to paint the loading screen before invoking the file dialog
+            await new Promise(resolve => setTimeout(resolve, 100));
+
             const result = await window.electronAPI.extractLoadouts();
             
             if (!result || result.error === 'Cancelled') return;
 
-            // Show overlay during processing if dialog was accepted
             loadingOverlay.style.display = 'flex';
             
             if (result.success) {
                 addLog(`Extracted ${result.count} airframes to ${result.fileName}`, 'success');
+                // Use the global feedback banner
                 showFeedback(`Successfully extracted loadouts to ${result.fileName}!`, true);
             } else {
                 addLog(`Failed to extract loadouts: ${result.error}`, 'error');
+                // Use the global feedback banner
                 showFeedback(`Extraction failed: ${result.error}`, false);
             }
             
