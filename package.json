@@ -12,22 +12,11 @@
     "appId": "com.darcaem.aem-commander",
     "productName": "AEM Commander",
     "extraResources": [
-      {
-        "from": "beacons",
-        "to": "beacons"
-      },
-      {
-        "from": "lua_scripts",
-        "to": "lua_scripts"
-      },
-      {
-        "from": "media",
-        "to": "media"
-      },
-      {
-        "from": "loadouts",
-        "to": "loadouts"
-      }
+      { "from": "beacons", "to": "beacons" },
+      { "from": "lua_scripts", "to": "lua_scripts" },
+      { "from": "media", "to": "media" },
+      { "from": "loadouts", "to": "loadouts" },
+      { "from": "civ", "to": "civ" }
     ],
     "mac": {
       "target": "zip",

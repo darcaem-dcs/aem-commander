@@ -1384,4 +1384,35 @@ ipcMain.handle('extract-loadouts', async (event) => {
     }
 });
 
+ipcMain.handle('extract-civ-templates', async (event) => {
+    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+        title: 'Select Civilian Master .miz',
+        properties: ['openFile'],
+        filters: [{ name: 'DCS Mission Files', extensions: ['miz'] }]
+    });
+    
+    if (canceled || filePaths.length === 0) return { success: false, error: 'Cancelled' };
+
+    // Resolve the fixed civ directory based on dev/packaged environment
+    const civDir = app.isPackaged ? path.join(process.resourcesPath, 'civ') : path.join(__dirname, 'civ');
+    
+    if (!fs.existsSync(civDir)) {
+        fs.mkdirSync(civDir, { recursive: true });
+    }
+
+    const savePath = path.join(civDir, 'civil_aircrafts.json');
+
+    try {
+        // Ensure you saved the script from the previous step as utils/civExtractor.js
+        const CivExtractor = require('./utils/civExtractor.js');
+        const count = CivExtractor.extractFromMaster(filePaths[0], savePath);
+        
+        logger.info(`Successfully extracted civ templates for ${count} airframes to ${savePath}`);
+        return { success: true, count, fileName: path.basename(savePath) };
+    } catch (err) {
+        logger.error(`Civ extraction failed: ${err.message}`);
+        return { success: false, error: err.message };
+    }
+});
+
 app.whenReady().then(createWindow);

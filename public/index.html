@@ -180,6 +180,9 @@
                     <button id="btnExtractLoadouts" class="btn-icon" style="text-align: left; border: none; width: 100%; display: flex; align-items: center; gap: 10px;">
                         <i class="fa-solid fa-plane-circle-exclamation" style="width: 20px;"></i> Extract Loadouts
                     </button>
+                    <button id="btnExtractCivs" class="btn-icon" style="text-align: left; border: none; width: 100%; display: flex; align-items: center; gap: 10px;">
+                        <i class="fa-solid fa-plane-arrival" style="width: 20px;"></i> Extract Civ Templates
+                    </button>
                     <hr style="border: 0; border-top: 1px solid var(--border-color); width: 100%; margin: 0;">
                     <button id="btnOpenAppLog" class="btn-icon" style="text-align: left; border: none; width: 100%; display: flex; align-items: center; gap: 10px;">
                         <i class="fa-solid fa-file-lines" style="width: 20px;"></i> View Log
@@ -996,6 +999,31 @@
             } else {
                 addLog(`Failed to extract loadouts: ${result.error}`, 'error');
                 // Use the global feedback banner
+                showFeedback(`Extraction failed: ${result.error}`, false);
+            }
+            
+            loadingOverlay.style.display = 'none';
+        });
+
+        // --- EXTRACT CIV TEMPLATES LOGIC ---
+        document.getElementById('btnExtractCivs').addEventListener('click', async () => {
+            mainMenuDropdown.style.display = 'none';
+            
+            const loadingOverlay = document.getElementById('loadingOverlay');
+            document.getElementById('loadingText').innerText = "Extracting civ templates...";
+            
+            await new Promise(resolve => setTimeout(resolve, 100));
+            const result = await window.electronAPI.extractCivTemplates();
+            
+            if (!result || result.error === 'Cancelled') return;
+
+            loadingOverlay.style.display = 'flex';
+            
+            if (result.success) {
+                addLog(`Extracted ${result.count} civilian airframes to ${result.fileName}`, 'success');
+                showFeedback(`Successfully extracted civilian templates to ${result.fileName}!`, true);
+            } else {
+                addLog(`Failed to extract civ templates: ${result.error}`, 'error');
                 showFeedback(`Extraction failed: ${result.error}`, false);
             }
             

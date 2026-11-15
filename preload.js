@@ -82,5 +82,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /**
      * Extracts payload arrays from a master .miz file to build loadouts.json
      */
-    extractLoadouts: () => ipcRenderer.invoke('extract-loadouts')
+    extractLoadouts: () => ipcRenderer.invoke('extract-loadouts'),
+
+    /**
+     * Extracts civilian aircraft groups from a master .miz file to build civil_aircrafts.json
+     */
+    extractCivTemplates: () => ipcRenderer.invoke('extract-civ-templates')
 });
