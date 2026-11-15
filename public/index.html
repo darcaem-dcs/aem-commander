@@ -521,11 +521,6 @@
                                         </select>
                                     </div>
                                     <div>
-                                        <label>Civ Templates (Comma separated):</label>
-                                        <p style="font-size: 0.8em; color: var(--text-muted); margin-top: 4px; margin-bottom: 0;">Group name of the late activation groups that will be used randomly to generate civilian aircraft with different liveries.</p>
-                                        <textarea id="injCivTemplates" class="input-field" style="min-height: 50px;">CIV_TPL_B737, CIV_TPL_A320</textarea>
-                                    </div>
-                                    <div>
                                         <label>Custom Zone Prefix (Optional):</label>
                                         <p style="font-size: 0.8em; color: var(--text-muted); margin-top: 4px; margin-bottom: 0;">You can define zones in the mission editor that will also be used for the civilian traffic to spawn and/or be directed to.</p>
                                         <input type="text" id="injCivZone" class="input-field" value="CIV_ZONE">
@@ -558,6 +553,19 @@
                                     </div>
                                 </div>
                                 
+                            </div>
+
+                            <!-- Aircraft & liveries picker (catalog built with Menu > Extract Civ Templates) -->
+                            <div style="margin-top: 20px;">
+                                <label>Aircraft &amp; Liveries:</label>
+                                <p style="font-size: 0.8em; color: var(--text-muted); margin-top: 4px; margin-bottom: 8px;">Choose the aircraft types and liveries that will be injected into the mission and picked randomly for the civilian traffic. The list comes from <b>Menu &rarr; Extract Civ Templates</b>.</p>
+                                <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 8px; flex-wrap: wrap;">
+                                    <input type="text" id="civPickerFilter" class="input-field" placeholder="Filter by aircraft, livery or country..." style="flex: 1; min-width: 200px;">
+                                    <button id="btnCivSelectAll" class="btn-icon" style="padding: 6px 12px; font-size: 0.85em;">Select All</button>
+                                    <button id="btnCivDeselectAll" class="btn-icon" style="padding: 6px 12px; font-size: 0.85em;">Deselect All</button>
+                                    <span id="civPickerCount" style="color: var(--text-muted); font-size: 0.85em;"></span>
+                                </div>
+                                <div id="civAircraftPicker" class="input-field" style="max-height: 360px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; background: var(--bg-body);"></div>
                             </div>
                         </div>
                     </div>
@@ -819,7 +827,9 @@
                 // Populate Civ Traffic
                 setCheck('toggleCiv', s.moduleCiv);
                 if (s.moduleCiv) {
-                    setVal('injCivTemplates', s.civTemplates.join(', '));
+                    /// TODO: Aircraft & Liveries: setVal('injCivTemplates', s.civTemplates.join(', '));
+                    civSelected = new Set(Array.isArray(s.civSelection) ? s.civSelection : []);
+                    renderCivPicker();
                     
                     // Update Map Dropdown if the map is recognized
                     if (s.theatre && Array.from(document.getElementById('injCivMap').options).some(opt => opt.value === s.theatre)) {
@@ -933,6 +943,154 @@
             document.querySelectorAll('.airbase-checkbox').forEach(cb => cb.checked = false);
         });
 
+        // --- CIV AIRCRAFT & LIVERIES PICKER ---
+        let civCatalog = {};          // airframe -> { category, liveries: [{ id, country, coalition, unitCount }] }
+        let civSelected = new Set();  // "airframe::livery" keys
+        let civTypeUpdaters = [];
+        const civPicker = document.getElementById('civAircraftPicker');
+        const civFilter = document.getElementById('civPickerFilter');
+        const civCountLabel = document.getElementById('civPickerCount');
+        const civKey = (type, livery) => `${type}::${livery}`;
+
+        async function loadCivCatalog() {
+            try {
+                const res = await window.electronAPI.getCivCatalog();
+                civCatalog = (res && res.success) ? res.catalog : {};
+            } catch (err) {
+                civCatalog = {};
+            }
+            renderCivPicker();
+        }
+
+        function updateCivPickerState() {
+            civTypeUpdaters.forEach(fn => fn());
+            let total = 0, selected = 0;
+            Object.entries(civCatalog).forEach(([type, info]) => {
+                info.liveries.forEach(l => {
+                    total++;
+                    if (civSelected.has(civKey(type, l.id))) selected++;
+                });
+            });
+            civCountLabel.textContent = total > 0 ? `${selected} of ${total} liveries selected` : '';
+        }
+
+        function renderCivPicker() {
+            const filter = civFilter.value.trim().toLowerCase();
+            civPicker.innerHTML = '';
+            civTypeUpdaters = [];
+
+            const types = Object.keys(civCatalog).sort((a, b) => a.localeCompare(b));
+            if (types.length === 0) {
+                const empty = document.createElement('div');
+                empty.style.cssText = 'color: var(--text-muted); font-size: 0.85em; padding: 6px;';
+                empty.textContent = 'No civilian aircraft catalog found. Use Menu > Extract Civ Templates to build it from a .miz file.';
+                civPicker.appendChild(empty);
+                updateCivPickerState();
+                return;
+            }
+
+            types.forEach(type => {
+                const info = civCatalog[type];
+                const typeMatches = type.toLowerCase().includes(filter);
+                const visible = info.liveries.filter(l =>
+                    !filter || typeMatches ||
+                    l.id.toLowerCase().includes(filter) ||
+                    (l.country || '').toLowerCase().includes(filter));
+                if (visible.length === 0) return;
+
+                const details = document.createElement('details');
+                details.open = !!filter;
+
+                const summary = document.createElement('summary');
+                summary.style.cssText = 'cursor: pointer; padding: 4px; display: flex; align-items: center; gap: 8px; color: var(--text-main); font-size: 0.9em;';
+
+                const typeCb = document.createElement('input');
+                typeCb.type = 'checkbox';
+                typeCb.style.cssText = 'accent-color: var(--accent-blue); width: 14px; height: 14px;';
+                typeCb.addEventListener('click', e => e.stopPropagation());
+                typeCb.addEventListener('change', () => {
+                    visible.forEach(l => {
+                        if (typeCb.checked) civSelected.add(civKey(type, l.id));
+                        else civSelected.delete(civKey(type, l.id));
+                    });
+                    details.querySelectorAll('.civ-livery-cb').forEach(cb => cb.checked = typeCb.checked);
+                    updateCivPickerState();
+                });
+
+                const typeName = document.createElement('strong');
+                typeName.textContent = type;
+                const typeCount = document.createElement('span');
+                typeCount.style.cssText = 'color: var(--text-muted); font-size: 0.85em;';
+
+                summary.append(typeCb, typeName, typeCount);
+                details.appendChild(summary);
+
+                visible.forEach(l => {
+                    const row = document.createElement('label');
+                    row.style.cssText = 'display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--text-main); font-size: 0.85em; padding: 2px 4px 2px 30px;';
+
+                    const cb = document.createElement('input');
+                    cb.type = 'checkbox';
+                    cb.className = 'civ-livery-cb';
+                    cb.checked = civSelected.has(civKey(type, l.id));
+                    cb.style.cssText = 'accent-color: var(--accent-blue); width: 14px; height: 14px;';
+                    cb.addEventListener('change', () => {
+                        if (cb.checked) civSelected.add(civKey(type, l.id));
+                        else civSelected.delete(civKey(type, l.id));
+                        updateCivPickerState();
+                    });
+
+                    const name = document.createElement('span');
+                    name.textContent = l.id;
+                    const meta = document.createElement('span');
+                    meta.style.cssText = 'color: var(--text-muted); font-size: 0.85em;';
+                    meta.textContent = [l.country, l.coalition].filter(Boolean).join(' \u00b7 ');
+
+                    row.append(cb, name, meta);
+                    details.appendChild(row);
+                });
+
+                civTypeUpdaters.push(() => {
+                    const n = visible.filter(l => civSelected.has(civKey(type, l.id))).length;
+                    typeCb.checked = n === visible.length;
+                    typeCb.indeterminate = n > 0 && n < visible.length;
+                    typeCount.textContent = `(${n}/${visible.length})`;
+                });
+
+                civPicker.appendChild(details);
+            });
+
+            updateCivPickerState();
+        }
+
+        civFilter.addEventListener('input', renderCivPicker);
+
+        // Select / deselect everything that is currently shown (respects the filter)
+        document.getElementById('btnCivSelectAll').addEventListener('click', () => {
+            civPicker.querySelectorAll('details').forEach(d => {
+                d.querySelectorAll('.civ-livery-cb').forEach(cb => cb.checked = true);
+            });
+            Object.entries(civCatalog).forEach(([type, info]) => info.liveries.forEach(l => {
+                const f = civFilter.value.trim().toLowerCase();
+                if (!f || type.toLowerCase().includes(f) || l.id.toLowerCase().includes(f) || (l.country || '').toLowerCase().includes(f)) {
+                    civSelected.add(civKey(type, l.id));
+                }
+            }));
+            updateCivPickerState();
+        });
+        document.getElementById('btnCivDeselectAll').addEventListener('click', () => {
+            civPicker.querySelectorAll('.civ-livery-cb').forEach(cb => cb.checked = false);
+            const f = civFilter.value.trim().toLowerCase();
+            Object.entries(civCatalog).forEach(([type, info]) => info.liveries.forEach(l => {
+                if (!f || type.toLowerCase().includes(f) || l.id.toLowerCase().includes(f) || (l.country || '').toLowerCase().includes(f)) {
+                    civSelected.delete(civKey(type, l.id));
+                }
+            }));
+            updateCivPickerState();
+        });
+
+        loadCivCatalog();
+
         const btnSelectJson = document.getElementById('btnSelectJson');
         const logBox = document.getElementById('logBox');
         const statusText = document.getElementById('statusText');
@@ -1021,6 +1179,7 @@
             
             if (result.success) {
                 addLog(`Extracted ${result.count} civilian airframes to ${result.fileName}`, 'success');
+                await loadCivCatalog();
                 showFeedback(`Successfully extracted civilian templates to ${result.fileName}!`, true);
             } else {
                 addLog(`Failed to extract civ templates: ${result.error}`, 'error');
@@ -1844,7 +2003,8 @@
                          document.getElementById('injCsarSosPath').value.split('\\').pop().split('/').pop(),
                          
                 moduleCiv: document.getElementById('toggleCiv').checked,
-                civTemplates: parseArray(document.getElementById('injCivTemplates').value),
+                civTemplates: [], /// TODO: Aircraft & Liveries: parseArray(document.getElementById('injCivTemplates').value),
+                civSelection: Array.from(civSelected),
                 civAirbases: Array.from(document.querySelectorAll('.airbase-checkbox:checked')).map(cb => cb.value),
                 civZone: document.getElementById('injCivZone').value || 'CIV_ZONE',
                 civInit: parseInt(document.getElementById('injCivInit').value) || 5,

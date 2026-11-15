@@ -443,7 +443,7 @@ class MizPatcher {
         return false;
     }
 
-    injectScripts(luaFiles, mediaFiles = []) {
+    injectScripts(luaFiles, mediaFiles = [], civTemplates = []) {
         logger.info(`--- STARTING LUA SCRIPT & MEDIA INJECTION ---`);
         if (!fs.existsSync(this.mizFilePath)) return false;
 
@@ -610,7 +610,173 @@ class MizPatcher {
             missionText = missionText.replace(/^mission\s*=\s*\{/m, `mission = {\n\t["trigrules"] = {\n${uiTrigger}\n\t},`);
         }
 
-        // 7. Delete old files and write updated files back into the ZIP
+        // 7. Inject Civilian Templates directly into the mission file
+        if (civTemplates && civTemplates.length > 0) {
+            let maxGroupId = 0;
+            let maxUnitId = 0;
+            let match;
+            
+            // Find highest existing IDs globally to avoid DCS collisions
+            const groupRegex = /\["groupId"\]\s*=\s*(\d+)/g;
+            while ((match = groupRegex.exec(missionText)) !== null) maxGroupId = Math.max(maxGroupId, parseInt(match[1], 10));
+            
+            const unitRegex = /\["unitId"\]\s*=\s*(\d+)/g;
+            while ((match = unitRegex.exec(missionText)) !== null) maxUnitId = Math.max(maxUnitId, parseInt(match[1], 10));
+
+            let templatesToInject = [];
+            
+            civTemplates.forEach(civ => {
+                maxGroupId++;
+                let template = civ.template; 
+                
+                // Override Group ID
+                template = template.replace(/\["groupId"\]\s*=\s*\d+/g, `["groupId"] = ${maxGroupId}`);
+                
+                // Override ALL Unit IDs sequentially
+                template = template.replace(/\["unitId"\]\s*=\s*\d+/g, () => {
+                    maxUnitId++;
+                    return `["unitId"] = ${maxUnitId}`;
+                });
+                
+                // Bypass the DCS localization dictionary entirely.
+                let nameCounter = 0;
+                template = template.replace(/\["name"\]\s*=\s*"([^"]+)"/g, () => {
+                    nameCounter++;
+                    return `["name"] = "CivTraffic_${maxGroupId}_${nameCounter}"`;
+                });
+                
+                templatesToInject.push(template);
+            });
+
+            // Safely locate the main coalition block using strict regex to avoid comments
+            let coalitionMatch = missionText.match(/\["coalition"\]\s*=\s*\{/);
+            
+            if (coalitionMatch) {
+                let coalitionStart = coalitionMatch.index + coalitionMatch[0].indexOf('{');
+                let coalitionEnd = this.getClosingBraceIndex(missionText, coalitionStart);
+                let coalitionBlock = missionText.substring(coalitionStart, coalitionEnd + 1);
+                
+                let neutralsMatch = coalitionBlock.match(/\["neutrals"\]\s*=\s*\{/);
+                
+                if (neutralsMatch) {
+                    let neutralsStart = neutralsMatch.index + neutralsMatch[0].indexOf('{');
+                    let neutralsEnd = this.getClosingBraceIndex(coalitionBlock, neutralsStart);
+                    let neutralsBlock = coalitionBlock.substring(neutralsStart, neutralsEnd + 1);
+                    
+                    let countryMatch = neutralsBlock.match(/\["country"\]\s*=\s*\{/);
+                    if (countryMatch) {
+                        let countryBlockStart = countryMatch.index + countryMatch[0].indexOf('{');
+                        
+                        // Find the actual first country object (e.g., [1] = { ) inside the country array
+                        let firstCountryMatch = neutralsBlock.substring(countryBlockStart).match(/\[1\]\s*=\s*\{/);
+                        if (!firstCountryMatch) {
+                            firstCountryMatch = neutralsBlock.substring(countryBlockStart).match(/\[\d+\]\s*=\s*\{/);
+                        }
+                        
+                        if (firstCountryMatch) {
+                            let firstCountryStart = countryBlockStart + firstCountryMatch.index + firstCountryMatch[0].indexOf('{');
+                            let firstCountryEnd = this.getClosingBraceIndex(neutralsBlock, firstCountryStart);
+                            let firstCountryBlock = neutralsBlock.substring(firstCountryStart, firstCountryEnd + 1);
+                            
+                            let planeMatch = firstCountryBlock.match(/\["plane"\]\s*=\s*\{/);
+                            
+                            if (planeMatch) {
+                                let planeStart = planeMatch.index + planeMatch[0].indexOf('{');
+                                let groupMatch = firstCountryBlock.substring(planeStart).match(/\["group"\]\s*=\s*\{/);
+                                
+                                if (groupMatch) {
+                                    let groupStart = planeStart + groupMatch.index + groupMatch[0].indexOf('{');
+                                    let groupEnd = this.getClosingBraceIndex(firstCountryBlock, groupStart);
+                                    let groupBlockStr = firstCountryBlock.substring(groupStart, groupEnd + 1);
+                                    
+                                    let existingGroups = groupBlockStr.match(/\["groupId"\]/g);
+                                    let nextIndex = existingGroups ? existingGroups.length + 1 : 1;
+                                    
+                                    let appendedGroups = "";
+                                    templatesToInject.forEach(tpl => { appendedGroups += `\n\t\t\t\t\t\t\t\t[${nextIndex++}] = ${tpl},`; });
+                                    
+                                    // Comma-safety check before appending to the group block
+                                    let beforeGroupEnd = firstCountryBlock.substring(0, groupEnd);
+                                    let trimmed = beforeGroupEnd.trimEnd();
+                                    if (!trimmed.endsWith(',') && !trimmed.endsWith('{')) beforeGroupEnd = trimmed + ",\n\t\t\t\t\t\t\t\t";
+                                    
+                                    firstCountryBlock = beforeGroupEnd + appendedGroups + "\n\t\t\t\t\t\t\t" + firstCountryBlock.substring(groupEnd);
+                                } else {
+                                    // "group" block missing inside "plane"
+                                    let appendedGroups = "";
+                                    let nextIndex = 1;
+                                    templatesToInject.forEach(tpl => { appendedGroups += `\n\t\t\t\t\t\t\t\t[${nextIndex++}] = ${tpl},`; });
+                                    
+                                    let planeEnd = this.getClosingBraceIndex(firstCountryBlock, planeStart);
+                                    let newGroupBlock = `\n\t\t\t\t\t\t\t["group"] = {${appendedGroups}\n\t\t\t\t\t\t\t},\n\t\t\t\t\t\t`;
+                                    
+                                    // Comma-safety check
+                                    let beforePlaneEnd = firstCountryBlock.substring(0, planeEnd);
+                                    let trimPlane = beforePlaneEnd.trimEnd();
+                                    if (!trimPlane.endsWith(',') && !trimPlane.endsWith('{')) beforePlaneEnd = trimPlane + ",";
+                                    
+                                    firstCountryBlock = beforePlaneEnd + newGroupBlock + firstCountryBlock.substring(planeEnd);
+                                }
+                            } else {
+                                // "plane" block missing entirely
+                                let appendedGroups = "";
+                                let nextIndex = 1;
+                                templatesToInject.forEach(tpl => { appendedGroups += `\n\t\t\t\t\t\t\t\t[${nextIndex++}] = ${tpl},`; });
+                                
+                                let newPlaneBlock = `\n\t\t\t\t\t\t["plane"] = {\n\t\t\t\t\t\t\t["group"] = {${appendedGroups}\n\t\t\t\t\t\t\t},\n\t\t\t\t\t\t},\n\t\t\t\t\t`;
+                                
+                                // Comma-safety check
+                                let countryEnd = firstCountryBlock.lastIndexOf('}');
+                                let beforeCountryEnd = firstCountryBlock.substring(0, countryEnd);
+                                let trimCountry = beforeCountryEnd.trimEnd();
+                                if (!trimCountry.endsWith(',') && !trimCountry.endsWith('{')) beforeCountryEnd = trimCountry + ",";
+                                
+                                firstCountryBlock = beforeCountryEnd + newPlaneBlock + "}";
+                            }
+                            
+                            neutralsBlock = neutralsBlock.substring(0, firstCountryStart) + firstCountryBlock + neutralsBlock.substring(firstCountryEnd + 1);
+                        } else {
+                            // Country block is totally empty
+                            let appendedGroups = "";
+                            let nextIndex = 1;
+                            templatesToInject.forEach(tpl => { appendedGroups += `\n\t\t\t\t\t\t\t\t[${nextIndex++}] = ${tpl},`; });
+                            
+                            let newCountryBlock = `\n\t\t\t\t\t[1] = {\n\t\t\t\t\t\t["id"] = 82,\n\t\t\t\t\t\t["name"] = "UN",\n\t\t\t\t\t\t["plane"] = {\n\t\t\t\t\t\t\t["group"] = {${appendedGroups}\n\t\t\t\t\t\t\t},\n\t\t\t\t\t\t},\n\t\t\t\t\t},\n\t\t\t\t`;
+                            neutralsBlock = neutralsBlock.substring(0, countryBlockStart + 1) + newCountryBlock + neutralsBlock.substring(countryBlockStart + 1);
+                        }
+                    } else {
+                        // Entire "country" block missing
+                        let appendedGroups = "";
+                        let nextIndex = 1;
+                        templatesToInject.forEach(tpl => { appendedGroups += `\n\t\t\t\t\t\t\t\t[${nextIndex++}] = ${tpl},`; });
+                        
+                        let newCountryBlock = `\n\t\t\t["country"] = {\n\t\t\t\t[1] = {\n\t\t\t\t\t["id"] = 82,\n\t\t\t\t\t["name"] = "UN",\n\t\t\t\t\t["plane"] = {\n\t\t\t\t\t\t["group"] = {${appendedGroups}\n\t\t\t\t\t\t},\n\t\t\t\t\t},\n\t\t\t\t},\n\t\t\t},\n\t\t`;
+                        
+                        // Comma-safety check
+                        let neutralsEndIdx = neutralsBlock.lastIndexOf('}');
+                        let beforeNeutralsEnd = neutralsBlock.substring(0, neutralsEndIdx);
+                        let trimNeutrals = beforeNeutralsEnd.trimEnd();
+                        if (!trimNeutrals.endsWith(',') && !trimNeutrals.endsWith('{')) beforeNeutralsEnd = trimNeutrals + ",";
+                        
+                        neutralsBlock = beforeNeutralsEnd + newCountryBlock + "}";
+                    }
+                    
+                    coalitionBlock = coalitionBlock.substring(0, neutralsStart) + neutralsBlock + coalitionBlock.substring(neutralsEnd + 1);
+                } else {
+                    // No neutrals block at all
+                    let appendedGroups = "";
+                    let nextIndex = 1;
+                    templatesToInject.forEach(tpl => { appendedGroups += `\n\t\t\t\t\t\t\t\t[${nextIndex++}] = ${tpl},`; });
+                    
+                    let newNeutralsBlock = `\n\t\t["neutrals"] = {\n\t\t\t["name"] = "neutrals",\n\t\t\t["country"] = {\n\t\t\t\t[1] = {\n\t\t\t\t\t["id"] = 82,\n\t\t\t\t\t["name"] = "UN",\n\t\t\t\t\t["plane"] = {\n\t\t\t\t\t\t["group"] = {${appendedGroups}\n\t\t\t\t\t\t},\n\t\t\t\t\t},\n\t\t\t\t},\n\t\t\t},\n\t\t},`;
+                    coalitionBlock = coalitionBlock.substring(0, 1) + newNeutralsBlock + coalitionBlock.substring(1);
+                }
+                
+                missionText = missionText.substring(0, coalitionStart) + coalitionBlock + missionText.substring(coalitionEnd + 1);
+            }
+        }
+
+        // 8. Delete old files and write updated files back into the ZIP
         if (zip.getEntry('mission')) zip.deleteFile('mission');
         if (zip.getEntry('l10n/DEFAULT/dictionary')) zip.deleteFile('l10n/DEFAULT/dictionary');
         if (zip.getEntry('l10n/DEFAULT/mapResource')) zip.deleteFile('l10n/DEFAULT/mapResource');

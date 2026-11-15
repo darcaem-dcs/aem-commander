@@ -1097,6 +1097,14 @@ ipcMain.handle('inject-lua-script', async (event, settings) => {
     };
 
     let filesToInject = [];
+    let civData = { templates: [], namesArray: [], count: 0 };
+
+    // Prepare civilian templates and populate the Lua variables
+    if (settings.moduleCiv) {
+        civData = prepareCivAircraftTemplates(settings.civSelection || []);
+        settings.civTemplates = civData.namesArray; // Pass the new generated names into the values script
+        logger.info(`Prepared ${civData.count} civilian aircraft templates for physical injection`);
+    }
 
     // Dependencies
     if (settings.includeMoose) filesToInject.push({ name: "moose.lua", content: readFileSafe("moose.lua") });
@@ -1162,6 +1170,7 @@ __CSAR_SOS = "${settings.csarSos}"
 -- Civilian Traffic
 MODULE_CIV_TRAFFIC = ${settings.moduleCiv ? 'true' : 'false'}
 CIV_TEMPLATES = ${toLuaArray(settings.civTemplates)}
+CIV_SELECTION = {${(settings.civSelection || []).map(luaQuote).join(', ')}}
 CIV_ZONE_PREFIX = "${settings.civZone}"
 CIV_INIT_FLIGHTS = ${settings.civInit}
 CIV_MAX_FLIGHTS = ${settings.civMax}
@@ -1211,7 +1220,7 @@ PERSISTENCE_KEYWORD = "${settings.modulePersist ? settings.persistKeyword : 'DO_
     }
 
     const patcher = new MizPatcher(selectedMiz);
-    const success = patcher.injectScripts(filesToInject, mediaFiles);
+    const success = patcher.injectScripts(filesToInject, mediaFiles, civData.templates);
 
     if (success) {
         logger.info(`Successfully injected AEM Commander scripts into ${selectedMiz}`);
@@ -1290,6 +1299,7 @@ ipcMain.handle('extract-miz-settings', async () => {
 
             moduleCiv: getBool('MODULE_CIV_TRAFFIC'),
             civTemplates: getArr('CIV_TEMPLATES'),
+            civSelection: parseCivSelection(luaText),
             civAirbases: getArr('CIV_ALLOWED_AIRBASES'),
             civZone: getStr('CIV_ZONE_PREFIX'),
             civInit: getNum('CIV_INIT_FLIGHTS'),
@@ -1411,6 +1421,97 @@ ipcMain.handle('extract-civ-templates', async (event) => {
         return { success: true, count, fileName: path.basename(savePath) };
     } catch (err) {
         logger.error(`Civ extraction failed: ${err.message}`);
+        return { success: false, error: err.message };
+    }
+});
+
+// ---------------------------------------------------------------------------
+// Civilian aircraft catalog (civ/civil_aircrafts.json, built by CivExtractor)
+// ---------------------------------------------------------------------------
+
+function getCivJsonPath() {
+    const civDir = app.isPackaged ? path.join(process.resourcesPath, 'civ') : path.join(__dirname, 'civ');
+    return path.join(civDir, 'civil_aircrafts.json');
+}
+
+// Lua string literal ("..." with backslashes, quotes and newlines escaped)
+function luaQuote(value) {
+    return '"' + String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\r?\n/g, '\\n') + '"';
+}
+
+// Reads the CIV_SELECTION list ("airframe::livery" strings) back from a values file
+function parseCivSelection(luaText) {
+    const block = luaText.match(/CIV_SELECTION\s*=\s*\{((?:[^}"]|"(?:[^"\\]|\\.)*")*)\}/);
+    if (!block) return [];
+    const result = [];
+    const re = /"((?:[^"\\]|\\.)*)"/g;
+    let m;
+    while ((m = re.exec(block[1])) !== null) result.push(m[1].replace(/\\(["\\])/g, '$1'));
+    return result;
+}
+
+// Prepares the raw civilian group templates to be physically injected into the .miz file
+function prepareCivAircraftTemplates(selection) {
+    let catalog = {};
+    if (selection.length > 0) {
+        try {
+            catalog = JSON.parse(fs.readFileSync(getCivJsonPath(), 'utf8'));
+        } catch (err) {
+            logger.warn(`Could not read civilian catalog: ${err.message}`);
+        }
+    }
+
+    let templates = [];
+    let namesArray = [];
+    let count = 0;
+
+    for (const key of selection) {
+        const sep = key.indexOf('::');
+        if (sep === -1) continue;
+        const airframe = key.slice(0, sep);
+        const livery = key.slice(sep + 2);
+
+        const info = catalog[airframe];
+        const entry = info && info.liveries && info.liveries[livery];
+        if (!entry || !entry.template) {
+            logger.warn(`Civilian template not found in catalog, skipped: ${key}`);
+            continue;
+        }
+
+        count++;
+        // Generate a clean, predictable name for the injected group
+        const name = `CIV_GEN_${String(count).padStart(3, '0')}`;
+        namesArray.push(name);
+
+        templates.push({
+            name: name,
+            originalName: entry.groupName, // e.g., "CIV_TPL_A330-5"
+            template: entry.template
+        });
+    }
+
+    return { templates, namesArray, count };
+}
+
+// Light version of the catalog for the UI (no Lua templates)
+ipcMain.handle('get-civ-catalog', async () => {
+    try {
+        const jsonPath = getCivJsonPath();
+        if (!fs.existsSync(jsonPath)) return { success: true, catalog: {} };
+
+        const raw = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+        const catalog = {};
+        for (const [airframe, info] of Object.entries(raw)) {
+            catalog[airframe] = {
+                category: info.category,
+                liveries: Object.entries(info.liveries || {})
+                    .map(([id, l]) => ({ id, country: l.country, coalition: l.coalition, unitCount: l.unitCount }))
+                    .sort((a, b) => a.id.localeCompare(b.id))
+            };
+        }
+        return { success: true, catalog };
+    } catch (err) {
+        logger.error(`Failed to read civilian catalog: ${err.message}`);
         return { success: false, error: err.message };
     }
 });

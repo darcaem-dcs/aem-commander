@@ -23,6 +23,11 @@ class Log {
         console.log(...args); 
     }
 
+    warn(...args) {
+        this._write('WARN', ...args);
+        console.log(...args);
+    }
+
     error(...args) {
         this._write('ERROR', ...args);
         console.error(...args); 

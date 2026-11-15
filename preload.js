@@ -87,5 +87,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /**
      * Extracts civilian aircraft groups from a master .miz file to build civil_aircrafts.json
      */
-    extractCivTemplates: () => ipcRenderer.invoke('extract-civ-templates')
+    extractCivTemplates: () => ipcRenderer.invoke('extract-civ-templates'),
+
+    /**
+     * Reads civilian aircraft templates
+     */
+    getCivCatalog: () => ipcRenderer.invoke('get-civ-catalog'),
 });
