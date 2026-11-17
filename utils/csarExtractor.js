@@ -66,9 +66,19 @@ class CsarExtractor {
                     if (groupEnd !== -1) {
                         const groupString = missionText.substring(groupStart, groupEnd + 1);
 
+                        
                         // Ensure we extracted the GROUP block, not a UNIT block.
                         if (groupString.includes('["units"]') && groupString.includes('["groupId"]')) {
-                            csarTemplates[mapping.name] = groupString;
+                            // Which category table (vehicle / ship) contains this group?
+                            let category = 'vehicle', best = -1;
+                            for (const cat of ['vehicle', 'ship']) {
+                                const idx = missionText.lastIndexOf(`["${cat}"]`, groupStart);
+                                if (idx === -1 || idx <= best) continue;
+                                const open = missionText.indexOf('{', idx);
+                                const close = this.getClosingBraceIndex(missionText, open);
+                                if (close > groupStart) { category = cat; best = idx; }
+                            }
+                            csarTemplates[mapping.name] = { category, template: groupString };
                         }
                     }
                 }

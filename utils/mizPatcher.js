@@ -446,16 +446,21 @@ class MizPatcher {
 
     injectScripts(luaFiles, mediaFiles = [], civTemplates = [], settings = {}) {
         logger.info(`--- STARTING LUA SCRIPT & MEDIA INJECTION ---`);
+        
         if (!fs.existsSync(this.mizFilePath)) return false;
 
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const originalName = path.basename(this.mizFilePath, '.miz');
-        const backupPath = path.join(path.dirname(this.mizFilePath), `${originalName}_script_backup_${timestamp}.miz`);
-        
-        fs.copyFileSync(this.mizFilePath, backupPath);
-        logger.info(`Mission backup created: ${backupPath}`);
+        // Work on a copy next to the original; the original is never modified
+        const outputPath = path.join(path.dirname(this.mizFilePath), 'aem_next.miz');
 
-        const zip = new AdmZip(this.mizFilePath);
+        if (path.resolve(outputPath).toLowerCase() === path.resolve(this.mizFilePath).toLowerCase()) {
+            logger.error('Injection aborted: the selected file is already "aem_next.miz". Select the original mission instead.');
+            return false;
+        }
+
+        fs.copyFileSync(this.mizFilePath, outputPath);   // overwrites a previous aem_next.miz
+        logger.info(`Created working copy: ${outputPath}`);
+
+        const zip = new AdmZip(outputPath);
 
         // 1. Add Lua and Media files to the archive
         luaFiles.forEach(file => zip.addFile(`l10n/DEFAULT/${file.name}`, Buffer.from(file.content, 'utf8')));
@@ -463,7 +468,7 @@ class MizPatcher {
 
         // 2. Read existing DCS configuration files
         const missionEntry = zip.getEntry('mission');
-        if (!missionEntry) return false;
+        if (!missionEntry) { fs.unlinkSync(outputPath); return false; }
 
         let missionText = zip.readAsText(missionEntry, 'utf8');
         let dictText = zip.getEntry('l10n/DEFAULT/dictionary') ? zip.readAsText('l10n/DEFAULT/dictionary', 'utf8') : "dictionary = {\n}\n";
@@ -641,17 +646,8 @@ class MizPatcher {
                 });
                 
                 // Bypass the DCS localization dictionary entirely and sync with aem-commander-values.lua
-                let nameCounter = 0;
-                let baseName = `CIV_GEN_${String(civTemplateCounter).padStart(3, '0')}`;
-                
-                template = template.replace(/\["name"\]\s*=\s*"([^"]+)"/g, () => {
-                    nameCounter++;
-                    if (nameCounter === 1) {
-                        return `["name"] = "${baseName}"`;
-                    } else {
-                        return `["name"] = "${baseName}_Unit_${nameCounter - 1}"`;
-                    }
-                });
+                const baseName = `CIV_GEN_${String(civTemplateCounter).padStart(3, '0')}`;
+                template = this.renameTemplate(template, baseName, '_Unit_');
                 
                 civTemplateCounter++;
                 templatesToInject.push(template);
@@ -785,143 +781,7 @@ class MizPatcher {
         // 8. Inject CSAR Templates
         // =====================================================================
         if (settings && settings.moduleCsar) {
-            const csarDir = app.isPackaged ? path.join(process.resourcesPath, 'csar') : path.join(__dirname, 'csar');
-            const csarFile = path.join(csarDir, 'csar.json');
-            
-            if (fs.existsSync(csarFile)) {
-                const csarData = JSON.parse(fs.readFileSync(csarFile, 'utf8'));
-                
-                let maxGroupId = 0;
-                let maxUnitId = 0;
-                let match;
-                
-                // Find highest existing IDs globally
-                const groupRegex = /\["groupId"\]\s*=\s*(\d+)/g;
-                while ((match = groupRegex.exec(missionText)) !== null) maxGroupId = Math.max(maxGroupId, parseInt(match[1], 10));
-                
-                const unitRegex = /\["unitId"\]\s*=\s*(\d+)/g;
-                while ((match = unitRegex.exec(missionText)) !== null) maxUnitId = Math.max(maxUnitId, parseInt(match[1], 10));
-
-                const processTemplate = (templateString, expectedName) => {
-                    if (!templateString) return null;
-                    maxGroupId++;
-                    let tpl = templateString;
-                    
-                    // Override IDs safely
-                    tpl = tpl.replace(/\["groupId"\]\s*=\s*\d+/g, `["groupId"] = ${maxGroupId}`);
-                    tpl = tpl.replace(/\["unitId"\]\s*=\s*\d+/g, () => {
-                        maxUnitId++;
-                        return `["unitId"] = ${maxUnitId}`;
-                    });
-
-                    // Bypass DCS dictionary and set the exact name MOOSE expects
-                    let nameCounter = 0;
-                    tpl = tpl.replace(/\["name"\]\s*=\s*"([^"]+)"/g, () => {
-                        nameCounter++;
-                        if (nameCounter === 1) return `["name"] = "${expectedName}"`;
-                        return `["name"] = "${expectedName} Unit ${nameCounter - 1}"`;
-                    });
-
-                    // Force Late Activation just in case it wasn't set in the master
-                    if (!tpl.includes('["lateActivation"] = true')) {
-                        tpl = tpl.replace(/\["groupId"\]/, '["lateActivation"] = true,\n\t\t\t\t\t\t\t["groupId"]');
-                    }
-
-                    return tpl;
-                };
-
-                const blueTemplates = [
-                    processTemplate(csarData["BLUE DOWNED PILOT"], "BLUE DOWNED PILOT"),
-                    processTemplate(csarData["BLUE LIFE RAFT"], "BLUE LIFE RAFT")
-                ].filter(t => t !== null);
-
-                const redTemplates = [
-                    processTemplate(csarData["RED DOWNED PILOT"], "RED DOWNED PILOT"),
-                    processTemplate(csarData["RED LIFE RAFT"], "RED LIFE RAFT")
-                ].filter(t => t !== null);
-
-                // Helper to inject into a specific coalition's vehicle block
-                const injectIntoCoalition = (missionStr, coalitionName, templates) => {
-                    if (templates.length === 0) return missionStr;
-
-                    let coaMatch = missionStr.match(new RegExp(`\\["${coalitionName}"\\]\\s*=\\s*\\{`));
-                    if (!coaMatch) return missionStr;
-
-                    let coaStart = coaMatch.index + coaMatch[0].indexOf('{');
-                    let coaEnd = this.getClosingBraceIndex(missionStr, coaStart);
-                    let coaBlock = missionStr.substring(coaStart, coaEnd + 1);
-
-                    let countryMatch = coaBlock.match(/\["country"\]\s*=\s*\{/);
-                    if (countryMatch) {
-                        let countryBlockStart = countryMatch.index + countryMatch[0].indexOf('{');
-                        let firstCountryMatch = coaBlock.substring(countryBlockStart).match(/\[\d+\]\s*=\s*\{/);
-                        
-                        if (firstCountryMatch) {
-                            let firstCountryStart = countryBlockStart + firstCountryMatch.index + firstCountryMatch[0].indexOf('{');
-                            let firstCountryEnd = this.getClosingBraceIndex(coaBlock, firstCountryStart);
-                            let firstCountryBlock = coaBlock.substring(firstCountryStart, firstCountryEnd + 1);
-                            
-                            let vehicleMatch = firstCountryBlock.match(/\["vehicle"\]\s*=\s*\{/);
-                            
-                            if (vehicleMatch) {
-                                let vehicleStart = vehicleMatch.index + vehicleMatch[0].indexOf('{');
-                                let groupMatch = firstCountryBlock.substring(vehicleStart).match(/\["group"\]\s*=\s*\{/);
-                                
-                                if (groupMatch) {
-                                    let groupStart = vehicleStart + groupMatch.index + groupMatch[0].indexOf('{');
-                                    let groupEnd = this.getClosingBraceIndex(firstCountryBlock, groupStart);
-                                    
-                                    let appendedGroups = "";
-                                    let groupBlockStr = firstCountryBlock.substring(groupStart, groupEnd + 1);
-                                    let existingGroups = groupBlockStr.match(/\["groupId"\]/g);
-                                    let nextIndex = existingGroups ? existingGroups.length + 1 : 1;
-                                    
-                                    templates.forEach(tpl => { appendedGroups += `\n\t\t\t\t\t\t\t\t[${nextIndex++}] = ${tpl},`; });
-                                    
-                                    let beforeGroupEnd = firstCountryBlock.substring(0, groupEnd);
-                                    let trimmed = beforeGroupEnd.trimEnd();
-                                    if (!trimmed.endsWith(',') && !trimmed.endsWith('{')) beforeGroupEnd = trimmed + ",\n\t\t\t\t\t\t\t\t";
-                                    
-                                    firstCountryBlock = beforeGroupEnd + appendedGroups + "\n\t\t\t\t\t\t\t" + firstCountryBlock.substring(groupEnd);
-                                } else {
-                                    let appendedGroups = "";
-                                    let nextIndex = 1;
-                                    templates.forEach(tpl => { appendedGroups += `\n\t\t\t\t\t\t\t\t[${nextIndex++}] = ${tpl},`; });
-                                    
-                                    let vehicleEnd = this.getClosingBraceIndex(firstCountryBlock, vehicleStart);
-                                    let newGroupBlock = `\n\t\t\t\t\t\t\t["group"] = {${appendedGroups}\n\t\t\t\t\t\t\t},\n\t\t\t\t\t\t`;
-                                    
-                                    let beforeVehicleEnd = firstCountryBlock.substring(0, vehicleEnd);
-                                    let trimVehicle = beforeVehicleEnd.trimEnd();
-                                    if (!trimVehicle.endsWith(',') && !trimVehicle.endsWith('{')) beforeVehicleEnd = trimVehicle + ",";
-                                    
-                                    firstCountryBlock = beforeVehicleEnd + newGroupBlock + firstCountryBlock.substring(vehicleEnd);
-                                }
-                            } else {
-                                let appendedGroups = "";
-                                let nextIndex = 1;
-                                templates.forEach(tpl => { appendedGroups += `\n\t\t\t\t\t\t\t\t[${nextIndex++}] = ${tpl},`; });
-                                
-                                let newVehicleBlock = `\n\t\t\t\t\t\t["vehicle"] = {\n\t\t\t\t\t\t\t["group"] = {${appendedGroups}\n\t\t\t\t\t\t\t},\n\t\t\t\t\t\t},\n\t\t\t\t\t`;
-                                
-                                let countryEnd = firstCountryBlock.lastIndexOf('}');
-                                let beforeCountryEnd = firstCountryBlock.substring(0, countryEnd);
-                                let trimCountry = beforeCountryEnd.trimEnd();
-                                if (!trimCountry.endsWith(',') && !trimCountry.endsWith('{')) beforeCountryEnd = trimCountry + ",";
-                                
-                                firstCountryBlock = beforeCountryEnd + newVehicleBlock + "}";
-                            }
-                            
-                            coaBlock = coaBlock.substring(0, firstCountryStart) + firstCountryBlock + coaBlock.substring(firstCountryEnd + 1);
-                        }
-                    }
-                    return missionStr.substring(0, coaStart) + coaBlock + missionStr.substring(coaEnd + 1);
-                };
-
-                // Inject into both coalitions
-                missionText = injectIntoCoalition(missionText, "blue", blueTemplates);
-                missionText = injectIntoCoalition(missionText, "red", redTemplates);
-            }
+            missionText = this.injectCsarTemplates(missionText);
         }
 
         // =====================================================================
@@ -937,7 +797,261 @@ class MizPatcher {
         
         zip.writeZip(this.mizFilePath);
         logger.info(`Successfully appended trigger at position [${nIdx}] and patched dictionaries.`);
-        return true;
+        return outputPath;
+    }
+
+        // ---------------------------------------------------------------------
+    // Lua table helpers (string-aware, return INCLUSIVE indexes of braces)
+    // ---------------------------------------------------------------------
+
+    // text[i] is the opening quote; returns the index right after the closing quote
+    skipString(text, i) {
+        let j = i + 1;
+        while (j < text.length) {
+            if (text[j] === '\\') j += 2;
+            else if (text[j] === '"') return j + 1;
+            else j++;
+        }
+        return text.length;
+    }
+
+    // text[open] === '{'; returns the index of the matching '}' (or -1)
+    closingBrace(text, open) {
+        let depth = 0;
+        for (let i = open; i < text.length; i++) {
+            const ch = text[i];
+            if (ch === '"') { i = this.skipString(text, i) - 1; continue; }
+            if (ch === '{') depth++;
+            else if (ch === '}') { depth--; if (depth === 0) return i; }
+        }
+        return -1;
+    }
+
+    // Finds ["key"] = { ... } among the DIRECT children of the table [parentOpen, parentClose]
+    findChildTable(text, parentOpen, parentClose, key) {
+        const needle = `["${key}"]`;
+        let i = parentOpen + 1;
+        while (i < parentClose) {
+            const ch = text[i];
+            if (ch === '"') { i = this.skipString(text, i); continue; }
+            if (ch === '{') { const c = this.closingBrace(text, i); if (c === -1) return null; i = c + 1; continue; }
+            if (ch === '[' && text.startsWith(needle, i)) {
+                const m = /^\s*=\s*\{/.exec(text.substring(i + needle.length, i + needle.length + 40));
+                if (m) {
+                    const open = i + needle.length + m[0].length - 1;
+                    const close = this.closingBrace(text, open);
+                    return close === -1 ? null : { open, close };
+                }
+            }
+            i++;
+        }
+        return null;
+    }
+
+    // Direct child tables of a table, with their numeric index ([n] = {...}) when present
+    childTables(text, parentOpen, parentClose) {
+        const res = [];
+        let i = parentOpen + 1, last = i;
+        while (i < parentClose) {
+            const ch = text[i];
+            if (ch === '"') { i = this.skipString(text, i); continue; }
+            if (ch === '{') {
+                const close = this.closingBrace(text, i);
+                if (close === -1) break;
+                const m = text.substring(last, i).match(/\[(\d+)\]\s*=\s*$/);
+                res.push({ open: i, close, index: m ? parseInt(m[1], 10) : null });
+                i = close + 1; last = i;
+                continue;
+            }
+            i++;
+        }
+        return res;
+    }
+
+    // Inserts entry text at the end of the table whose '}' is at `close`, fixing the trailing comma
+    appendEntries(text, close, entries) {
+        let k = close - 1;
+        while (k >= 0 && /\s/.test(text[k])) k--;
+        const needsComma = text[k] !== ',' && text[k] !== '{';
+        return text.substring(0, k + 1) + (needsComma ? ',' : '') + entries + text.substring(k + 1);
+    }
+
+    // Sets the ["name"] field that is a direct child of the table `tbl` (a string starting with '{')
+    setTopLevelName(tbl, newName) {
+        const needle = '["name"]';
+        const safe = String(newName).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+        let depth = 0;
+        for (let i = 0; i < tbl.length; i++) {
+            const ch = tbl[i];
+            if (ch === '"') { i = this.skipString(tbl, i) - 1; continue; }
+            if (ch === '{') depth++;
+            else if (ch === '}') depth--;
+            else if (ch === '[' && depth === 1 && tbl.startsWith(needle, i)) {
+                const m = /^\["name"\]\s*=\s*"(?:[^"\\]|\\.)*"/.exec(tbl.substring(i));
+                if (m) return tbl.substring(0, i) + `["name"] = "${safe}"` + tbl.substring(i + m[0].length);
+            }
+        }
+        return tbl;
+    }
+
+    // Renames a raw group template: group name, every unit ("<group><infix><n>") and blanks waypoint names
+    renameTemplate(rawTemplate, groupName, unitInfix) {
+        let tpl = rawTemplate.trim();
+
+        // Waypoint names are DictKeys of the master mission: blank them (back to front)
+        const route = this.findChildTable(tpl, 0, tpl.length - 1, 'route');
+        const points = route && this.findChildTable(tpl, route.open, route.close, 'points');
+        if (points) {
+            const wps = this.childTables(tpl, points.open, points.close);
+            for (let n = wps.length - 1; n >= 0; n--) {
+                const w = wps[n];
+                const fixed = this.setTopLevelName(tpl.substring(w.open, w.close + 1), '');
+                tpl = tpl.substring(0, w.open) + fixed + tpl.substring(w.close + 1);
+            }
+        }
+
+        // Unit names (back to front)
+        const unitsTbl = this.findChildTable(tpl, 0, tpl.length - 1, 'units');
+        if (unitsTbl) {
+            const units = this.childTables(tpl, unitsTbl.open, unitsTbl.close);
+            for (let n = units.length - 1; n >= 0; n--) {
+                const u = units[n];
+                const fixed = this.setTopLevelName(tpl.substring(u.open, u.close + 1), `${groupName}${unitInfix}${n + 1}`);
+                tpl = tpl.substring(0, u.open) + fixed + tpl.substring(u.close + 1);
+            }
+        }
+
+        // Group name: direct child of the group table
+        return this.setTopLevelName(tpl, groupName);
+    }
+
+    // ---------------------------------------------------------------------
+    // CSAR templates
+    // ---------------------------------------------------------------------
+
+    getCsarJsonPath() {
+        // mizPatcher.js lives in /utils, the csar folder is in the project root
+        const dir = app.isPackaged ? path.join(process.resourcesPath, 'csar') : path.join(__dirname, '..', 'csar');
+        return path.join(dir, 'csar.json');
+    }
+
+    // Makes a raw group table from the master .miz usable in the target mission
+    prepareCsarGroup(rawTemplate, expectedName, ids) {
+        let tpl = rawTemplate.trim();
+        if (tpl[0] !== '{' || tpl[tpl.length - 1] !== '}') return null;
+
+        // New unique IDs
+        ids.group++;
+        tpl = tpl.replace(/\["groupId"\]\s*=\s*\d+/g, `["groupId"] = ${ids.group}`);
+        tpl = tpl.replace(/\["unitId"\]\s*=\s*\d+/g, () => `["unitId"] = ${++ids.unit}`);
+        tpl = this.renameTemplate(tpl, expectedName, ' Unit ');
+
+        // Late activation (replace existing flag, otherwise add it)
+        if (/\["lateActivation"\]\s*=\s*(true|false)/.test(tpl)) {
+            tpl = tpl.replace(/\["lateActivation"\]\s*=\s*(true|false)/, '["lateActivation"] = true');
+        } else {
+            tpl = '{\n["lateActivation"] = true,' + tpl.substring(1);
+        }
+        return tpl;
+    }
+
+    // Appends group tables to coalition[side].country[1][category].group
+    injectGroupsIntoCoalition(text, sideName, category, groups, fallbackCountry) {
+        if (!groups || groups.length === 0) return text;
+
+        const rootOpen = text.indexOf('{');
+        const rootClose = this.closingBrace(text, rootOpen);
+        const coalition = this.findChildTable(text, rootOpen, rootClose, 'coalition');
+        const side = coalition && this.findChildTable(text, coalition.open, coalition.close, sideName);
+        if (!side) {
+            logger.warn(`CSAR: coalition table "${sideName}" not found in mission file.`);
+            return text;
+        }
+
+        const entries = (start) => groups.map((g, i) => `\n[${start + i}] = ${g},`).join('');
+        const countryEntry = `\n[1] = {\n["id"] = ${fallbackCountry.id},\n["name"] = "${fallbackCountry.name}",\n` +
+                             `["${category}"] = {\n["group"] = {${entries(1)}\n},\n},\n},`;
+
+        const country = this.findChildTable(text, side.open, side.close, 'country');
+        if (!country) return this.appendEntries(text, side.close, `\n["country"] = {${countryEntry}\n},`);
+
+        const countries = this.childTables(text, country.open, country.close);
+        if (countries.length === 0) return this.appendEntries(text, country.close, countryEntry);
+
+        const first = countries[0];
+        const cat = this.findChildTable(text, first.open, first.close, category);
+        if (!cat) return this.appendEntries(text, first.close, `\n["${category}"] = {\n["group"] = {${entries(1)}\n},\n},`);
+
+        const grp = this.findChildTable(text, cat.open, cat.close, 'group');
+        if (!grp) return this.appendEntries(text, cat.close, `\n["group"] = {${entries(1)}\n},`);
+
+        const existing = this.childTables(text, grp.open, grp.close);
+        const next = existing.reduce((m, c) => Math.max(m, c.index || 0), 0) + 1;
+        return this.appendEntries(text, grp.close, entries(next));
+    }
+
+    injectCsarTemplates(missionText) {
+        const csarFile = this.getCsarJsonPath();
+        if (!fs.existsSync(csarFile)) {
+            logger.warn(`CSAR: catalog not found at ${csarFile}. Use Menu > Extract CSAR Templates first.`);
+            return missionText;
+        }
+
+        let csarData;
+        try {
+            csarData = JSON.parse(fs.readFileSync(csarFile, 'utf8'));
+        } catch (err) {
+            logger.error(`CSAR: could not parse ${csarFile}: ${err.message}`);
+            return missionText;
+        }
+
+        // Highest IDs currently in the mission (includes anything injected before this step)
+        const ids = { group: 0, unit: 0 };
+        let m;
+        const gRe = /\["groupId"\]\s*=\s*(\d+)/g;
+        while ((m = gRe.exec(missionText)) !== null) ids.group = Math.max(ids.group, parseInt(m[1], 10));
+        const uRe = /\["unitId"\]\s*=\s*(\d+)/g;
+        while ((m = uRe.exec(missionText)) !== null) ids.unit = Math.max(ids.unit, parseInt(m[1], 10));
+
+        const defs = [
+            { side: 'blue', name: 'BLUE DOWNED PILOT' },
+            { side: 'blue', name: 'BLUE LIFE RAFT' },
+            { side: 'red',  name: 'RED DOWNED PILOT' },
+            { side: 'red',  name: 'RED LIFE RAFT' }
+        ];
+        const plan = { blue: { vehicle: [], ship: [] }, red: { vehicle: [], ship: [] } };
+
+        for (const def of defs) {
+            const entry = csarData[def.name];
+            if (!entry) { logger.warn(`CSAR: "${def.name}" missing in csar.json, skipped.`); continue; }
+
+            // Don't duplicate if the mission already has a group with that exact name
+            if (missionText.includes(`["name"] = "${def.name}"`)) {
+                logger.info(`CSAR: "${def.name}" already exists in the mission, skipped.`);
+                continue;
+            }
+
+            const raw = (typeof entry === 'string') ? entry : entry.template;
+
+            // Default to vehicle: both the pilot and the raft (cmp_liferaft_flare) are ground-category units.
+            // Only trust an explicit category written by the extractor.
+            const category = (typeof entry === 'object' && entry.category) || 'vehicle';
+
+            const group = this.prepareCsarGroup(raw || '', def.name, ids);
+            if (!group) { logger.warn(`CSAR: template "${def.name}" is not a valid Lua table, skipped.`); continue; }
+            plan[def.side][category].push(group);
+        }
+
+        const fallback = { blue: { id: 2, name: 'USA' }, red: { id: 0, name: 'Russia' } };
+        for (const side of ['blue', 'red']) {
+            for (const category of ['vehicle', 'ship']) {
+                const n = plan[side][category].length;
+                if (n === 0) continue;
+                missionText = this.injectGroupsIntoCoalition(missionText, side, category, plan[side][category], fallback[side]);
+                logger.info(`CSAR: injected ${n} ${side} ${category} group(s).`);
+            }
+        }
+        return missionText;
     }
 }
 

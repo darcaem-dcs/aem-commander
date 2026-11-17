@@ -1163,7 +1163,7 @@ BALLISTIC_MISSILE_RANGE = 290000
 MODULE_CSAR = ${settings.moduleCsar ? 'true' : 'false'}
 BLUE_RAFT = "BLUE LIFE RAFT"
 BLUE_PILOT = "BLUE DOWNED PILOT"
-RED_RAFT = "$RED LIFE RAFT"
+RED_RAFT = "RED LIFE RAFT"
 RED_PILOT = "RED DOWNED PILOT"
 __CSAR_SOS = "${settings.csarSos}"
 
@@ -1220,12 +1220,11 @@ PERSISTENCE_KEYWORD = "${settings.modulePersist ? settings.persistKeyword : 'DO_
     }
 
     const patcher = new MizPatcher(selectedMiz);
-    const success = patcher.injectScripts(filesToInject, mediaFiles, civData.templates, settings);
+    const outputPath = patcher.injectScripts(filesToInject, mediaFiles, civData.templates, settings);
 
-    if (success) {
-        logger.info(`Successfully injected AEM Commander scripts into ${selectedMiz}`);
-        // Return an object containing the success status and the file name
-        return { success: true, fileName: path.basename(selectedMiz) };
+    if (outputPath) {
+        logger.info(`Successfully injected AEM Commander scripts. Original: ${selectedMiz} | Output: ${outputPath}`);
+        return { success: true, fileName: path.basename(outputPath) };
     } else {
         return { success: false };
     }
