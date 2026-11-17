@@ -795,7 +795,7 @@ class MizPatcher {
         zip.addFile('l10n/DEFAULT/dictionary', Buffer.from(dictText, 'utf8')); 
         zip.addFile('l10n/DEFAULT/mapResource', Buffer.from(mapResText, 'utf8')); 
         
-        zip.writeZip(this.mizFilePath);
+        zip.writeZip(outputPath);
         logger.info(`Successfully appended trigger at position [${nIdx}] and patched dictionaries.`);
         return outputPath;
     }
