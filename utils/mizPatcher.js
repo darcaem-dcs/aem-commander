@@ -1,3 +1,4 @@
+const { app } = require('electron');
 const AdmZip = require('adm-zip');
 const fs = require('fs');
 const path = require('path');
@@ -443,7 +444,7 @@ class MizPatcher {
         return false;
     }
 
-    injectScripts(luaFiles, mediaFiles = [], civTemplates = []) {
+    injectScripts(luaFiles, mediaFiles = [], civTemplates = [], settings = {}) {
         logger.info(`--- STARTING LUA SCRIPT & MEDIA INJECTION ---`);
         if (!fs.existsSync(this.mizFilePath)) return false;
 
@@ -624,6 +625,7 @@ class MizPatcher {
             while ((match = unitRegex.exec(missionText)) !== null) maxUnitId = Math.max(maxUnitId, parseInt(match[1], 10));
 
             let templatesToInject = [];
+            let civTemplateCounter = 1; // Global counter to generate CIV_GEN_001, CIV_GEN_002, etc.
             
             civTemplates.forEach(civ => {
                 maxGroupId++;
@@ -638,13 +640,20 @@ class MizPatcher {
                     return `["unitId"] = ${maxUnitId}`;
                 });
                 
-                // Bypass the DCS localization dictionary entirely.
+                // Bypass the DCS localization dictionary entirely and sync with aem-commander-values.lua
                 let nameCounter = 0;
+                let baseName = `CIV_GEN_${String(civTemplateCounter).padStart(3, '0')}`;
+                
                 template = template.replace(/\["name"\]\s*=\s*"([^"]+)"/g, () => {
                     nameCounter++;
-                    return `["name"] = "CivTraffic_${maxGroupId}_${nameCounter}"`;
+                    if (nameCounter === 1) {
+                        return `["name"] = "${baseName}"`;
+                    } else {
+                        return `["name"] = "${baseName}_Unit_${nameCounter - 1}"`;
+                    }
                 });
                 
+                civTemplateCounter++;
                 templatesToInject.push(template);
             });
 
@@ -667,7 +676,6 @@ class MizPatcher {
                     if (countryMatch) {
                         let countryBlockStart = countryMatch.index + countryMatch[0].indexOf('{');
                         
-                        // Find the actual first country object (e.g., [1] = { ) inside the country array
                         let firstCountryMatch = neutralsBlock.substring(countryBlockStart).match(/\[1\]\s*=\s*\{/);
                         if (!firstCountryMatch) {
                             firstCountryMatch = neutralsBlock.substring(countryBlockStart).match(/\[\d+\]\s*=\s*\{/);
@@ -702,7 +710,6 @@ class MizPatcher {
                                     
                                     firstCountryBlock = beforeGroupEnd + appendedGroups + "\n\t\t\t\t\t\t\t" + firstCountryBlock.substring(groupEnd);
                                 } else {
-                                    // "group" block missing inside "plane"
                                     let appendedGroups = "";
                                     let nextIndex = 1;
                                     templatesToInject.forEach(tpl => { appendedGroups += `\n\t\t\t\t\t\t\t\t[${nextIndex++}] = ${tpl},`; });
@@ -718,7 +725,6 @@ class MizPatcher {
                                     firstCountryBlock = beforePlaneEnd + newGroupBlock + firstCountryBlock.substring(planeEnd);
                                 }
                             } else {
-                                // "plane" block missing entirely
                                 let appendedGroups = "";
                                 let nextIndex = 1;
                                 templatesToInject.forEach(tpl => { appendedGroups += `\n\t\t\t\t\t\t\t\t[${nextIndex++}] = ${tpl},`; });
@@ -763,7 +769,6 @@ class MizPatcher {
                     
                     coalitionBlock = coalitionBlock.substring(0, neutralsStart) + neutralsBlock + coalitionBlock.substring(neutralsEnd + 1);
                 } else {
-                    // No neutrals block at all
                     let appendedGroups = "";
                     let nextIndex = 1;
                     templatesToInject.forEach(tpl => { appendedGroups += `\n\t\t\t\t\t\t\t\t[${nextIndex++}] = ${tpl},`; });
@@ -776,7 +781,152 @@ class MizPatcher {
             }
         }
 
-        // 8. Delete old files and write updated files back into the ZIP
+        // =====================================================================
+        // 8. Inject CSAR Templates
+        // =====================================================================
+        if (settings && settings.moduleCsar) {
+            const csarDir = app.isPackaged ? path.join(process.resourcesPath, 'csar') : path.join(__dirname, 'csar');
+            const csarFile = path.join(csarDir, 'csar.json');
+            
+            if (fs.existsSync(csarFile)) {
+                const csarData = JSON.parse(fs.readFileSync(csarFile, 'utf8'));
+                
+                let maxGroupId = 0;
+                let maxUnitId = 0;
+                let match;
+                
+                // Find highest existing IDs globally
+                const groupRegex = /\["groupId"\]\s*=\s*(\d+)/g;
+                while ((match = groupRegex.exec(missionText)) !== null) maxGroupId = Math.max(maxGroupId, parseInt(match[1], 10));
+                
+                const unitRegex = /\["unitId"\]\s*=\s*(\d+)/g;
+                while ((match = unitRegex.exec(missionText)) !== null) maxUnitId = Math.max(maxUnitId, parseInt(match[1], 10));
+
+                const processTemplate = (templateString, expectedName) => {
+                    if (!templateString) return null;
+                    maxGroupId++;
+                    let tpl = templateString;
+                    
+                    // Override IDs safely
+                    tpl = tpl.replace(/\["groupId"\]\s*=\s*\d+/g, `["groupId"] = ${maxGroupId}`);
+                    tpl = tpl.replace(/\["unitId"\]\s*=\s*\d+/g, () => {
+                        maxUnitId++;
+                        return `["unitId"] = ${maxUnitId}`;
+                    });
+
+                    // Bypass DCS dictionary and set the exact name MOOSE expects
+                    let nameCounter = 0;
+                    tpl = tpl.replace(/\["name"\]\s*=\s*"([^"]+)"/g, () => {
+                        nameCounter++;
+                        if (nameCounter === 1) return `["name"] = "${expectedName}"`;
+                        return `["name"] = "${expectedName} Unit ${nameCounter - 1}"`;
+                    });
+
+                    // Force Late Activation just in case it wasn't set in the master
+                    if (!tpl.includes('["lateActivation"] = true')) {
+                        tpl = tpl.replace(/\["groupId"\]/, '["lateActivation"] = true,\n\t\t\t\t\t\t\t["groupId"]');
+                    }
+
+                    return tpl;
+                };
+
+                const blueTemplates = [
+                    processTemplate(csarData["BLUE DOWNED PILOT"], "BLUE DOWNED PILOT"),
+                    processTemplate(csarData["BLUE LIFE RAFT"], "BLUE LIFE RAFT")
+                ].filter(t => t !== null);
+
+                const redTemplates = [
+                    processTemplate(csarData["RED DOWNED PILOT"], "RED DOWNED PILOT"),
+                    processTemplate(csarData["RED LIFE RAFT"], "RED LIFE RAFT")
+                ].filter(t => t !== null);
+
+                // Helper to inject into a specific coalition's vehicle block
+                const injectIntoCoalition = (missionStr, coalitionName, templates) => {
+                    if (templates.length === 0) return missionStr;
+
+                    let coaMatch = missionStr.match(new RegExp(`\\["${coalitionName}"\\]\\s*=\\s*\\{`));
+                    if (!coaMatch) return missionStr;
+
+                    let coaStart = coaMatch.index + coaMatch[0].indexOf('{');
+                    let coaEnd = this.getClosingBraceIndex(missionStr, coaStart);
+                    let coaBlock = missionStr.substring(coaStart, coaEnd + 1);
+
+                    let countryMatch = coaBlock.match(/\["country"\]\s*=\s*\{/);
+                    if (countryMatch) {
+                        let countryBlockStart = countryMatch.index + countryMatch[0].indexOf('{');
+                        let firstCountryMatch = coaBlock.substring(countryBlockStart).match(/\[\d+\]\s*=\s*\{/);
+                        
+                        if (firstCountryMatch) {
+                            let firstCountryStart = countryBlockStart + firstCountryMatch.index + firstCountryMatch[0].indexOf('{');
+                            let firstCountryEnd = this.getClosingBraceIndex(coaBlock, firstCountryStart);
+                            let firstCountryBlock = coaBlock.substring(firstCountryStart, firstCountryEnd + 1);
+                            
+                            let vehicleMatch = firstCountryBlock.match(/\["vehicle"\]\s*=\s*\{/);
+                            
+                            if (vehicleMatch) {
+                                let vehicleStart = vehicleMatch.index + vehicleMatch[0].indexOf('{');
+                                let groupMatch = firstCountryBlock.substring(vehicleStart).match(/\["group"\]\s*=\s*\{/);
+                                
+                                if (groupMatch) {
+                                    let groupStart = vehicleStart + groupMatch.index + groupMatch[0].indexOf('{');
+                                    let groupEnd = this.getClosingBraceIndex(firstCountryBlock, groupStart);
+                                    
+                                    let appendedGroups = "";
+                                    let groupBlockStr = firstCountryBlock.substring(groupStart, groupEnd + 1);
+                                    let existingGroups = groupBlockStr.match(/\["groupId"\]/g);
+                                    let nextIndex = existingGroups ? existingGroups.length + 1 : 1;
+                                    
+                                    templates.forEach(tpl => { appendedGroups += `\n\t\t\t\t\t\t\t\t[${nextIndex++}] = ${tpl},`; });
+                                    
+                                    let beforeGroupEnd = firstCountryBlock.substring(0, groupEnd);
+                                    let trimmed = beforeGroupEnd.trimEnd();
+                                    if (!trimmed.endsWith(',') && !trimmed.endsWith('{')) beforeGroupEnd = trimmed + ",\n\t\t\t\t\t\t\t\t";
+                                    
+                                    firstCountryBlock = beforeGroupEnd + appendedGroups + "\n\t\t\t\t\t\t\t" + firstCountryBlock.substring(groupEnd);
+                                } else {
+                                    let appendedGroups = "";
+                                    let nextIndex = 1;
+                                    templates.forEach(tpl => { appendedGroups += `\n\t\t\t\t\t\t\t\t[${nextIndex++}] = ${tpl},`; });
+                                    
+                                    let vehicleEnd = this.getClosingBraceIndex(firstCountryBlock, vehicleStart);
+                                    let newGroupBlock = `\n\t\t\t\t\t\t\t["group"] = {${appendedGroups}\n\t\t\t\t\t\t\t},\n\t\t\t\t\t\t`;
+                                    
+                                    let beforeVehicleEnd = firstCountryBlock.substring(0, vehicleEnd);
+                                    let trimVehicle = beforeVehicleEnd.trimEnd();
+                                    if (!trimVehicle.endsWith(',') && !trimVehicle.endsWith('{')) beforeVehicleEnd = trimVehicle + ",";
+                                    
+                                    firstCountryBlock = beforeVehicleEnd + newGroupBlock + firstCountryBlock.substring(vehicleEnd);
+                                }
+                            } else {
+                                let appendedGroups = "";
+                                let nextIndex = 1;
+                                templates.forEach(tpl => { appendedGroups += `\n\t\t\t\t\t\t\t\t[${nextIndex++}] = ${tpl},`; });
+                                
+                                let newVehicleBlock = `\n\t\t\t\t\t\t["vehicle"] = {\n\t\t\t\t\t\t\t["group"] = {${appendedGroups}\n\t\t\t\t\t\t\t},\n\t\t\t\t\t\t},\n\t\t\t\t\t`;
+                                
+                                let countryEnd = firstCountryBlock.lastIndexOf('}');
+                                let beforeCountryEnd = firstCountryBlock.substring(0, countryEnd);
+                                let trimCountry = beforeCountryEnd.trimEnd();
+                                if (!trimCountry.endsWith(',') && !trimCountry.endsWith('{')) beforeCountryEnd = trimCountry + ",";
+                                
+                                firstCountryBlock = beforeCountryEnd + newVehicleBlock + "}";
+                            }
+                            
+                            coaBlock = coaBlock.substring(0, firstCountryStart) + firstCountryBlock + coaBlock.substring(firstCountryEnd + 1);
+                        }
+                    }
+                    return missionStr.substring(0, coaStart) + coaBlock + missionStr.substring(coaEnd + 1);
+                };
+
+                // Inject into both coalitions
+                missionText = injectIntoCoalition(missionText, "blue", blueTemplates);
+                missionText = injectIntoCoalition(missionText, "red", redTemplates);
+            }
+        }
+
+        // =====================================================================
+        // 9. Delete old files and write updated files back into the ZIP
+        // =====================================================================
         if (zip.getEntry('mission')) zip.deleteFile('mission');
         if (zip.getEntry('l10n/DEFAULT/dictionary')) zip.deleteFile('l10n/DEFAULT/dictionary');
         if (zip.getEntry('l10n/DEFAULT/mapResource')) zip.deleteFile('l10n/DEFAULT/mapResource');

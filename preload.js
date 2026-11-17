@@ -93,4 +93,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
      * Reads civilian aircraft templates
      */
     getCivCatalog: () => ipcRenderer.invoke('get-civ-catalog'),
+
+    /**
+     * Extracts CSAR groups from a master .miz file to build csar.json
+     */
+    extractCsarTemplates: () => ipcRenderer.invoke('extract-csar-templates'),
 });

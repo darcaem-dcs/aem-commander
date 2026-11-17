@@ -1161,10 +1161,10 @@ BALLISTIC_MISSILE_RANGE = 290000
 
 -- CSAR
 MODULE_CSAR = ${settings.moduleCsar ? 'true' : 'false'}
-BLUE_RAFT = "${settings.blueRaft}"
-BLUE_PILOT = "${settings.bluePilot}"
-RED_RAFT = "${settings.redRaft}"
-RED_PILOT = "${settings.redPilot}"
+BLUE_RAFT = "BLUE LIFE RAFT"
+BLUE_PILOT = "BLUE DOWNED PILOT"
+RED_RAFT = "$RED LIFE RAFT"
+RED_PILOT = "RED DOWNED PILOT"
 __CSAR_SOS = "${settings.csarSos}"
 
 -- Civilian Traffic
@@ -1220,7 +1220,7 @@ PERSISTENCE_KEYWORD = "${settings.modulePersist ? settings.persistKeyword : 'DO_
     }
 
     const patcher = new MizPatcher(selectedMiz);
-    const success = patcher.injectScripts(filesToInject, mediaFiles, civData.templates);
+    const success = patcher.injectScripts(filesToInject, mediaFiles, civData.templates, settings);
 
     if (success) {
         logger.info(`Successfully injected AEM Commander scripts into ${selectedMiz}`);
@@ -1291,10 +1291,6 @@ ipcMain.handle('extract-miz-settings', async () => {
             ballisticRange: getNum('BALLISTIC_MISSILE_RANGE'),
 
             moduleCsar: getBool('MODULE_CSAR'),
-            blueRaft: getStr('BLUE_RAFT'),
-            bluePilot: getStr('BLUE_PILOT'),
-            redRaft: getStr('RED_RAFT'),
-            redPilot: getStr('RED_PILOT'),
             csarSos: getStr('__CSAR_SOS'),
 
             moduleCiv: getBool('MODULE_CIV_TRAFFIC'),
@@ -1512,6 +1508,36 @@ ipcMain.handle('get-civ-catalog', async () => {
         return { success: true, catalog };
     } catch (err) {
         logger.error(`Failed to read civilian catalog: ${err.message}`);
+        return { success: false, error: err.message };
+    }
+});
+
+ipcMain.handle('extract-csar-templates', async (event) => {
+    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+        title: 'Select CSAR Master .miz',
+        properties: ['openFile'],
+        filters: [{ name: 'DCS Mission Files', extensions: ['miz'] }]
+    });
+    
+    if (canceled || filePaths.length === 0) return { success: false, error: 'Cancelled' };
+
+    // Resolve the fixed directory based on dev/packaged environment
+    const csarDir = app.isPackaged ? path.join(process.resourcesPath, 'csar') : path.join(__dirname, 'csar');
+    
+    if (!fs.existsSync(csarDir)) {
+        fs.mkdirSync(csarDir, { recursive: true });
+    }
+
+    const savePath = path.join(csarDir, 'csar.json');
+
+    try {
+        const CsarExtractor = require('./utils/csarExtractor.js');
+        const count = CsarExtractor.extractFromMaster(filePaths[0], savePath);
+        
+        logger.info(`Successfully extracted ${count} CSAR templates to ${savePath}`);
+        return { success: true, count, fileName: path.basename(savePath) };
+    } catch (err) {
+        logger.error(`CSAR extraction failed: ${err.message}`);
         return { success: false, error: err.message };
     }
 });

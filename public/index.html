@@ -183,6 +183,9 @@
                     <button id="btnExtractCivs" class="btn-icon" style="text-align: left; border: none; width: 100%; display: flex; align-items: center; gap: 10px;">
                         <i class="fa-solid fa-plane-arrival" style="width: 20px;"></i> Extract Civ Templates
                     </button>
+                    <button id="btnExtractCsar" class="btn-icon" style="text-align: left; border: none; width: 100%; display: flex; align-items: center; gap: 10px;">
+                        <i class="fa-solid fa-life-ring" style="width: 20px;"></i> Extract CSAR Templates
+                    </button>
                     <hr style="border: 0; border-top: 1px solid var(--border-color); width: 100%; margin: 0;">
                     <button id="btnOpenAppLog" class="btn-icon" style="text-align: left; border: none; width: 100%; display: flex; align-items: center; gap: 10px;">
                         <i class="fa-solid fa-file-lines" style="width: 20px;"></i> View Log
@@ -464,16 +467,6 @@
                         
                         <div id="contentCsar" class="module-content-inner">
                             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
-                                <div>
-                                    <label>Blue Templates (Raft / Pilot):</label>
-                                    <input type="text" id="injBlueRaft" class="input-field" value="BLUE LIFE RAFT" style="margin-bottom:5px;">
-                                    <input type="text" id="injBluePilot" class="input-field" value="BLUE DOWNED PILOT">
-                                </div>
-                                <div>
-                                    <label>Red Templates (Raft / Pilot):</label>
-                                    <input type="text" id="injRedRaft" class="input-field" value="RED LIFE RAFT" style="margin-bottom:5px;">
-                                    <input type="text" id="injRedPilot" class="input-field" value="RED DOWNED PILOT">
-                                </div>
                                 <div style="grid-column: span 2;">
                                     <label>SOS Audio File:</label>
                                     <p style="font-size: 0.8em; color: var(--text-muted); margin-top: 4px; margin-bottom: 0;">Distress signal that will be transmited through a random frequency and can be used to home in on the location of downed pilots.</p>
@@ -810,12 +803,7 @@
 
                 // Populate CSAR
                 setCheck('toggleCsar', s.moduleCsar);
-                if (s.moduleCsar) {
-                    setVal('injBlueRaft', s.blueRaft);
-                    setVal('injBluePilot', s.bluePilot);
-                    setVal('injRedRaft', s.redRaft);
-                    setVal('injRedPilot', s.redPilot);
-                    
+                if (s.moduleCsar) {                    
                     if (s.csarSos === 'morse-sos.ogg') {
                         document.querySelector('input[name="csarSosOpt"][value="default"]').click();
                     } else {
@@ -1187,6 +1175,38 @@
             }
             
             loadingOverlay.style.display = 'none';
+        });
+
+        // --- EXTRACT CSAR TEMPLATES LOGIC ---
+        document.getElementById('btnExtractCsar').addEventListener('click', async () => {
+            const mainMenuDropdown = document.getElementById('mainMenuDropdown');
+            if (mainMenuDropdown) mainMenuDropdown.style.display = 'none';
+            
+            const loadingOverlay = document.getElementById('loadingOverlay');
+            document.getElementById('loadingText').innerText = "Extracting CSAR templates...";
+            loadingOverlay.style.display = 'flex';
+            
+            // Yield thread to allow DOM to paint the overlay before OS dialog blocks it
+            await new Promise(resolve => setTimeout(resolve, 100));
+            
+            try {
+                const result = await window.electronAPI.extractCsarTemplates();
+                loadingOverlay.style.display = 'none';
+                
+                if (!result || result.error === 'Cancelled') return;
+
+                if (result.success) {
+                    addLog(`Extracted ${result.count} CSAR templates to ${result.fileName}`, 'success');
+                    showFeedback(`Successfully extracted CSAR templates to ${result.fileName}!`, true);
+                } else {
+                    addLog(`Failed to extract CSAR templates: ${result.error}`, 'error');
+                    showFeedback(`Extraction failed: ${result.error}`, false);
+                }
+            } catch (err) {
+                console.error(err);
+                loadingOverlay.style.display = 'none';
+                showFeedback("An unexpected error occurred during CSAR extraction.", false);
+            }
         });
         
         // Module Toggles
@@ -1989,10 +2009,6 @@
                 ballisticRange: parseInt(document.getElementById('injBallisticRange').value) || 290000,
 
                 moduleCsar: document.getElementById('toggleCsar').checked,
-                blueRaft: document.getElementById('injBlueRaft').value,
-                bluePilot: document.getElementById('injBluePilot').value,
-                redRaft: document.getElementById('injRedRaft').value,
-                redPilot: document.getElementById('injRedPilot').value,
                 useDefaultSos: document.querySelector('input[name="csarSosOpt"]:checked').value === 'default',
                 customSosPath: document.getElementById('injCsarSosPath').value,
                 csarSosFileName: document.querySelector('input[name="csarSosOpt"]:checked').value === 'default' ? 

@@ -16,7 +16,8 @@
       { "from": "lua_scripts", "to": "lua_scripts" },
       { "from": "media", "to": "media" },
       { "from": "loadouts", "to": "loadouts" },
-      { "from": "civ", "to": "civ" }
+      { "from": "civ", "to": "civ" },
+      { "from": "csar", "to": "csar" }
     ],
     "mac": {
       "target": "zip",
