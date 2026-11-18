@@ -1219,8 +1219,30 @@ PERSISTENCE_KEYWORD = "${settings.modulePersist ? settings.persistKeyword : 'DO_
         }
     }
 
+    // Handle Kneeboard Files
+    let kneeboardFiles = [];
+    if (settings.moduleKneeboard) {
+        const dimonDir = app.isPackaged ? path.join(process.resourcesPath, 'dimon') : path.join(__dirname, 'dimon');
+        if (fs.existsSync(dimonDir)) {
+            const files = fs.readdirSync(dimonDir);
+            const prefix = `04_AD_${settings.kbTime}_${settings.kbMap}_`;
+            
+            files.forEach(file => {
+                if (file.startsWith(prefix) && file.toLowerCase().endsWith('.png')) {
+                    kneeboardFiles.push({
+                        name: file,
+                        buffer: fs.readFileSync(path.join(dimonDir, file))
+                    });
+                }
+            });
+            logger.info(`Prepared ${kneeboardFiles.length} kneeboard images for ${settings.kbMap} (${settings.kbTime})`);
+        } else {
+            logger.warn(`Kneeboard folder not found at ${dimonDir}`);
+        }
+    }
+
     const patcher = new MizPatcher(selectedMiz);
-    const outputPath = patcher.injectScripts(filesToInject, mediaFiles, civData.templates, settings);
+    const outputPath = patcher.injectScripts(filesToInject, mediaFiles, civData.templates, settings, kneeboardFiles);
 
     if (outputPath) {
         logger.info(`Successfully injected AEM Commander scripts. Original: ${selectedMiz} | Output: ${outputPath}`);
@@ -1237,6 +1259,8 @@ ipcMain.handle('extract-miz-settings', async () => {
         properties: ['openFile'],
         filters: [{ name: 'DCS Mission Files', extensions: ['miz'] }]
     });
+
+    const StaticExtractor = require('./utils/staticExtractor.js');
 
     if (canceled || filePaths.length === 0) return { success: false, error: 'Cancelled' };
     const selectedMiz = filePaths[0];
@@ -1317,7 +1341,21 @@ ipcMain.handle('extract-miz-settings', async () => {
             hasTrigger: hasTrigger
         };
 
-        return { success: true, settings, fileName: path.basename(selectedMiz) };
+        // Scan AEM_RES statics (preview for the UI; the injection re-scans the target .miz itself)
+        let staticScan = { statics: [], templates: [], skipped: [] };
+        try {
+            const dictEntry = zip.getEntry('l10n/DEFAULT/dictionary');
+            const dictText = dictEntry ? zip.readAsText(dictEntry, 'utf8') : '';
+            staticScan = StaticExtractor.extract(
+                missionText, dictText,
+                settings.moduleAi ? settings.staticRes : null,
+                settings.moduleAi ? settings.templatePrefix : null
+            );
+        } catch (e) {
+            logger.warn(`Static scan failed: ${e.message}`);
+        }
+
+        return { success: true, settings, fileName: path.basename(selectedMiz), staticScan };
     } catch (err) {
         return { success: false, error: err.message };
     }

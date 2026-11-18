@@ -3,6 +3,16 @@ const AdmZip = require('adm-zip');
 const fs = require('fs');
 const path = require('path');
 const logger = require('./log.js');
+const StaticExtractor = require('./staticExtractor.js');
+const CivExtractor = require('./civExtractor.js');
+
+// AEM task -> DCS group main task
+const DCS_GROUP_TASK = {
+    'INTERCEPT': 'Intercept', 'CAP': 'CAP', 'SEAD': 'SEAD', 'CAS': 'CAS',
+    'STRIKE': 'Pinpoint Strike', 'ANTI-SHIP': 'Antiship Strike', 'ESCORT': 'Escort',
+    'CSAR': 'Transport', 'TRANSPORT_TROOPS': 'Transport', 'TRANSPORT_LOGISTICS': 'Transport',
+    'AWACS': 'AWACS', 'TANKER': 'Refueling'
+};
 
 class MizPatcher {
     constructor(absoluteFilePath) {
@@ -444,7 +454,7 @@ class MizPatcher {
         return false;
     }
 
-    injectScripts(luaFiles, mediaFiles = [], civTemplates = [], settings = {}) {
+    injectScripts(luaFiles, mediaFiles = [], civTemplates = [], settings = {}, kneeboardFiles = []) {
         logger.info(`--- STARTING LUA SCRIPT & MEDIA INJECTION ---`);
         
         if (!fs.existsSync(this.mizFilePath)) return false;
@@ -784,8 +794,24 @@ class MizPatcher {
             missionText = this.injectCsarTemplates(missionText);
         }
 
+        // 8b. Late activation templates built from the AEM_RES statics
+        if (settings && settings.moduleAi && settings.injectStaticTemplates) {
+            missionText = this.injectStaticTemplates(missionText, dictText, settings.staticRes, settings.templatePrefix);
+        }
+
         // =====================================================================
-        // 9. Delete old files and write updated files back into the ZIP
+        // 9. Inject Kneeboard Images
+        // =====================================================================
+        if (kneeboardFiles && kneeboardFiles.length > 0) {
+            kneeboardFiles.forEach(file => {
+                // By providing this path, adm-zip automatically creates the nested folders inside the .miz if they don't exist.
+                zip.addFile(`KNEEBOARD/IMAGES/${file.name}`, file.buffer);
+            });
+            logger.info(`Successfully injected ${kneeboardFiles.length} Kneeboard PNGs.`);
+        }
+
+        // =====================================================================
+        // 10. Delete old files and write updated files back into the ZIP
         // =====================================================================
         if (zip.getEntry('mission')) zip.deleteFile('mission');
         if (zip.getEntry('l10n/DEFAULT/dictionary')) zip.deleteFile('l10n/DEFAULT/dictionary');
@@ -800,7 +826,7 @@ class MizPatcher {
         return outputPath;
     }
 
-        // ---------------------------------------------------------------------
+    // ---------------------------------------------------------------------
     // Lua table helpers (string-aware, return INCLUSIVE indexes of braces)
     // ---------------------------------------------------------------------
 
@@ -956,7 +982,7 @@ class MizPatcher {
     }
 
     // Appends group tables to coalition[side].country[1][category].group
-    injectGroupsIntoCoalition(text, sideName, category, groups, fallbackCountry) {
+    injectGroupsIntoCoalition(text, sideName, category, groups, fallbackCountry, countryId = null) {
         if (!groups || groups.length === 0) return text;
 
         const rootOpen = text.indexOf('{');
@@ -978,7 +1004,14 @@ class MizPatcher {
         const countries = this.childTables(text, country.open, country.close);
         if (countries.length === 0) return this.appendEntries(text, country.close, countryEntry);
 
-        const first = countries[0];
+        // Prefer the requested country; fall back to the first one (CSAR keeps the old behaviour)
+        let first = countries[0];
+        if (countryId !== null && !Number.isNaN(countryId)) {
+            const match = countries.find(c =>
+                parseInt(CivExtractor.getTopLevelField(text.substring(c.open, c.close + 1), 'id'), 10) === countryId);
+            if (match) first = match;
+        }
+
         const cat = this.findChildTable(text, first.open, first.close, category);
         if (!cat) return this.appendEntries(text, first.close, `\n["${category}"] = {\n["group"] = {${entries(1)}\n},\n},`);
 
@@ -1053,6 +1086,127 @@ class MizPatcher {
         }
         return missionText;
     }
+
+    getMaxIds(missionText) {
+        const ids = { group: 0, unit: 0 };
+        let m;
+        const gRe = /\["groupId"\]\s*=\s*(\d+)/g;
+        while ((m = gRe.exec(missionText)) !== null) ids.group = Math.max(ids.group, parseInt(m[1], 10));
+        const uRe = /\["unitId"\]\s*=\s*(\d+)/g;
+        while ((m = uRe.exec(missionText)) !== null) ids.unit = Math.max(ids.unit, parseInt(m[1], 10));
+        return ids;
+    }
+
+    // Builds a late-activation, single-unit aircraft group (raw Lua table text)
+    buildAircraftTemplate(t, ids) {
+        const q = (s) => '"' + String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+        const num = (v) => (Number.isFinite(v) ? v : 0);
+        const heli = t.category === 'helicopter';
+        const alt = heli ? 500 : 5000;
+        const speed = heli ? 50 : 200;
+        const x = num(t.x), y = num(t.y);
+        const groupId = ++ids.group;
+        const unitId = ++ids.unit;
+        const task = DCS_GROUP_TASK[t.task] || 'CAP';
+
+        return `{
+["lateActivation"] = true,
+["modulation"] = 0,
+["tasks"] = {},
+["task"] = ${q(task)},
+["uncontrolled"] = false,
+["groupId"] = ${groupId},
+["hidden"] = false,
+["communication"] = true,
+["radioSet"] = false,
+["frequency"] = 124,
+["start_time"] = 0,
+["x"] = ${x},
+["y"] = ${y},
+["name"] = ${q(t.templateName)},
+["route"] = {
+["points"] = {
+[1] = {
+["alt"] = ${alt},
+["type"] = "Turning Point",
+["action"] = "Turning Point",
+["alt_type"] = "BARO",
+["formation_template"] = "",
+["ETA"] = 0,
+["ETA_locked"] = true,
+["x"] = ${x},
+["y"] = ${y},
+["name"] = "",
+["speed"] = ${speed},
+["speed_locked"] = true,
+["task"] = { ["id"] = "ComboTask", ["params"] = { ["tasks"] = {} } },
+},
+},
+},
+["units"] = {
+[1] = {
+["type"] = ${q(t.type)},
+["unitId"] = ${unitId},
+["skill"] = "High",
+["name"] = ${q(t.templateName + ' Unit 1')},
+["x"] = ${x},
+["y"] = ${y},
+["alt"] = ${alt},
+["alt_type"] = "BARO",
+["speed"] = ${speed},
+["heading"] = ${num(t.heading)},
+["psi"] = ${-num(t.heading)},
+["onboard_num"] = "010",
+${t.livery ? `["livery_id"] = ${q(t.livery)},` : ''}
+["payload"] = {
+["pylons"] = {},
+["fuel"] = 99999,
+["flare"] = 60,
+["chaff"] = 60,
+["gun"] = 100,
+},
+},
+},
+}`;
+    }
+
+    injectStaticTemplates(missionText, dictText, staticPrefix, templatePrefix) {
+        let scan;
+        try {
+            scan = StaticExtractor.extract(missionText, dictText, staticPrefix, templatePrefix);
+        } catch (err) {
+            logger.error(`Static templates: scan failed: ${err.message}`);
+            return missionText;
+        }
+
+        if (scan.templates.length === 0) {
+            logger.info('Static templates: no matching AEM_RES statics found.');
+            return missionText;
+        }
+        scan.skipped.forEach(s => logger.warn(`Static templates: skipped ${s.name} (${s.reason})`));
+
+        const ids = this.getMaxIds(missionText);
+        const plan = new Map(); // "side|countryId|category" -> { side, countryId, category, groups: [] }
+
+        for (const t of scan.templates) {
+            if (missionText.includes(`["name"] = "${t.templateName}"`)) {
+                logger.info(`Static templates: "${t.templateName}" already exists, skipped.`);
+                continue;
+            }
+            const key = `${t.side}|${t.countryId}|${t.category}`;
+            if (!plan.has(key)) plan.set(key, { side: t.side, countryId: t.countryId, category: t.category, groups: [] });
+            plan.get(key).groups.push(this.buildAircraftTemplate(t, ids));
+        }
+
+        const fallback = { blue: { id: 2, name: 'USA' }, red: { id: 0, name: 'Russia' } };
+        for (const p of plan.values()) {
+            missionText = this.injectGroupsIntoCoalition(
+                missionText, p.side, p.category, p.groups, fallback[p.side], p.countryId);
+            logger.info(`Static templates: injected ${p.groups.length} ${p.side} ${p.category} template(s) into country ${p.countryId}.`);
+        }
+        return missionText;
+    }
+    
 }
 
 module.exports = MizPatcher;

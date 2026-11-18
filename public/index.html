@@ -255,9 +255,13 @@
                         <label class="switch" onclick="event.stopPropagation()"><input type="checkbox" id="toggleQra" checked><span class="slider"></span></label>
                     </div>
                     <div class="nav-item" data-target="paneBfm">
-                    <span><i class="fa-solid fa-user-graduate"></i> BFM Trainer</span>
-                    <label class="switch" onclick="event.stopPropagation()"><input type="checkbox" id="toggleBfm" checked><span class="slider"></span></label>
-                </div>
+                        <span><i class="fa-solid fa-user-graduate"></i> BFM Trainer</span>
+                        <label class="switch" onclick="event.stopPropagation()"><input type="checkbox" id="toggleBfm" checked><span class="slider"></span></label>
+                    </div>
+                    <div class="nav-item" data-target="paneKneeboard">
+                        <span><i class="fa-solid fa-book-open"></i> Kneeboard</span>
+                        <label class="switch" onclick="event.stopPropagation()"><input type="checkbox" id="toggleKneeboard" checked><span class="slider"></span></label>
+                    </div>
                 </div>
 
                 <!-- CONTENT AREA -->
@@ -420,6 +424,15 @@
                                     </label>
                                 </div>
                             </div>
+
+                            <hr style="border: 1px solid var(--border-color); margin: 25px 0;">
+                            <h3>Reserve Statics &rarr; Late Activation Templates</h3>
+                            <label style="font-weight: normal; cursor: pointer; display: flex; align-items: center; gap: 8px;">
+                                <input type="checkbox" id="chkInjectStaticTpl" checked style="accent-color: var(--accent-blue); width: 16px; height: 16px;">
+                                Create late-activation templates from the reserve statics when injecting
+                            </label>
+                            <p id="staticReservesSummary" style="font-size: 0.85em; color: var(--text-muted);">Load a mission to see the detected reserve statics.</p>
+                            <div id="staticReservesList" class="input-field" style="max-height: 260px; overflow-y: auto; font-size: 0.85em; background: var(--bg-body);"></div>
                         </div>
                     </div>
 
@@ -599,6 +612,43 @@
                         </div>
                     </div>
 
+                    <!-- KNEEBOARD -->
+                    <div id="paneKneeboard" class="module-pane">
+                        <h2>Kneeboard Module</h2>
+                        <p style="font-size: 0.9em; color: var(--text-muted); margin-bottom: 20px;">Injects <b>Dim</b>On kneeboard images <a href="https://forum.dcs.world/topic/269908-aerodrome-data-and-frequencies-updated-01-february-2026/" target="_blank" style="color: var(--accent-blue); text-decoration: none; font-weight: bold;">by Minsky</a> into the mission file based on map and time of day.</p>
+                        
+                        <div id="contentKneeboard" class="module-content-inner">
+                            <div class="config-grid">
+                                <div class="config-column">
+                                    <label>Map / Theatre:</label>
+                                    <!-- Values match the exact strings in your dimon folder PNG names -->
+                                    <select id="injKbMap" class="input-field">
+                                        <option value="Caucasus">Caucasus</option>
+                                        <option value="Nevada">Nevada</option>
+                                        <option value="Normandy">Normandy</option>
+                                        <option value="Persian_Gulf">Persian Gulf</option>
+                                        <option value="The_Channel">The Channel</option>
+                                        <option value="Syria">Syria</option>
+                                        <option value="Mariana_Islands">Mariana Islands</option>
+                                        <option value="South_Atlantic">South Atlantic</option>
+                                        <option value="Sinai">Sinai</option>
+                                        <option value="Kola">Kola</option>
+                                        <option value="Afganistan">Afghanistan</option>
+                                        <option value="Iraq">Iraq</option>
+                                        <option value="Cold_War_Germany">Germany (Cold War)</option>
+                                    </select>
+                                </div>
+                                <div class="config-column">
+                                    <label>Time of Day:</label>
+                                    <select id="injKbTime" class="input-field">
+                                        <option value="Day">Day</option>
+                                        <option value="Night">Night</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                 </div>
             </div>
 		
@@ -746,6 +796,40 @@
         const btnConfirmInject = document.getElementById('btnConfirmInject');
         const btnStop = document.getElementById('btnStop');
 
+        let staticScan = { statics: [], templates: [], skipped: [] };
+
+        function renderStaticReserves(scan) {
+            staticScan = scan || { statics: [], templates: [], skipped: [] };
+            const list = document.getElementById('staticReservesList');
+            const summary = document.getElementById('staticReservesSummary');
+            list.innerHTML = '';
+
+            summary.textContent = `${staticScan.templates.length} template(s) from ${staticScan.statics.length} static unit(s)` +
+                (staticScan.skipped.length ? ` · ${staticScan.skipped.length} skipped (unsupported category)` : '');
+
+            staticScan.templates
+                .slice().sort((a, b) => a.templateName.localeCompare(b.templateName))
+                .forEach(t => {
+                    const row = document.createElement('div');
+                    row.style.cssText = 'padding: 3px 4px; border-bottom: 1px solid var(--border-color);';
+                    const name = document.createElement('strong');
+                    name.style.color = t.side === 'red' ? 'var(--accent-red)' : 'var(--accent-blue)';
+                    name.textContent = t.templateName;
+                    const meta = document.createElement('span');
+                    meta.style.cssText = 'color: var(--text-muted); margin-left: 8px;';
+                    meta.textContent = `x${t.staticCount} static(s) · ${t.countryName}` + (t.livery ? ` · livery: ${t.livery}` : '');
+                    row.append(name, meta);
+                    list.appendChild(row);
+                });
+
+            staticScan.skipped.forEach(s => {
+                const row = document.createElement('div');
+                row.style.cssText = 'padding: 3px 4px; color: var(--text-muted);';
+                row.textContent = `Skipped: ${s.name} (${s.type || '?'} / ${s.category || '?'})`;
+                list.appendChild(row);
+            });
+        }
+
         // Option 1: Load Settings (Requires successful file load to advance)
         document.getElementById('btnFlowLoad').addEventListener('click', async () => {
             const loadingOverlay = document.getElementById('loadingOverlay');
@@ -800,6 +884,8 @@
                     setVal('injBallisticRange', s.ballisticRange);
                     if (s.ballisticRange) setCheck('injToggleBallistic', true);
                 }
+
+                renderStaticReserves(result.staticScan);
 
                 // Populate CSAR
                 setCheck('toggleCsar', s.moduleCsar);
@@ -1248,6 +1334,7 @@
         setupModuleToggle('toggleCiv', 'contentCiv');
         setupModuleToggle('toggleQra', 'contentQra');
         setupModuleToggle('toggleBfm', 'contentBfm');
+        setupModuleToggle('toggleKneeboard', 'contentKneeboard');
 		
 		// Persistence
 		const btnLoadPersistence = document.getElementById('btnLoadPersistence');
@@ -2036,8 +2123,14 @@
                 bfmFuel: parseInt(document.getElementById('injBfmFuel').value) || 7000,
                 bfmDeck: parseInt(document.getElementById('injBfmDeck').value) || 10000,
 
+                moduleKneeboard: document.getElementById('toggleKneeboard').checked,
+                kbMap: document.getElementById('injKbMap').value,
+                kbTime: document.getElementById('injKbTime').value,
+
                 modulePersist: document.getElementById('togglePersistence').checked,
-                persistKeyword: document.getElementById('injPersistKeyword').value
+                persistKeyword: document.getElementById('injPersistKeyword').value,
+
+                injectStaticTemplates: document.getElementById('chkInjectStaticTpl').checked
             };
 
             const loadingOverlay = document.getElementById('loadingOverlay');
