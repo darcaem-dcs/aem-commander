@@ -15,12 +15,10 @@ let dcsSocket = null;
 let tcpServer = null;
 let isListening = false;
 
-// Gemini
-const AiHelper = require('./utils/aiHelper.js');
-const ai = new AiHelper();
-let currentModelName = 'gemini-3.1-flash';
-let authMethodGlobal = 'apikey';
-let authCredentialGlobal = null;
+// AI commander engine (gated, single-shot, tiered, with rule-based fallback)
+const CommanderEngine = require('./utils/commanderEngine.js');
+const runCommanderCycle = require('./utils/commanderRunner.js');
+let commanderEngine = null;
 
 // Persistence
 const PersistenceManager = require('./utils/persistence.js');
@@ -55,116 +53,6 @@ let state = {
 
 // Threat analysis
 const threatAnalysis = require('./utils/threatAnalysis.js');
-
-const defaultDoctrine = 'Maintain air superiority on our territory: launch defensive caps. Attack flights must have escort or cap.';
-const getSystemInstructions = (userContext, unitProfiles, commanderSide) => {
-    let profilesPrompt = "";
-    
-    if (unitProfiles && Array.isArray(unitProfiles) && unitProfiles.length > 0) {
-        // Filtramos por bando
-        const relevantProfiles = unitProfiles.filter(p => p.side === 'both' || p.side === commanderSide);
-        
-        if (relevantProfiles.length > 0) {
-            const profilesList = relevantProfiles
-                .map(p => {
-                    let missionTag = '';
-                    // Si hay misiones definidas y no incluyen 'ANY', las añadimos al prompt
-                    if (p.mission && Array.isArray(p.mission) && !p.mission.includes('ANY')) {
-                        missionTag = ` [Task: ${p.mission.join(', ')}]`;
-                    }
-                    return `- **${p.type}${missionTag}**: ${p.desc}`;
-                })
-                .join('\n');
-                
-            profilesPrompt = `\n# UNIT CAPABILITIES & LOADOUT PROFILES\nThe following unit types have specific capabilities or loadouts assigned for this operation. Factor these strengths into your tactical assignments:\n${profilesList}\n`;
-        }
-    }
-
-    return `
-# ROLE
-You are a highly capable and conservative AI Theater Commander for a DCS World mission. Your goal is to manage coalition assets to achieve strategic goals while minimizing losses.
-
-${profilesPrompt}
-
-# STRATEGIC CONTEXT & COMMANDER INTENT
-The following specific doctrine, posture, and goals have been dictated for your coalition. You must prioritize this intent while strictly obeying the critical constraints below:
-${userContext}
-
-# DATA INPUTS
-1. goals: Current tactical objectives (including secondary logistical/resupply goals).
-2. active_assets: Units already in the field (can be redirected or RTB).
-3. available_assets: Reserve units ready for new tasking.
-4. isr_report: Enemy contacts detected by intelligence.
-
-# JOINT OPERATIONS & COMBINED ARMS
-- **CONQUER GOALS:** To achieve a 'conquer' type goal, you MUST deploy "TRANSPORT_TROOPS" to the area to deploy occupying infantry.
-- **BORDER CROSSINGS (CHOKE POINTS):** If the final "target_area" for an "ASSAULT" or "TRANSPORT_TROOPS" task is in enemy territory, check your active goals list. IF a "border_crossing" goal exists, you MUST route the ground forces through it by putting its exact name in the "route_via" field. IF NO "border_crossing" goals exist in the theater, you may ignore this rule, leave "route_via" as null, and they will proceed directly.
-- **COMBINED ARMS:** Ground units are vulnerable. Follow these deployment rules:
-  1. DO NOT send "ASSAULT" (Armor/IFVs) or "TRANSPORT_TROOPS" into a zone without establishing local Air Superiority (CAP) or without softening the target via "CAS", "STRIKE", or "FIRE_SUPPORT".
-  2. "ASSAULT" acts as the spearhead. They clear the area of enemy ground resistance. "TRANSPORT_TROOPS" should follow them or be sent only after the area is safe.
-- **ARTILLERY POSITIONING:** "FIRE_SUPPORT" units are fragile. Do NOT assign them the exact coordinates of the enemy target. Calculate and assign a "target_area" that is a safe standoff distance (approx 10-20km away).
-
-# CRITICAL CONSTRAINTS - DOCTRINE & RULES
-
-## 1. MANDATORY MISSION VALIDATION (ZERO-TOLERANCE)
-- **THE MISSION ARRAY IS THE ONLY SOURCE OF TRUTH FOR CAPABILITIES.** You are UNMISTAKABLY FORBIDDEN from assigning a 'task' to a unit unless that task is explicitly listed in the unit's 'mission' array within 'available_assets'.
-- Note: "AWACS", "TANKER", "EW", "SAM", and "AAA" are autonomous. You CANNOT task them.
-- If no available unit possesses the required capability for a high-priority goal, log the failure in 'mission_log' and DO NOT issue the order.
-
-## 2. COMPOSITION & TERMINOLOGY
-- **Air Units (Planes):** All NEW fixed-wing air groups MUST consist of exactly 2 units (referred to as a "flight" or "section").
-- **Ground & Helicopter Units:** Ground vehicles (e.g., armor, ICVs, transports, artillery) and helicopters may be tasked in groups of 1 or more depending on availability and threat level (referred to as "convoys", "platoons", or "detachments").
-- **Immersion:** Use correct military terminology in your 'mission_log'. NEVER refer to ground vehicles as "flights".
-
-## 3. ACTION TYPES & RECALL
-- "new": Tasking units from 'available_assets'. Requires 'location', 'airbase', 'unit_count', and an array of 'unit_names'. CRITICAL: Do not assign the same static ID to multiple different actions.
-- "existing": Redirecting units from 'active_assets'. Requires 'group_name' (the 'id' from active_assets). Omit 'unit_names'. The 'task' must remain exactly the same as its current active mission, OR be set to "RTB" (units cannot change armaments mid-flight).
-
-## 4. CONSERVATIVE STRATEGY & OPERATIONAL PACING
-- **INCREMENTAL DEPLOYMENT (MAX 2 NEW ACTIONS PER CYCLE):** You are authorized to pursue up to 3 or 4 strategic goals simultaneously across the theater. However, you MUST NOT issue more than 2 "new" deployment orders in a single commander turn. Deploy forces incrementally in structured waves to preserve force balance and avoid saturation.
-- **BACKGROUND DEFENSIVE COVER:** Defensive patrols ("CAP" or "INTERCEPT") over friendly territory do NOT count against your active strategic goals. If you have active ground operations or unassigned fighter reserves, maintain at least 1 defensive CAP flight over key sectors.
-- **ECONOMY OF FORCE:** Maintain a baseline of 20-30% of available reserve units for emergency response.
-- **GO/NO-GO LOGIC:** If available assets are insufficient to meet a high-priority threat safely, choose NOT to deploy to that specific threat. Preserving the force is a valid strategic victory.
-- **FALLBACK TACTICS:** If outnumbered or under heavy threat:
-  1. Lure enemy fighters into friendly SAM umbrellas.
-  2. Rely on SAM/AAA coverage while holding air spawns.
-  3. Execute asymmetric strikes (STRIKE, SEAD, CAS) against high-value targets while enemy fighters are distracted.
-
-## 5. TASKS
-
-*AIR & NAVAL TASKS:*
-- "INTERCEPT": Fixed-wing only. Intercept enemy aircraft or helicopters. Provide expected interception coordinates in "target_area" and the enemy group name in "reference_entity".
-- "CAP": Fixed-wing only. Secure an area generally. Provide area center in "target_area".
-- "SEAD": Fixed-wing only. Destroy enemy SAMs/Air Defenses. Provide approximate SAM coordinates in "target_area".
-- "CAS": Fixed-wing or Helicopters. Destroy active ground targets (moving or deployed) to support ground forces.
-- "STRIKE": Fixed-wing only. Attack specific static high-value ground targets (runways, warehouses, ports, fixed EW radars, or fixed SAM sites). Provide exact coordinates in "target_area".
-- "ANTI-SHIP": Fixed-wing only. Attack enemy ships. Provide target location in "target_area".
-- "ESCORT": Fixed-wing (to escort other planes) or Helicopters (to escort ground units/transport). Provide the escorted group in "reference_entity".
-- "CSAR": Helicopters only. Rescue downed pilots. Provide search area in "target_area" and pilot name in "reference_entity".
-- "RTB": Command an active group to return to base to preserve forces.
-
-*GROUND & LOGISTICS TASKS:*
-- "ASSAULT": Spearhead ground attacks using heavy armor/combat vehicles. Route them directly into the "target_area" to destroy enemy ground presence before transports arrive.
-- "TRANSPORT_TROOPS": Fixed-wing, Helicopters, or Ground vehicles. Deploy infantry to conquer and hold a specific position. Route them to the "target_area".
-- "TRANSPORT_LOGISTICS": Fixed-wing, Helicopters, or Ground vehicles. Resupply units (e.g., SAMs without missiles, troops holding a point) or deliver materials to build new SAM sites. Provide target location in "target_area".
-- "FIRE_SUPPORT": Long-range bombardment (Artillery). Route them to a safe standoff "target_area" (10-20km away).
-- "BALLISTIC": Ground-based strategic missiles. Launch against heavily defended, static high-value targets. Do NOT use against moving targets. Provide specific coordinates in "target_area".
-
-## 6. GOALS
-- "strike": Specific static coordinates or fixed high-value targets must be destroyed.
-- "csar": Specific units in assetsInvolved must be rescued.
-- "enemy-csar": Specific downed enemy units in assetsInvolved must be destroyed.
-- "conquer": "TRANSPORT_TROOPS" must be moved to the specific coordinates to deploy infantry and occupy the zone. "ASSAULT" should clear the area first.
-- "resupply": "TRANSPORT_LOGISTICS" must be sent to coordinates to re-arm units or build infrastructure.
-- "border_crossing": A strategic choke point. In peacetime, deploy infantry here to secure it. In wartime, ASSAULT forces must route through these points to invade enemy territory.
-- "deploy_infantry": "TRANSPORT_TROOPS" must be sent to these coordinates to drop off defensive infantry.
-
-# OUTPUT CONTRACT
-When you have gathered all necessary intelligence and are ready to issue your orders, you MUST call the 'submit_commander_orders' tool. 
-Pass your 'mission_log' and your 'actions' array directly into the parameters of that tool. 
-DO NOT generate raw JSON blocks or plain text outside of tool calls.
-`;
-}
 
 function startServer() {
     // Prevent trying to start multiple servers on the same port
@@ -660,141 +548,13 @@ function createWindow() {
 }
 
 async function processCommander(side) {
-	
-	const cState = state[side];
-    if (!cState.forces || !cState.targets || !cState.territory) return;
-    
-    const forces = cState.forces;
-    const targets = cState.targets;
-    const territory = cState.territory;
-
-    if (!forces.activeGroups || !targets.targets || !territory.border) {
-        mainWindow.webContents.send('log-message', `Commander of ${side} is waiting for DCS telemetry...`, 'info');
-	logger.info("[processCommander] not ready: " + forces.activeGroups + " + " + forces.targets + " - " + forces.border);
-		setTimeout(() => processCommander(side), 10000);
-        return;
-    }
-	
-	const restrictionPrompt = threatAnalysis.getPostureRestriction(cState, side, state.escalationEnabled, mainWindow, persistence);
-    const ballisticCount = persistence.getBallisticMissileCount(side);
-    const strategicInventory = ballisticCount > 0 ? `\nSTRATEGIC WEAPONS INVENTORY: You currently have ${ballisticCount} ballistic missiles available. Do not order a "BALLISTIC" task if you have 0.
-CRITICAL RULES FOR BALLISTIC MISSILES:
-1. 1 LAUNCHER = 1 MISSILE: To fire, you must issue an "existing" action targeting ONE specific capable launcher group from your 'active_assets'.
-2. RANGE LIMIT: Launchers have a STRICT MAXIMUM RANGE of ${state.ballisticRangeKm}km. You MUST calculate the approximate distance between the launcher's location and the target.
-3. INVENTORY & ASSET LIMITS: You cannot fire more missiles than your total inventory, nor can you fire more missiles than the number of capable launchers currently within range.\n` : `STRATEGIC WEAPONS INVENTORY: You currently have ${ballisticCount} ballistic missiles available so you can not order a "BALLISTIC" task.\n`;
-	
-	if (forces.session == null) {
-		
-		try {
-			// Pasamos el método y la credencial a tu initModel
-            forces.model = ai.initModel(authMethodGlobal, authCredentialGlobal, currentModelName, getSystemInstructions(forces.instructions, state.unitProfiles, side));
-            forces.session = ai.startChatSession(forces.model);
-			mainWindow.webContents.send('log-message', `Commander of ${forces.coalition} is monitoring the battlefield`, 'success');
-
-			// Get initial orders
-			try {
-				const prompt = `
-The battlefield simulation has started.
-You are the active Theater Commander.
-
-1. Use 'get_top_priority_goals' to retrieve your current objectives. You have a STRICT MAXIMUM of 25 tool call rounds to gather intelligence before issuing orders.
-2. MACRO-INTEL OVERRIDE: To evaluate a specific target, you MUST prioritize the 'get_full_tactical_intel' tool. This single tool gives you territory status, enemy threats, closest reserves, and SAM cover all at once.
-3. Use atomic tools (like 'get_enemy_threats_near_location' or 'is_target_in_friendly_territory') ONLY for isolated, specific checks outside of a target evaluation.
-4. When you have gathered enough intelligence, issue your final orders.
-5. DO NOT brute-force 'get_active_groups_by_mission'. If you need to see your deployed assets to redirect them, use 'get_all_active_groups' ONCE.
-
-CRITICAL: To finalize your turn, you MUST call the 'submit_commander_orders' tool. If no action is needed, call the tool with an empty actions array [].`;
-				const aiRawResponse = await ai.sendChatUpdate(prompt + restrictionPrompt + strategicInventory, forces, targets, territory);
-				const jsonOutput = JSON.parse(aiRawResponse);
-				if (jsonOutput && jsonOutput.actions) {
-					mainWindow.webContents.send('log-message', `Commander of ${forces.coalition} Journal: ${jsonOutput.mission_log}`, 'success');
-					sendOrdersToDCS(side.toUpperCase(), jsonOutput.actions);
-                    sendMessageToDCS(side.toUpperCase(), jsonOutput.mission_log);
-					jsonOutput.actions.forEach(action => {
-                        if (action.action_type === 'new' && action.unit_names) {
-                            action.unit_names.forEach(unitName => {
-                                forces.removeAvailableUnit(unitName);
-                            });
-                        }
-                        if (action.task === 'BALLISTIC') {
-                            persistence.consumeBallisticMissile(side, 1);
-                            mainWindow.webContents.send('log-message', `Commander of ${forces.coalition} authorized a BALLISTIC MISSILE launch. Missiles remaining: ${persistence.getBallisticMissileCount()}`, 'info');
-                        }
-                    });
-                    triggerMapUpdate();
-				}
-			} catch (err) {
-				mainWindow.webContents.send('log-message', `Commander of ${forces.coalition} error: ${err.message}`, 'error');
-				return;
-			}
-		} catch (err) {
-			logger.info(err);
-			mainWindow.webContents.send('log-message', `Failed to initialize model for ${forces.coalition}: ${err.message}`, 'error');
-			forces.session = null;
-			return;
-		}
-		
-	} else {
-		
-		try {
-			const logForAI = [...cState.aiLogs];
-			cState.aiLogs = [];
-			
-			mainWindow.webContents.send('log-message', `Commander of ${forces.coalition} receiving battlefield updates...`, 'info');
-			
-            const updatePrompt = `
-SITUATION UPDATE: The battlefield state has changed based on new intelligence and events.
-
-RECENT BATTLEFIELD EVENTS:
-${logForAI.length > 0 ? logForAI.join('.\n') : "ISR contacts updated. Review new intelligence."}
-
-1. REVIEW HISTORY: Consider your previous 'mission_log' and the orders you recently issued. Do not issue duplicate orders to units already task-saturated. If existing tasks are proceeding nominally and no new high-priority targets emerged, consider launching background CAP or supporting assets if reserves permit (respecting the max 2 NEW deployments per turn limit).
-2. ASSESS NEW DATA: Prioritize the 'get_full_tactical_intel' macro-tool to evaluate active targets quickly and conserve your tool call budget. Use individual atomic tools only for specific, isolated queries.
-3. TAKE ACTION: 
-   - Issue 'new' orders (max 2 per cycle) to address secondary goals or reinforce active sectors.
-   - Issue 'RTB' commands to 'existing' active units if their goal is complete, or if the threat level has become unsurvivable.
-4. If the current situation is nominal and your previous orders are still sufficient, simply return {"mission_log": "Situation nominal, continuing execution of previous orders.", "actions": []}.
-5. DO NOT brute-force 'get_active_groups_by_mission'. If you need to see your deployed assets to redirect them, use 'get_all_active_groups' ONCE.
-
-CRITICAL: To finalize your turn, you MUST call the 'submit_commander_orders' tool. If no action is needed, call the tool with an empty actions array [].`;
-			
-			const aiRawResponse = await ai.sendChatUpdate(updatePrompt + restrictionPrompt + strategicInventory, forces, targets, territory);
-            const jsonOutput = ai.aiSanitizeJson(aiRawResponse);
-			
-			if (jsonOutput && jsonOutput.actions && jsonOutput.actions.length > 0) {
-				mainWindow.webContents.send('log-message', `Commander of ${forces.coalition}: ${jsonOutput.mission_log}`, 'success');
-				sendOrdersToDCS(side.toUpperCase(), jsonOutput.actions);
-                sendMessageToDCS(side.toUpperCase(), jsonOutput.mission_log);
-				jsonOutput.actions.forEach(action => {
-                    if (action.action_type === 'new' && action.unit_names) {
-                        action.unit_names.forEach(unitName => {
-                            forces.removeAvailableUnit(unitName);
-                        });
-                    }
-                    if (action.task === 'BALLISTIC') {
-                        persistence.consumeBallisticMissile(side, 1);
-                        mainWindow.webContents.send('log-message', `Commander of ${forces.coalition} authorized a BALLISTIC MISSILE launch. Missiles remaining: ${persistence.getBallisticMissileCount()}`, 'info');
-                    }
-                });
-                triggerMapUpdate();
-			} else if (jsonOutput) {
-				mainWindow.webContents.send('log-message', `Commander of ${forces.coalition}: Monitoring. ${jsonOutput.mission_log}`, 'info');
-                sendMessageToDCS(side.toUpperCase(), "Monitoring. " + jsonOutput.mission_log);
-			} else {
-				mainWindow.webContents.send('log-message', `Commander of ${forces.coalition}: AI failed to determine what to do in time.`, 'error');
-			}
-			
-			// 5. Rebase context every few cycles to keep the AI's memory clean
-			cycleCount++;
-			if (cycleCount % REBASE_INTERVAL === 0) {
-			   forces.session = await ai.rebaseChatSession(forces.model, forces.session, 4);
-			}
-				
-		} catch (err) {
-            mainWindow.webContents.send('log-message', `Commander of ${forces.coalition} error during update: ${err.message}`, 'error');
-        }
-		
-	}
+    return runCommanderCycle(side, {
+        state, engine: commanderEngine, threatAnalysis, logger,
+        getPersistence: () => persistence,      // `persistence` is re-assigned elsewhere, so pass a getter
+        getMainWindow: () => mainWindow,
+        sendOrdersToDCS, sendMessageToDCS, triggerMapUpdate,
+        retry: (s) => processCommander(s)
+    });
 }
 
 // UI Handlers
@@ -808,7 +568,7 @@ ipcMain.handle('select-json-file', async (event) => {
     return filePaths[0];
 });
 
-ipcMain.handle('select-and-start', async (event, enableAiCommander, enablePersistence, persistState, persistPositions, persistTime, authMethod, authCredential, modelName, commanderSide, instructionsRed, instructionsBlue, intervalTime, aggRed, aggBlue, enableEscalation, bmRed, bmBlue, unitProfiles) => {
+ipcMain.handle('select-and-start', async (event, enableAiCommander, enablePersistence, persistState, persistPositions, persistTime, authMethod, authCredential, modelName, commanderSide, instructionsRed, instructionsBlue, intervalTime, aggRed, aggBlue, enableEscalation, bmRed, bmBlue, unitProfiles, aiOptions) => {
 
     startServer();
 
@@ -841,9 +601,12 @@ ipcMain.handle('select-and-start', async (event, enableAiCommander, enablePersis
 
     // Only set AI authentication if the AI Commander is enabled
     if (enableAiCommander) {
-        authMethodGlobal = authMethod;
-        authCredentialGlobal = authCredential;
-        currentModelName = modelName;
+        const o = aiOptions || {};
+        commanderEngine = new CommanderEngine({
+            ...o,
+            modelFast: o.modelFast || modelName,
+            gemini: { authMethod, credential: authCredential }
+        }, { ui: (m, t) => mainWindow && mainWindow.webContents.send('log-message', m, t) });
     }
 
     // Apply JSON state file generation/update if requested
@@ -948,6 +711,7 @@ ipcMain.handle('stop-monitor', async () => {
     missionAbsTime = 0;
 
     if (mainWindow) mainWindow.webContents.send('log-message', 'Operations suspended by user.', 'info');
+    if (commanderEngine) logger.info('AI usage: ' + commanderEngine.cost.summary());
     stopServer();
     return true;
 });
