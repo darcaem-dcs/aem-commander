@@ -54,6 +54,45 @@ let state = {
 // Threat analysis
 const threatAnalysis = require('./utils/threatAnalysis.js');
 
+// Mission planner
+const MissionScanner = require('./utils/missionScanner.js');
+const MissionPlan = require('./utils/missionPlan.js');
+const plan = new MissionPlan();
+
+function getPlanPath(missionName) {
+    const safe = String(missionName || 'mission').replace(/[^a-z0-9_-]/gi, '_');
+    return path.join(app.getPath('userData'), 'plans', `${safe}.aemplan.json`);
+}
+
+// Marks a goal as achieved: persists it, removes it from every list and unlocks dependants
+function completeGoal(goalId) {
+    if (!goalId) return false;
+    const before = {};
+    ['red', 'blue'].forEach(s => {
+        const list = (state[s].targets && state[s].targets.targets) || [];
+        before[s] = new Set(list.filter(t => t.locked).map(t => t.name));
+    });
+
+    const isNew = plan.markCompleted(goalId);
+    ['red', 'blue'].forEach(s => {
+        const t = state[s].targets;
+        if (!t) return;
+        t.removeTarget(goalId);
+        plan.refreshLocks(t);
+        (t.targets || []).filter(x => before[s].has(x.name) && !x.locked).forEach(x => {
+            state[s].aiLogs.push(`Goal ${x.name} is now unlocked: its prerequisites are completed.`);
+            logger.info(`[plan] Goal ${x.name} unlocked.`);
+        });
+    });
+
+    if (isNew) {
+        logger.info(`[plan] Goal completed: ${goalId}`);
+        if (mainWindow) mainWindow.webContents.send('log-message', `Goal completed: ${goalId}`, 'success');
+        if (persistence.currentFile && state.persistState) persistence.setCompletedGoals([...plan.completed]);
+    }
+    return isNew;
+}
+
 function startServer() {
     // Prevent trying to start multiple servers on the same port
     if (isListening) {
@@ -118,6 +157,7 @@ function startServer() {
             state.blue.territory = null;
             
             persistence = new PersistenceManager();
+            plan.reset();
             activeDeployments = {};
             
             if (mainWindow) {
@@ -145,6 +185,7 @@ function startServer() {
             state.blue.territory = null;
             
             persistence = new PersistenceManager();
+            plan.reset();
             activeDeployments = {};
             
             if (mainWindow) {
@@ -212,6 +253,17 @@ function routeDCSMessage(msg) {
                 missionName: incomingMission
             });
         }
+
+        // Mission plan (goal overrides, custom goals, dependencies)
+        plan.reset();
+        const planPath = getPlanPath(incomingMission);
+        const planRes = plan.load(planPath);
+        const planUi = (m, t) => { logger.info(`[plan] ${m}`); if (mainWindow) mainWindow.webContents.send('log-message', m, t); };
+        if (planRes.loaded) planUi(`Mission plan loaded (${Object.keys(plan.data.goals).length} goal entries): ${planPath}`, 'success');
+        else if (planRes.errors.length === 0) logger.info(`[plan] No mission plan found (expected at ${planPath})`);
+        planRes.errors.forEach(e => planUi(`Mission plan error: ${e}`, 'error'));
+        planRes.warnings.forEach(w => planUi(`Mission plan: ${w}`, 'error'));
+        if (persistence.currentFile) plan.setCompleted(persistence.getCompletedGoals());
 
         if (persistence.currentFile) {
             if (incomingMission !== persistence.state.mission_info?.mission_name) {
@@ -372,7 +424,8 @@ function routeDCSMessage(msg) {
 			state[coal].forces.updateISR(msg.data);
             break;
         case "GOALS":
-            state[coal].targets.updateGoals(msg.data);
+            state[coal].targets.updateGoals(plan.filterCompleted(msg.data));
+            plan.applyTo(state[coal].targets, m => logger.info(`[plan] ${m}`));
             break;
         case "BORDER":
             state[coal].territory.updateBorder(msg.data);
@@ -451,34 +504,36 @@ function routeDCSMessage(msg) {
                         break;
 					
 					case 'captured':	// Zone has been captured
-						/// TODO:
+						if (completeGoal(event.goalName)) {
+							state[coal].aiLogs.push(`Goal ${event.goalName} has been secured: infantry deployed by ${event.groupName}.`);
+						}
 						break;
 						
 					case 'mission_completed':
 						if (event.status === 'SUCCESS') {
 							state[coal].aiLogs.push(`The ${event.task} mission by ${event.groupName} against ${event.targetName} was a SUCCESS.`);
-							
-                            // 1. Identificar al enemigo y buscar en su lista de objetivos
-                            const enemyCoalition = coal === 'red' ? 'blue' : 'red';
-                            const enemyTargetsList = state[enemyCoalition].targets?.targets || [];
-                            
-                            // Buscar el objetivo destruido (DCS lo exporta usando la propiedad 'id' o 'name')
-                            const targetData = enemyTargetsList.find(t => t.id === event.targetName || t.name === event.targetName);
-                            
-                            // 2. Si el objetivo destruido era un almacén de misiles
-                            if (targetData && targetData.type === 'bm_depot') {
-                                const depotCapacity = parseInt(targetData.bm_count) || 0;
-                                const actualLost = persistence.destroyBallisticMissiles(enemyCoalition, depotCapacity);
-                                
-                                // Informar a ambos comandantes con sus respectivos enfoques
-                                state[coal].aiLogs.push(`INTEL CONFIRMS: Enemy ballistic missile depot destroyed! Estimated up to ${depotCapacity} missiles eliminated.`);
-                                state[enemyCoalition].aiLogs.push(`CRITICAL ALERT: Our ballistic missile depot ${event.targetName} was destroyed by enemy forces! We lost ${actualLost} missiles.`);
-                                
-                                logger.info(`[AEM] ${enemyCoalition} lost ${actualLost} ballistic missiles due to depot strike.`);
-                            }
-                            
-                            // 3. Eliminar el objetivo completado
-							targets.removeTarget(event.targetName);
+
+							// The goal id travels in goalName (the old targetName was the enemy group, not the goal)
+							const goalId = event.goalName || event.targetName;
+							const enemyCoalition = coal === 'red' ? 'blue' : 'red';
+							let targetData = null;
+							for (const l of [state[coal].targets, state[enemyCoalition].targets]) {
+								targetData = ((l && l.targets) || []).find(t => t.name === goalId);
+								if (targetData) break;
+							}
+
+							// Ballistic missile depot destroyed
+							if (targetData && targetData.type === 'bm_depot') {
+								const depotCapacity = parseInt(targetData.props && targetData.props.bm_count) || 0;
+								const actualLost = persistence.destroyBallisticMissiles(enemyCoalition, depotCapacity);
+
+								state[coal].aiLogs.push(`INTEL CONFIRMS: Enemy ballistic missile depot destroyed! Estimated up to ${depotCapacity} missiles eliminated.`);
+								state[enemyCoalition].aiLogs.push(`CRITICAL ALERT: Our ballistic missile depot ${goalId} was destroyed by enemy forces! We lost ${actualLost} missiles.`);
+								logger.info(`[AEM] ${enemyCoalition} lost ${actualLost} ballistic missiles due to depot strike.`);
+							}
+
+							// Only real goals count (a coordinate strike has no goal)
+							if (targetData || plan.data.goals[goalId]) completeGoal(goalId);
 						} else {
 							state[coal].aiLogs.push(`The ${event.task} mission by ${event.groupName} against ${event.targetName} FAILED. Assess if a re-strike is necessary.`);
 						}
@@ -549,7 +604,7 @@ function createWindow() {
 
 async function processCommander(side) {
     return runCommanderCycle(side, {
-        state, engine: commanderEngine, threatAnalysis, logger,
+        state, engine: commanderEngine, threatAnalysis, logger, plan,
         getPersistence: () => persistence,      // `persistence` is re-assigned elsewhere, so pass a getter
         getMainWindow: () => mainWindow,
         sendOrdersToDCS, sendMessageToDCS, triggerMapUpdate,
@@ -706,6 +761,7 @@ ipcMain.handle('stop-monitor', async () => {
     state.red.forces = null; 
     state.blue.forces = null;
     persistence = new PersistenceManager();
+    plan.reset();
     activeDeployments = {};
     groupsToPersist = [];
     missionAbsTime = 0;
@@ -1102,7 +1158,9 @@ ipcMain.handle('extract-miz-settings', async () => {
             persistKeyword: getStr('PERSISTENCE_KEYWORD'),
             
             theatre: theatre,
-            hasTrigger: hasTrigger
+            hasTrigger: hasTrigger,
+
+            missionName: getStr('MISSION_NAME')
         };
 
         // Scan AEM_RES statics (preview for the UI; the injection re-scans the target .miz itself)
@@ -1119,7 +1177,22 @@ ipcMain.handle('extract-miz-settings', async () => {
             logger.warn(`Static scan failed: ${e.message}`);
         }
 
-        return { success: true, settings, fileName: path.basename(selectedMiz), staticScan };
+        // Mission layout for the Mission Map section
+        let layout = null;
+        try {
+            const dEntry = zip.getEntry('l10n/DEFAULT/dictionary');
+            layout = MissionScanner.scan(missionText, dEntry ? zip.readAsText(dEntry, 'utf8') : '', {
+                redBorder: settings.redBorder, blueBorder: settings.blueBorder,
+                redEw: settings.redEw, blueEw: settings.blueEw,
+                redSam: settings.redSam, blueSam: settings.blueSam,
+                staticRes: settings.staticRes, templatePrefix: settings.templatePrefix
+            });
+            layout.missionName = settings.missionName || path.basename(selectedMiz, '.miz');
+        } catch (e) {
+            logger.warn(`Mission layout scan failed: ${e.message}`);
+        }
+
+        return { success: true, settings, fileName: path.basename(selectedMiz), staticScan, layout };
     } catch (err) {
         return { success: false, error: err.message };
     }
@@ -1339,6 +1412,48 @@ ipcMain.handle('extract-csar-templates', async (event) => {
         return { success: true, count, fileName: path.basename(savePath) };
     } catch (err) {
         logger.error(`CSAR extraction failed: ${err.message}`);
+        return { success: false, error: err.message };
+    }
+});
+
+ipcMain.handle('scan-mission-layout', async (event, opts) => {
+    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+        title: 'Select a .miz file to preview its layout',
+        properties: ['openFile'],
+        filters: [{ name: 'DCS Mission Files', extensions: ['miz'] }]
+    });
+    if (canceled || filePaths.length === 0) return { success: false, error: 'Cancelled' };
+    try {
+        const layout = MissionScanner.scanFromMiz(filePaths[0], opts || {});
+        return { success: true, layout, fileName: path.basename(filePaths[0]) };
+    } catch (err) {
+        logger.error(`Mission layout scan failed: ${err.message}`);
+        return { success: false, error: err.message };
+    }
+});
+
+ipcMain.handle('plan-load', async (event, missionName) => {
+    const p = new MissionPlan();
+    const file = getPlanPath(missionName);
+    const res = p.load(file);
+    return {
+        success: res.errors.length === 0, exists: res.loaded, path: file,
+        plan: p.data, warnings: res.warnings, errors: res.errors, goalTypes: MissionPlan.GOAL_TYPES
+    };
+});
+
+ipcMain.handle('plan-save', async (event, missionName, rawPlan) => {
+    try {
+        const p = new MissionPlan();
+        const warnings = [];
+        p.data = p.normalize(rawPlan, warnings);          // drops invalid custom goals, cleans fields
+        p.validate().forEach(w => warnings.push(w));      // dependency cycles
+        const file = getPlanPath(missionName);
+        p.save(file);
+        logger.info(`[plan] Saved ${file}`);
+        return { success: true, path: file, plan: p.data, warnings };
+    } catch (err) {
+        logger.error(`[plan] Save failed: ${err.message}`);
         return { success: false, error: err.message };
     }
 });

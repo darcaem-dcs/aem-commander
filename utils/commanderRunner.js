@@ -19,6 +19,8 @@ module.exports = async function runCommanderCycle(side, d) {
         return;
     }
 
+    if (d.plan) d.plan.applyTo(targets, m => logger.info(`[plan] ${m}`));
+
     // Always evaluate posture (it also applies the loss-decay), even if the AI call ends up skipped
     const posture = threatAnalysis.getPostureRestriction(cState, side, state.escalationEnabled, mainWindow, persistence);
 

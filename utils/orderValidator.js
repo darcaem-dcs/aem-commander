@@ -57,6 +57,7 @@ function validateActions(actions, ctx) {
         const hasTarget = Number.isFinite(lat) && Number.isFinite(lon);
         if (a.task !== 'RTB' && !hasTarget) { reject('missing target_area'); continue; }
         if (goal && posture && posture.peacetimeOnly && !goal.peacetime && goal.type !== 'csar') { reject(`goal ${goal.name} is not allowed in peacetime`); continue; }
+        if (goal && goal.locked) { reject(`goal ${goal.name} is locked until ${(goal.blockedBy || []).join(', ')} is completed`); continue; }
 
         const out = { action_type: a.action_type, task: a.task, rationale: a.rationale };
         if (hasTarget) out.target_area = { lat, long: lon };

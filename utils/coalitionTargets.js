@@ -1,7 +1,7 @@
 const logger = require('./log.js');
 
 class Target {
-	constructor(name, priority, type, lat, lon, assetsInvolved, peacetime = false) {
+	constructor(name, priority, type, lat, lon, assetsInvolved, peacetime = false, props = {}) {
 		this.name = name;
 		this.priority = priority;
 		this.type = type;
@@ -9,6 +9,10 @@ class Target {
 		this.lon = lon;
 		this.assetsInvolved = assetsInvolved ? assetsInvolved : [];
 		this.peacetime = peacetime;
+		this.props = props || {};     // extra zone properties (bm_count, ...) and plan props
+		this.requires = [];           // set by MissionPlan.refreshLocks
+		this.blockedBy = [];
+		this.locked = false;
 	}
 }
 
@@ -19,21 +23,27 @@ class CoalitionTargets {
 	}
 	
 	updateGoals(dataArray) {
-        this.targets = dataArray.map(item => new Target(
-            item.id,
-            parseFloat(item.priority || 1),
-            item.type,
-            item.target_area.lat,
-            item.target_area.long,
-            item.assetsInvolved || null,
-            // DCS Lua might send it as a string "true" or a boolean true
-            item.hasOwnProperty('peacetime') && (item.peacetime === 'true' || item.peacetime === true)
-        ));
-    }
+		const runtime = (this.targets || []).filter(t => t.type === 'csar' || t.type === 'enemy-csar');
+		this.targets = dataArray.map(item => {
+			const { id, target_area, ...props } = item;
+			return new Target(
+				id,
+				parseFloat(item.priority || 1),
+				item.type,
+				target_area.lat,
+				target_area.long,
+				item.assetsInvolved || null,
+				// DCS Lua might send it as a string "true" or a boolean true
+				item.peacetime === 'true' || item.peacetime === true,
+				props
+			);
+		});
+		this.targets.push(...runtime);
+	}
 	
-	addTarget(name, priority, type, lat, lon, assets, peacetime = false) {
+	addTarget(name, priority, type, lat, lon, assets, peacetime = false, props = {}) {
 		if (!this.targets) this.targets = [];
-		this.targets.push(new Target(name, priority, type, lat, lon, assets, peacetime));
+		this.targets.push(new Target(name, priority, type, lat, lon, assets, peacetime, props));
 	}
 	
 	removeTarget(name) {

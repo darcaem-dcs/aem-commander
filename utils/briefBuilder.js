@@ -28,6 +28,7 @@ function centroid(border) {
 function actionableGoals(targets, posture, maxGoals = 4) {
     const list = (targets && targets.targets) || [];
     return list
+        .filter(t => !t.locked)
         .filter(t => !(posture && posture.peacetimeOnly && !t.peacetime && t.type !== 'csar'))
         .sort((a, b) => b.priority - a.priority)
         .slice(0, maxGoals);
@@ -139,6 +140,8 @@ function buildBrief(ctx) {
     if (memory.lastLog) brief.last_mission_log = memory.lastLog;
     const events = [...new Set(ctx.logs || [])].slice(-12);
     if (events.length) brief.events = events;
+    const locked = ((targets && targets.targets) || []).filter(t => t.locked).slice(0, 6).map(t => `${t.name}: after ${(t.blockedBy || []).join('+')}`);
+    if (locked.length) brief.locked_goals = locked;
     return brief;
 }
 

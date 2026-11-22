@@ -2685,6 +2685,18 @@ function AEM_DeployInfantry(groupName, coalitionStr)
         else
             env.error("AEM Commander: Infantry template not found: " .. tostring(template))
         end
+
+        -- Troops deployed: the goal they were sent to is secured
+        local persisted = AEM_GroupPersistence[groupName]
+        local goalName = persisted and persisted.orders and persisted.orders.target_name
+        if goalName and goalName ~= "Deployed Infantry" then
+            PushEvent(string.lower(coalitionStr), {
+                type = "captured",
+                coalition = string.lower(coalitionStr),
+                goalName = goalName,
+                groupName = groupName
+            })
+        end
         
         -- Tras desplegar la infantería, ordenamos RTB
         group:ClearTasks()
@@ -3016,7 +3028,7 @@ local function SpawnAndTask(action, spawnTemplate, spawnAirbase, coalitionStr, p
 			elseif taskType == "SEAD" then
 				combatMission = missionSEAD(zoneName, targetCoord, FlightGroup)
 			elseif taskType == "STRIKE" then
-				combatMission = missionStrike(targetCoord, action.reference_entity, groupName, coalitionStr)
+                combatMission = missionStrike(targetCoord, action.reference_entity, groupName, coalitionStr, action.target_name)
             elseif taskType == "TRANSPORT_TROOPS" or taskType == "TRANSPORT_LOGISTICS" then
                 if unitCategory == "Helo" then
                     RouteHeloDrop(NewGroup, targetCoord, 120, 3000, taskType, coalitionStr)
@@ -3220,7 +3232,7 @@ function ProcessAIOrders(actions, coalitionStr)
                                 elseif task == "INTERCEPT" then combatMission = missionIntercept(zoneName, targetCoord, pData.orders.reference_entity)
                                 elseif task == "CAS" then combatMission = missionCAS(zoneName, targetCoord)
                                 elseif task == "SEAD" then combatMission = missionSEAD(zoneName, targetCoord, FlightGroup)
-                                elseif task == "STRIKE" then combatMission = missionStrike(targetCoord, pData.orders.reference_entity, groupName, coalStr)
+                                elseif task == "STRIKE" then combatMission = missionStrike(targetCoord, pData.orders.reference_entity, groupName, coalStr, pData.orders.target_name)
                                 elseif task == "TRANSPORT_TROOPS" or task == "TRANSPORT_LOGISTICS" then
                                     if category == "Helo" then RouteHeloDrop(NewGroup, targetCoord, 120, 3000, task, coalStr)
                                     else RouteAirplaneDrop(NewGroup, targetCoord, 250, 15000, task, coalStr) end
@@ -3389,7 +3401,7 @@ function ProcessAIOrders(actions, coalitionStr)
 							elseif taskType == "SEAD" then
 								combatMission = missionSEAD(zoneName, targetCoord, FlightGroup)
 							elseif taskType == "STRIKE" then
-								combatMission = missionStrike(targetCoord, action.reference_entity, action.group_name, coalitionStr)
+                                combatMission = missionStrike(targetCoord, action.reference_entity, action.group_name, coalitionStr, action.target_name)
 							elseif taskType == "TRANSPORT_TROOPS" or taskType == "TRANSPORT_LOGISTICS" then
 								if unitCategory == "Helo" then
 									RouteHeloDrop(ExistingGroup, targetCoord, 120, 3000, taskType, coalitionStr)
@@ -3468,7 +3480,7 @@ function missionSEAD(zoneName, targetCoord, flightGroup)
 	return combatMission
 end
 
-function missionStrike(targetCoord, enemyGroupName, ownGroupName, coalitionStr)
+function missionStrike(targetCoord, enemyGroupName, ownGroupName, coalitionStr, goalName)
 	local altitude = math.random(12000, 18000)
     local speed = math.random(320, 380)
 	local enemyGroupObj = enemyGroupName and GROUP:FindByName(enemyGroupName)
@@ -3482,7 +3494,8 @@ function missionStrike(targetCoord, enemyGroupName, ownGroupName, coalitionStr)
             task = "STRIKE",
             status = "SUCCESS",
             groupName = ownGroupName,
-            targetName = enemyGroupName or "Coordinate Target"
+            targetName = enemyGroupName or "Coordinate Target",
+            goalName = goalName
         })
     end
 
@@ -3492,7 +3505,8 @@ function missionStrike(targetCoord, enemyGroupName, ownGroupName, coalitionStr)
             task = "STRIKE",
             status = "FAILED",
             groupName = ownGroupName,
-            targetName = enemyGroupName or "Coordinate Target"
+            targetName = enemyGroupName or "Coordinate Target",
+            goalName = goalName
         })
     end
 	

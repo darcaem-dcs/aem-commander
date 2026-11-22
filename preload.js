@@ -98,4 +98,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
      * Extracts CSAR groups from a master .miz file to build csar.json
      */
     extractCsarTemplates: () => ipcRenderer.invoke('extract-csar-templates'),
+
+    /** Scans a .miz and returns its layout (groups, reserves, goals, borders) for the Mission Map. */
+    scanMissionLayout: (opts) => ipcRenderer.invoke('scan-mission-layout', opts),
+
+    /** Mission plan (goal overrides, custom goals, dependencies) */
+    loadMissionPlan: (missionName) => ipcRenderer.invoke('plan-load', missionName),
+    saveMissionPlan: (missionName, plan) => ipcRenderer.invoke('plan-save', missionName, plan),
+
 });

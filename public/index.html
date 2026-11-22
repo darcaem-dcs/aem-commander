@@ -164,6 +164,29 @@
         
         .module-content-inner { transition: opacity 0.3s; }
         .module-disabled { opacity: 0.3; pointer-events: none; }
+
+        .mm-layout { display: flex; gap: 15px; align-items: stretch; }
+        #missionMap { flex: 1; height: 640px; border: 1px solid var(--border-color); border-radius: 6px; z-index: 1; }
+        .mm-side { flex: 0 0 320px; display: flex; flex-direction: column; gap: 8px; font-size: 0.9em; }
+        .mm-side h4 { margin: 8px 0 4px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; font-size: 0.8em; }
+        .mm-side label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+        .mm-count { margin-left: auto; color: var(--text-muted); }
+        #missionMapDetails { background: var(--bg-input); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px; flex: 1; overflow-y: auto; }
+        #missionMapDetails td { padding: 2px 6px 2px 0; vertical-align: top; }
+        .mm-mode.active { border-color: var(--accent-blue); color: var(--accent-blue); }
+        .mm-field { display: flex; flex-direction: column; gap: 2px; margin-bottom: 6px; }
+        .mm-flabel { color: var(--text-muted); font-size: 0.85em; }
+        .mm-check { display: flex; align-items: center; gap: 6px; cursor: pointer; margin-bottom: 4px; }
+        .mm-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px; }
+        .mm-chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px; border: 1px solid var(--border-color); border-radius: 10px; font-size: 0.85em; }
+        .mm-x { border: none; background: none; color: var(--accent-red); padding: 0 2px; cursor: pointer; font-weight: bold; }
+        .mm-goal-label { background: var(--bg-card); color: var(--text-main); border: 2px solid; border-radius: 10px; font-size: 11px; font-weight: bold; text-align: center; padding: 1px 4px; white-space: nowrap; }
+        .mm-goal-label.sel { box-shadow: 0 0 0 3px var(--accent-blue); }
+        .mm-goal-head { font-weight: bold; margin-top: 6px; }
+        .mm-goal-row { display: flex; gap: 6px; align-items: center; padding: 3px 4px; border-radius: 4px; cursor: pointer; font-size: 0.85em; }
+        .mm-goal-row:hover { background: var(--bg-header); }
+        .mm-goal-row.sel { background: var(--bg-banner); outline: 1px solid var(--accent-blue); }
+        .mm-goal-row .mm-phase { background: var(--bg-header); border-radius: 8px; padding: 0 6px; color: var(--text-muted); }
     </style>
 </head>
 <body>
@@ -230,6 +253,9 @@
                 
                 <!-- SIDEBAR NAVIGATION -->
                 <div class="config-sidebar">
+                    <div class="nav-item" data-target="paneMap" style="margin-bottom: 15px;">
+                        <span><i class="fa-solid fa-map-location-dot"></i> Mission Map</span>
+                    </div>
                     <h3>Modules</h3>
                     <div class="nav-item active" data-target="paneCore">
                         <span><i class="fa-solid fa-microchip"></i> Core Setup</span>
@@ -713,6 +739,40 @@
                         </div>
                     </div>
 
+                    <!-- Map -->
+                    <div id="paneMap" class="module-pane">
+                        <h2>Mission Map</h2>
+                        <p style="font-size: 0.9em; color: var(--text-muted); margin-bottom: 15px;">Overview of the mission layout: groups, AEM_RES reserves, goals and borders. Load settings from a mission, or pick a .miz here.</p>
+                        <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 8px; flex-wrap: wrap;">
+                            <button id="btnScanMission" class="btn-icon"><i class="fa-solid fa-folder-open"></i> Load mission layout...</button>
+                            <span id="missionMapStatus" style="color: var(--text-muted); font-size: 0.85em;">No mission loaded.</span>
+                        </div>
+                        <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 4px; flex-wrap: wrap;">
+                            <button id="mmBtnSelect" class="btn-icon mm-mode active"><i class="fa-solid fa-arrow-pointer"></i> Select</button>
+                            <button id="mmBtnAdd" class="btn-icon mm-mode"><i class="fa-solid fa-location-crosshairs"></i> Add goal</button>
+                            <select id="mmNewGoalSide" class="input-field" style="width: auto; padding: 6px;">
+                                <option value="red">Red</option><option value="blue">Blue</option>
+                            </select>
+                            <button id="mmBtnLink" class="btn-icon mm-mode"><i class="fa-solid fa-link"></i> Link dependency</button>
+                            <span style="flex: 1;"></span>
+                            <span id="mmPlanStatus" style="font-size: 0.85em; color: var(--text-muted);"></span>
+                            <button id="mmBtnRevert" class="btn-icon">Revert</button>
+                            <button id="mmBtnSave" class="btn-select" style="padding: 8px 16px; margin: 0;"><i class="fa-solid fa-floppy-disk"></i> Save plan</button>
+                        </div>
+                        <div id="mmHint" style="font-size: 0.8em; color: var(--text-muted); margin-bottom: 10px;">Click a goal to edit it.</div>
+                        <div class="mm-layout">
+                            <div id="missionMap"></div>
+                            <div class="mm-side">
+                                <h4>Layers</h4>
+                                <div id="mmLayerList" style="display: flex; flex-direction: column; gap: 4px;"></div>
+                                <h4>Goals (by phase, then priority)</h4>
+                                <div id="mmGoalList" style="max-height: 200px; overflow-y: auto;"></div>
+                                <h4>Selection</h4>
+                                <div id="missionMapDetails"><span style="color: var(--text-muted);">Click an element on the map.</span></div>
+                            </div>
+                        </div>
+                    </div>
+
                 </div>
             </div>
 		
@@ -950,6 +1010,8 @@
                 }
 
                 renderStaticReserves(result.staticScan);
+                
+                setMissionLayout(result.layout, result.fileName);
 
                 // Populate CSAR
                 setCheck('toggleCsar', s.moduleCsar);
@@ -1374,6 +1436,8 @@
                 const targetId = item.getAttribute('data-target');
                 document.querySelectorAll('.module-pane').forEach(pane => pane.classList.remove('active-pane'));
                 document.getElementById(targetId).classList.add('active-pane');
+
+                if (targetId === 'paneMap') onMissionMapShown();
             });
         });
 
@@ -1766,7 +1830,10 @@
         });
 
         btnSelectStart.addEventListener('click', async () => {
-			validationErrorMsg.style.display = 'none';
+            
+            if (mmIsDirty() && !confirm('The mission plan has unsaved changes and they will NOT be applied. Start anyway?')) return;
+			
+            validationErrorMsg.style.display = 'none';
 
             const enableAiCommander = toggleAiCommander.checked;
             const enablePersistence = togglePersistence.checked;
@@ -2245,6 +2312,622 @@
                 display.style.display = 'inline-block';
             }
         }
+
+        // --- MISSION MAP (layout preview + mission plan editor) ---
+        const MM_RED = '#dc3545', MM_BLUE = '#0d6efd';
+        const MM_LAYER_DEFS = [
+            { key: 'redGroups',    label: 'Red groups',              on: true },
+            { key: 'blueGroups',   label: 'Blue groups',             on: true },
+            { key: 'redReserves',  label: 'Red reserves (AEM_RES)',  on: true },
+            { key: 'blueReserves', label: 'Blue reserves (AEM_RES)', on: true },
+            { key: 'goals',        label: 'Goals',                   on: true },
+            { key: 'deps',         label: 'Goal dependencies',       on: true },
+            { key: 'borders',      label: 'Borders',                 on: true },
+            { key: 'routes',       label: 'Planned routes',          on: false },
+            { key: 'statics',      label: 'Other statics',           on: false },
+            { key: 'templates',    label: 'Late activation / templates', on: false }
+        ];
+        let missionMap = null, mmLayers = {}, mmLayout = null, mmFileName = '', mmNeedsRender = false;
+        let mmPlan = { version: 1, goals: {}, orders: [] }, mmPlanSaved = JSON.stringify(mmPlan);
+        let mmGoalTypes = ['strike', 'bm_depot', 'conquer', 'resupply', 'border_crossing', 'deploy_infantry'];
+        let mmMode = 'select', mmSel = null, mmLinkFrom = null;
+
+        const mmEsc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        const mmColor = side => side === 'red' ? MM_RED : MM_BLUE;
+        const mmIsDirty = () => JSON.stringify(mmPlan) !== mmPlanSaved;
+
+        // Tiny DOM helper (no innerHTML with mission-provided names)
+        function mmEl(tag, props = {}, ...kids) {
+            const e = document.createElement(tag);
+            Object.entries(props).forEach(([k, v]) => {
+                if (k === 'style') e.style.cssText = v;
+                else if (k === 'class') e.className = v;
+                else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+                else if (v !== undefined && v !== null) e[k] = v;
+            });
+            kids.flat().forEach(k => e.append(k));
+            return e;
+        }
+
+        function ensureMissionMap() {
+            if (missionMap) return;
+            missionMap = L.map('missionMap', { preferCanvas: true }).setView([20, 0], 2);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19, attribution: '© OpenStreetMap contributors'
+            }).addTo(missionMap);
+            missionMap.on('click', mmOnMapClick);
+            document.addEventListener('keydown', e => { if (e.key === 'Escape') mmSetMode('select'); });
+
+            const list = document.getElementById('mmLayerList');
+            MM_LAYER_DEFS.forEach(def => {
+                mmLayers[def.key] = L.featureGroup();
+                if (def.on) mmLayers[def.key].addTo(missionMap);
+                const cb = mmEl('input', { type: 'checkbox', checked: def.on, style: 'accent-color: var(--accent-blue);' });
+                cb.addEventListener('change', () => {
+                    if (cb.checked) mmLayers[def.key].addTo(missionMap);
+                    else missionMap.removeLayer(mmLayers[def.key]);
+                });
+                list.appendChild(mmEl('label', {}, cb, mmEl('span', { textContent: def.label }), mmEl('span', { class: 'mm-count', 'data-count': def.key })));
+            });
+            document.querySelectorAll('.mm-count').forEach(el => { el.dataset.count = el.getAttribute('data-count'); });
+        }
+
+        function onMissionMapShown() {
+            ensureMissionMap();
+            missionMap.invalidateSize();          // the pane was display:none when the map was created
+            if (mmNeedsRender) { renderMissionLayout(); mmNeedsRender = false; }
+        }
+
+        async function setMissionLayout(layout, fileName) {
+            mmLayout = layout || null;
+            mmFileName = fileName || '';
+            mmSel = null; mmLinkFrom = null;
+            await mmLoadPlan();
+            mmNeedsRender = true;
+            if (document.getElementById('paneMap').classList.contains('active-pane')) onMissionMapShown();
+            else document.getElementById('missionMapStatus').textContent = layout ? `${fileName}: open this section to see the map.` : 'No mission loaded.';
+        }
+
+        async function mmLoadPlan() {
+            mmPlan = { version: 1, goals: {}, orders: [] };
+            if (mmLayout && mmLayout.missionName) {
+                try {
+                    const res = await window.electronAPI.loadMissionPlan(mmLayout.missionName);
+                    if (res) {
+                        if (res.plan) mmPlan = res.plan;
+                        if (res.goalTypes) mmGoalTypes = res.goalTypes;
+                        const msgs = [...(res.errors || []), ...(res.warnings || [])];
+                        if (msgs.length) showFeedback(`Plan: ${msgs.join(' | ')}`, false);
+                    }
+                } catch (err) { console.error(err); }
+            }
+            mmPlanSaved = JSON.stringify(mmPlan);
+        }
+
+        // ---------- selection details for non-goal elements ----------
+
+        function mmClearDetails() {
+            document.getElementById('missionMapDetails').replaceChildren(mmEl('span', { style: 'color: var(--text-muted);', textContent: 'Click an element on the map.' }));
+        }
+
+        function showMissionDetails(title, rows) {
+            mmSel = null; renderGoals(); renderGoalList();
+            const table = mmEl('table', {}, ...Object.entries(rows).filter(([, v]) => v !== undefined && v !== '' && v !== null)
+                .map(([k, v]) => mmEl('tr', {}, mmEl('td', { style: 'color: var(--text-muted);', textContent: k }), mmEl('td', { textContent: String(v) }))));
+            document.getElementById('missionMapDetails').replaceChildren(mmEl('strong', { textContent: title }), table);
+        }
+
+        // ---------- layout rendering ----------
+
+        function renderMissionLayout() {
+            Object.values(mmLayers).forEach(l => l.clearLayers());
+            const status = document.getElementById('missionMapStatus');
+            document.querySelectorAll('[data-count]').forEach(el => el.textContent = '');
+            if (!mmLayout) { status.textContent = 'No mission loaded.'; renderGoalList(); mmUpdatePlanStatus(); return; }
+            if (mmLayout.projectionError) { status.textContent = mmLayout.projectionError; renderGoalList(); mmUpdatePlanStatus(); return; }
+
+            const counts = {};
+            const bump = k => { counts[k] = (counts[k] || 0) + 1; };
+
+            ['red', 'blue'].forEach(side => {
+                const pts = mmLayout.borders[side];
+                if (pts && pts.length > 2) {
+                    L.polygon(pts, { color: mmColor(side), weight: 3, dashArray: '10 10', fillColor: mmColor(side), fillOpacity: 0.08, interactive: false })
+                        .addTo(mmLayers.borders);
+                    bump('borders');
+                }
+            });
+
+            mmLayout.groups.forEach(g => {
+                const key = g.late ? 'templates' : g.side + 'Groups';
+                const marker = L.marker([g.lat, g.lon], { icon: getUnitIcon(g.category, g.tags, mmColor(g.side), false, g.heading) })
+                    .bindTooltip(mmEsc(`${g.id} (${g.type} x${g.count})`));
+                marker.on('click', () => showMissionDetails('Group', {
+                    Id: g.id, Coalition: g.side, Category: g.category, Type: g.type, Units: g.count,
+                    Tags: g.tags.join(', '), 'Late activation': g.late ? 'Yes' : 'No', Waypoints: g.route.length || ''
+                }));
+                marker.addTo(mmLayers[key]);
+                bump(key);
+                if (!g.late && g.route.length > 1) {
+                    L.polyline(g.route, { color: mmColor(g.side), weight: 2, dashArray: '4 6', opacity: 0.7, interactive: false }).addTo(mmLayers.routes);
+                    bump('routes');
+                }
+            });
+
+            mmLayout.statics.forEach(s => {
+                let marker, key;
+                if (s.reserve) {
+                    key = s.side + 'Reserves';
+                    marker = L.marker([s.lat, s.lon], { icon: getUnitIcon(s.category, s.tags, mmColor(s.side), false, s.heading) });
+                } else {
+                    key = 'statics';
+                    marker = L.circleMarker([s.lat, s.lon], { radius: 3, color: mmColor(s.side), weight: 1, fillOpacity: 0.6, bubblingMouseEvents: false });
+                }
+                marker.bindTooltip(mmEsc(`${s.id} (${s.type})`));
+                marker.on('click', () => showMissionDetails(s.reserve ? 'Reserve' : 'Static', {
+                    Id: s.id, Coalition: s.side, Category: s.category, Type: s.type, Tasks: s.tags.join(', ')
+                }));
+                marker.addTo(mmLayers[key]);
+                bump(key);
+            });
+
+            MM_LAYER_DEFS.forEach(def => {
+                const el = document.querySelector(`[data-count="${def.key}"]`);
+                if (el) el.textContent = counts[def.key] || 0;
+            });
+
+            renderGoals();
+            renderGoalList();
+            mmUpdatePlanStatus();
+
+            status.textContent = `${mmFileName} · ${mmLayout.theatre} · ${mmLayout.groups.length} groups · ${mmLayout.goals.length} mission goals`;
+            const bb = mmLayout.bounds;
+            if (bb) missionMap.fitBounds([[bb.south, bb.west], [bb.north, bb.east]], { padding: [30, 30] });
+        }
+
+        // ---------- plan model helpers ----------
+
+        // Mission zone goals + plan overrides + custom goals
+        function mmEffectiveGoals() {
+            if (!mmLayout) return [];
+            const out = [];
+            (mmLayout.goals || []).forEach(z => {
+                const o = mmPlan.goals[z.id] || {};
+                out.push({
+                    id: z.id, side: z.side, lat: z.lat, lon: z.lon, radius: z.radius, custom: false, base: z,
+                    type: o.type ?? z.type, priority: o.priority ?? z.priority, peacetime: o.peacetime ?? z.peacetime,
+                    disabled: !!o.disabled, requires: o.requires || [], props: { ...(z.props || {}), ...(o.props || {}) }
+                });
+            });
+            Object.entries(mmPlan.goals).forEach(([id, o]) => {
+                if (!o.custom) return;
+                out.push({
+                    id, side: o.side, lat: o.lat, lon: o.lon, radius: o.radius ?? 3000, custom: true,
+                    type: o.type, priority: o.priority ?? 1, peacetime: !!o.peacetime,
+                    disabled: !!o.disabled, requires: o.requires || [], props: o.props || {}
+                });
+            });
+            return out;
+        }
+
+        const mmAllGoalIds = () => new Set([...(mmLayout ? mmLayout.goals.map(z => z.id) : []), ...Object.keys(mmPlan.goals)]);
+
+        function mmGoalEntry(id) {
+            return mmPlan.goals[id] || (mmPlan.goals[id] = { requires: [] });
+        }
+
+        // Zone goal entries with nothing left to say are removed from the plan
+        function mmTidy(id) {
+            const e = mmPlan.goals[id];
+            if (!e || e.custom) return;
+            const keys = Object.keys(e).filter(k => k !== 'requires');
+            if (keys.length === 0 && (e.requires || []).length === 0) delete mmPlan.goals[id];
+        }
+
+        // Does goal "a" (transitively) require goal "b"?
+        function mmDependsOn(a, b) {
+            const req = new Map(mmEffectiveGoals().map(g => [g.id, g.requires]));
+            const seen = new Set();
+            const walk = id => {
+                if (id === b) return true;
+                if (seen.has(id)) return false;
+                seen.add(id);
+                return (req.get(id) || []).some(walk);
+            };
+            return (req.get(a) || []).some(walk);
+        }
+        const mmWouldCycle = (goalId, prereqId) => goalId === prereqId || mmDependsOn(prereqId, goalId);
+
+        // Phase = longest prerequisite chain below the goal
+        function mmPhases(goals) {
+            const byId = new Map(goals.map(g => [g.id, g]));
+            const memo = {};
+            const level = (id, seen) => {
+                if (memo[id] !== undefined) return memo[id];
+                if (seen.has(id)) return 0;
+                seen.add(id);
+                let m = 0;
+                ((byId.get(id) || {}).requires || []).forEach(r => { if (byId.has(r)) m = Math.max(m, level(r, seen) + 1); });
+                seen.delete(id);
+                return (memo[id] = m);
+            };
+            goals.forEach(g => level(g.id, new Set()));
+            return memo;
+        }
+
+        function mmStale() {
+            const zoneIds = new Set((mmLayout ? mmLayout.goals : []).map(z => z.id));
+            const all = mmAllGoalIds();
+            const entries = Object.keys(mmPlan.goals).filter(id => !mmPlan.goals[id].custom && !zoneIds.has(id));
+            let refs = 0;
+            Object.values(mmPlan.goals).forEach(e => (e.requires || []).forEach(r => { if (!all.has(r)) refs++; }));
+            return { entries, refs };
+        }
+
+        function mmCleanStale() {
+            mmStale().entries.forEach(id => delete mmPlan.goals[id]);
+            const all = mmAllGoalIds();
+            Object.keys(mmPlan.goals).forEach(id => {
+                mmPlan.goals[id].requires = (mmPlan.goals[id].requires || []).filter(r => all.has(r));
+                mmTidy(id);
+            });
+            mmAfterPlanChange();
+        }
+
+        // ---------- plan mutations ----------
+
+        function mmSetField(g, key, value) {
+            const entry = mmGoalEntry(g.id);
+            const baseVal = g.base ? { priority: g.base.priority, peacetime: g.base.peacetime, type: g.base.type, disabled: false }[key] : undefined;
+            if (!g.custom && value === baseVal) delete entry[key]; else entry[key] = value;
+            mmTidy(g.id);
+            mmAfterPlanChange();
+        }
+
+        function mmSetProp(g, key, value) {
+            const entry = mmGoalEntry(g.id);
+            const baseVal = g.base && g.base.props ? g.base.props[key] : undefined;
+            entry.props = { ...(entry.props || {}) };
+            if (!g.custom && String(value) === String(baseVal)) delete entry.props[key]; else entry.props[key] = value;
+            if (Object.keys(entry.props).length === 0) delete entry.props;
+            mmTidy(g.id);
+            mmAfterPlanChange();
+        }
+
+        function mmResetOverrides(g) {
+            const entry = mmPlan.goals[g.id];
+            if (!entry) return;
+            mmPlan.goals[g.id] = { requires: entry.requires || [] };
+            mmTidy(g.id);
+            mmAfterPlanChange();
+        }
+
+        function mmAddRequirement(goalId, prereqId) {
+            if (mmWouldCycle(goalId, prereqId)) { showFeedback(`Not allowed: ${prereqId} already depends on ${goalId} (dependency cycle).`, false); return false; }
+            const e = mmGoalEntry(goalId);
+            if (!e.requires.includes(prereqId)) e.requires.push(prereqId);
+            mmAfterPlanChange();
+            return true;
+        }
+
+        function mmRemoveRequirement(goalId, prereqId) {
+            const e = mmPlan.goals[goalId];
+            if (!e) return;
+            e.requires = (e.requires || []).filter(r => r !== prereqId);
+            mmTidy(goalId);
+            mmAfterPlanChange();
+        }
+
+        function mmAddCustomGoal(latlng) {
+            const ids = mmAllGoalIds();
+            let n = 1;
+            while (ids.has(`custom-${n}`)) n++;
+            const id = `custom-${n}`;
+            mmPlan.goals[id] = {
+                custom: true, side: document.getElementById('mmNewGoalSide').value, type: 'strike',
+                lat: +latlng.lat.toFixed(5), lon: +latlng.lng.toFixed(5), radius: 3000, priority: 5, peacetime: false, requires: []
+            };
+            mmSetMode('select');
+            mmSelectGoal(id);
+        }
+
+        function mmRenameGoal(oldId, newId) {
+            newId = (newId || '').trim();
+            if (!newId || newId === oldId) { mmAfterPlanChange(); return; }
+            if (mmAllGoalIds().has(newId)) { showFeedback(`A goal named "${newId}" already exists.`, false); mmAfterPlanChange(); return; }
+            mmPlan.goals[newId] = mmPlan.goals[oldId];
+            delete mmPlan.goals[oldId];
+            Object.values(mmPlan.goals).forEach(g => { g.requires = (g.requires || []).map(r => r === oldId ? newId : r); });
+            if (mmSel === oldId) mmSel = newId;
+            mmAfterPlanChange();
+        }
+
+        function mmDeleteGoal(id) {
+            delete mmPlan.goals[id];
+            Object.keys(mmPlan.goals).forEach(k => {
+                mmPlan.goals[k].requires = (mmPlan.goals[k].requires || []).filter(r => r !== id);
+                mmTidy(k);
+            });
+            mmSel = null;
+            mmClearDetails();
+            mmAfterPlanChange();
+        }
+
+        function mmAfterPlanChange() {
+            renderGoals();
+            renderGoalList();
+            renderGoalEditor();
+            mmUpdatePlanStatus();
+        }
+
+        // ---------- goals on the map ----------
+
+        function renderGoals() {
+            if (!missionMap || !mmLayout) return;
+            mmLayers.goals.clearLayers();
+            mmLayers.deps.clearLayers();
+            const goals = mmEffectiveGoals();
+            const byId = new Map(goals.map(g => [g.id, g]));
+            let depCount = 0;
+
+            goals.forEach(g => {
+                const picked = mmSel === g.id || mmLinkFrom === g.id;
+                const c = mmColor(g.side);
+
+                L.circle([g.lat, g.lon], {
+                    radius: Math.max(g.radius, 1000),
+                    color: g.disabled ? '#888' : (g.peacetime ? '#198754' : '#ffc107'),
+                    dashArray: g.custom ? '6 6' : null,
+                    fillOpacity: g.disabled ? 0.05 : 0.2, weight: picked ? 4 : 2,
+                    bubblingMouseEvents: false
+                }).on('click', () => mmOnGoalClick(g.id)).addTo(mmLayers.goals);
+
+                const lock = g.requires.length ? ' <i class="fa-solid fa-lock"></i>' : '';
+                const label = L.marker([g.lat, g.lon], {
+                    draggable: g.custom,
+                    icon: L.divIcon({
+                        className: '',
+                        html: `<div class="mm-goal-label${picked ? ' sel' : ''}" style="border-color: ${c}; opacity: ${g.disabled ? 0.5 : 1};">${mmEsc(g.priority)}${lock}</div>`,
+                        iconSize: [40, 20], iconAnchor: [20, 10]
+                    })
+                }).bindTooltip(mmEsc(`${g.id} · ${g.type} · priority ${g.priority}${g.disabled ? ' · disabled' : ''}`));
+                label.on('click', () => mmOnGoalClick(g.id));
+                if (g.custom) {
+                    label.on('dragend', ev => {
+                        const ll = ev.target.getLatLng();
+                        const e = mmPlan.goals[g.id];
+                        e.lat = +ll.lat.toFixed(5); e.lon = +ll.lng.toFixed(5);
+                        mmAfterPlanChange();
+                    });
+                }
+                label.addTo(mmLayers.goals);
+
+                // Dependency arrows: prerequisite -> this goal
+                g.requires.forEach(r => {
+                    const p = byId.get(r);
+                    if (!p) return;
+                    depCount++;
+                    L.polyline([[p.lat, p.lon], [g.lat, g.lon]], { color: c, weight: 2, dashArray: '8 6', opacity: 0.8, interactive: false }).addTo(mmLayers.deps);
+                    const a = L.CRS.EPSG3857.project(L.latLng(p.lat, p.lon)), b = L.CRS.EPSG3857.project(L.latLng(g.lat, g.lon));
+                    const ang = -Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI;
+                    L.marker([p.lat + (g.lat - p.lat) * 0.6, p.lon + (g.lon - p.lon) * 0.6], {
+                        interactive: false,
+                        icon: L.divIcon({
+                            className: '',
+                            html: `<div style="color: ${c}; transform: rotate(${ang}deg); font-size: 18px; text-shadow: 0 0 3px #000;"><i class="fa-solid fa-caret-right"></i></div>`,
+                            iconSize: [18, 18], iconAnchor: [9, 9]
+                        })
+                    }).addTo(mmLayers.deps);
+                });
+            });
+
+            const set = (key, n) => { const el = document.querySelector(`[data-count="${key}"]`); if (el) el.textContent = n; };
+            set('goals', goals.length);
+            set('deps', depCount);
+        }
+
+        function mmOnGoalClick(id) {
+            if (mmMode === 'link') {
+                if (!mmLinkFrom) { mmLinkFrom = id; mmSetHint('Now click the goal that depends on it.'); renderGoals(); return; }
+                const from = mmLinkFrom;
+                mmLinkFrom = null;
+                if (from === id) { renderGoals(); mmSetHint('Click the prerequisite goal, then the goal that depends on it.'); return; }
+                const goals = mmEffectiveGoals();
+                const a = goals.find(g => g.id === from), b = goals.find(g => g.id === id);
+                if (a.side !== b.side) { showFeedback('Dependencies must be between goals of the same coalition.', false); renderGoals(); return; }
+                if (mmAddRequirement(id, from)) mmSetHint(`${id} now requires ${from}. Link another pair, or press Esc.`);
+                else renderGoals();
+                return;
+            }
+            mmSelectGoal(id);
+        }
+
+        function mmOnMapClick(e) {
+            if (mmMode === 'add') { mmAddCustomGoal(e.latlng); return; }
+            if (mmMode === 'select') {
+                mmSel = null;
+                renderGoals(); renderGoalList(); mmClearDetails();
+            }
+        }
+
+        function mmSelectGoal(id) {
+            mmSel = id;
+            renderGoals();
+            renderGoalList();
+            renderGoalEditor();
+        }
+
+        function mmSetHint(text) { document.getElementById('mmHint').textContent = text; }
+
+        function mmSetMode(mode) {
+            if (mode !== 'select' && !mmLayout) { showFeedback('Load a mission layout first.', false); return; }
+            mmMode = mode;
+            mmLinkFrom = null;
+            document.getElementById('mmBtnSelect').classList.toggle('active', mode === 'select');
+            document.getElementById('mmBtnAdd').classList.toggle('active', mode === 'add');
+            document.getElementById('mmBtnLink').classList.toggle('active', mode === 'link');
+            if (missionMap) missionMap.getContainer().style.cursor = mode === 'add' ? 'crosshair' : '';
+            mmSetHint({
+                select: 'Click a goal to edit it.',
+                add: 'Click on the map to place the new goal (Esc to cancel).',
+                link: 'Click the prerequisite goal, then the goal that depends on it (Esc to cancel).'
+            }[mode]);
+            renderGoals();
+        }
+
+        // ---------- goal list ----------
+
+        function renderGoalList() {
+            const box = document.getElementById('mmGoalList');
+            box.replaceChildren();
+            if (!mmLayout) return;
+            const goals = mmEffectiveGoals();
+            if (goals.length === 0) { box.append(mmEl('span', { style: 'color: var(--text-muted);', textContent: 'No goals. Use "Add goal" or define GOAL_RED / GOAL_BLUE zones.' })); }
+            const phases = mmPhases(goals);
+
+            ['red', 'blue'].forEach(side => {
+                const list = goals.filter(g => g.side === side).sort((a, b) => phases[a.id] - phases[b.id] || b.priority - a.priority);
+                if (!list.length) return;
+                box.append(mmEl('div', { class: 'mm-goal-head', style: `color: ${mmColor(side)};`, textContent: side.toUpperCase() }));
+                list.forEach(g => box.append(mmEl('div', {
+                    class: 'mm-goal-row' + (mmSel === g.id ? ' sel' : ''),
+                    style: g.disabled ? 'opacity: 0.5;' : '',
+                    onclick: () => { mmSelectGoal(g.id); if (missionMap) missionMap.flyTo([g.lat, g.lon], Math.max(missionMap.getZoom(), 9), { duration: 0.5 }); }
+                },
+                    mmEl('span', { class: 'mm-phase', textContent: 'P' + (phases[g.id] + 1), title: 'Phase' }),
+                    mmEl('span', { style: 'flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;', textContent: (g.custom ? '* ' : '') + g.id }),
+                    mmEl('span', { style: 'color: var(--text-muted);', textContent: String(g.priority) })
+                )));
+            });
+
+            const stale = mmStale();
+            if (stale.entries.length || stale.refs) {
+                box.append(mmEl('button', {
+                    class: 'btn-icon', style: 'margin-top: 8px; font-size: 0.8em; padding: 4px 8px;',
+                    textContent: `Remove ${stale.entries.length + stale.refs} stale plan entries (goals not in this mission)`,
+                    onclick: mmCleanStale
+                }));
+            }
+        }
+
+        // ---------- goal editor (selection panel) ----------
+
+        function renderGoalEditor() {
+            const box = document.getElementById('missionMapDetails');
+            const goals = mmEffectiveGoals();
+            const g = mmSel ? goals.find(x => x.id === mmSel) : null;
+            if (!g) return;
+
+            const field = (label, control) => mmEl('div', { class: 'mm-field' }, mmEl('span', { class: 'mm-flabel', textContent: label }), control);
+            const input = (type, value, onchange, extra = {}) => mmEl('input', { class: 'input-field', type, value, onchange, style: 'padding: 4px 6px;', ...extra });
+            const check = (text, checked, onchange) => mmEl('label', { class: 'mm-check' }, mmEl('input', { type: 'checkbox', checked, onchange }), text);
+
+            const types = [...new Set([...mmGoalTypes, g.type])];
+            const goalIds = mmAllGoalIds();
+            const candidates = goals.filter(x => x.id !== g.id && x.side === g.side && !x.disabled &&
+                !g.requires.includes(x.id) && !mmWouldCycle(g.id, x.id));
+            const dependants = goals.filter(x => x.requires.includes(g.id)).map(x => x.id);
+
+            const chips = mmEl('div', { class: 'mm-chips' }, ...g.requires.map(r => mmEl('span', {
+                class: 'mm-chip', style: goalIds.has(r) ? '' : 'border-color: var(--accent-red);', title: goalIds.has(r) ? '' : 'Unknown goal'
+            }, r, mmEl('button', { class: 'mm-x', title: 'Remove', onclick: () => mmRemoveRequirement(g.id, r) }, '×'))));
+            if (!g.requires.length) chips.append(mmEl('span', { style: 'color: var(--text-muted);', textContent: 'None' }));
+
+            const addReq = mmEl('select', {
+                class: 'input-field', style: 'padding: 4px 6px;',
+                onchange: ev => { if (ev.target.value) mmAddRequirement(g.id, ev.target.value); }
+            }, mmEl('option', { value: '', textContent: 'Add prerequisite...' }),
+                ...candidates.map(x => mmEl('option', { value: x.id, textContent: `${x.id} (${x.type}, P${x.priority})` })));
+
+            const hasOverrides = !g.custom && mmPlan.goals[g.id] && Object.keys(mmPlan.goals[g.id]).some(k => k !== 'requires');
+
+            box.replaceChildren(
+                mmEl('strong', { textContent: g.custom ? 'Custom goal' : 'Mission goal' }),
+                mmEl('div', { style: 'color: var(--text-muted); font-size: 0.85em; margin-bottom: 6px;',
+                    textContent: g.custom ? 'Stored only in the plan. Drag its marker to move it.' : 'From a .miz zone. Changes are stored as overrides in the plan.' }),
+                field('Id', g.custom
+                    ? input('text', g.id, ev => mmRenameGoal(g.id, ev.target.value))
+                    : input('text', g.id, null, { readOnly: true })),
+                field('Coalition', mmEl('span', { style: `color: ${mmColor(g.side)}; font-weight: bold;`, textContent: g.side.toUpperCase() })),
+                field('Type', mmEl('select', { class: 'input-field', style: 'padding: 4px 6px;', onchange: ev => mmSetField(g, 'type', ev.target.value) },
+                    ...types.map(t => mmEl('option', { value: t, textContent: t, selected: t === g.type })))),
+                field('Priority (higher = first)', input('number', g.priority, ev => {
+                    const v = parseFloat(ev.target.value);
+                    if (Number.isFinite(v)) mmSetField(g, 'priority', v); else mmAfterPlanChange();
+                }, { step: '0.5' })),
+                check('Allowed in peacetime', g.peacetime, ev => mmSetField(g, 'peacetime', ev.target.checked)),
+                g.type === 'bm_depot'
+                    ? field('Missiles in the depot (bm_count)', input('number', g.props.bm_count ?? 0, ev => mmSetProp(g, 'bm_count', Math.max(0, parseInt(ev.target.value, 10) || 0)), { min: '0' }))
+                    : '',
+                g.custom
+                    ? field('Radius (m)', input('number', g.radius, ev => {
+                        const v = parseFloat(ev.target.value);
+                        if (Number.isFinite(v) && v > 0) { mmPlan.goals[g.id].radius = v; }
+                        mmAfterPlanChange();
+                    }, { min: '100', step: '500' }))
+                    : '',
+                check('Disabled (the commander ignores it)', g.disabled, ev => mmSetField(g, 'disabled', ev.target.checked)),
+                field('Requires (must be completed first)', mmEl('div', {}, chips, addReq)),
+                field('Required by', mmEl('span', { textContent: dependants.length ? dependants.join(', ') : 'None' })),
+                g.custom
+                    ? mmEl('button', { class: 'btn-icon', style: 'margin-top: 6px; color: var(--accent-red);', onclick: () => mmDeleteGoal(g.id) }, 'Delete goal')
+                    : (hasOverrides ? mmEl('button', { class: 'btn-icon', style: 'margin-top: 6px;', onclick: () => mmResetOverrides(g) }, 'Reset to mission values') : '')
+            );
+        }
+
+        // ---------- save / revert / toolbar ----------
+
+        function mmUpdatePlanStatus() {
+            const el = document.getElementById('mmPlanStatus');
+            const btn = document.getElementById('mmBtnSave');
+            if (!mmLayout) { el.textContent = ''; btn.disabled = true; return; }
+            if (!mmLayout.missionName) { el.textContent = 'Plan: mission name unknown (cannot save)'; btn.disabled = true; return; }
+            const dirty = mmIsDirty();
+            el.textContent = `Plan: ${mmLayout.missionName}${dirty ? ' · unsaved changes' : ''}`;
+            el.style.color = dirty ? 'var(--accent-red)' : 'var(--text-muted)';
+            btn.disabled = false;
+        }
+
+        document.getElementById('mmBtnSelect').addEventListener('click', () => mmSetMode('select'));
+        document.getElementById('mmBtnAdd').addEventListener('click', () => mmSetMode(mmMode === 'add' ? 'select' : 'add'));
+        document.getElementById('mmBtnLink').addEventListener('click', () => mmSetMode(mmMode === 'link' ? 'select' : 'link'));
+
+        document.getElementById('mmBtnSave').addEventListener('click', async () => {
+            if (!mmLayout || !mmLayout.missionName) return;
+            const res = await window.electronAPI.saveMissionPlan(mmLayout.missionName, mmPlan);
+            if (res && res.success) {
+                mmPlan = res.plan;
+                mmPlanSaved = JSON.stringify(mmPlan);
+                if (mmSel && !mmEffectiveGoals().some(g => g.id === mmSel)) { mmSel = null; mmClearDetails(); }
+                mmAfterPlanChange();
+                if (res.warnings && res.warnings.length) showFeedback(`Plan saved with warnings: ${res.warnings.join(' | ')}`, false);
+                else showFeedback(`Plan saved: ${res.path}`, true);
+            } else {
+                showFeedback(`Could not save the plan: ${res ? res.error : 'unknown error'}`, false);
+            }
+        });
+
+        document.getElementById('mmBtnRevert').addEventListener('click', async () => {
+            if (!mmLayout) return;
+            if (mmIsDirty() && !confirm('Discard unsaved plan changes?')) return;
+            await mmLoadPlan();
+            mmSel = null; mmClearDetails();
+            mmAfterPlanChange();
+        });
+
+        document.getElementById('btnScanMission').addEventListener('click', async () => {
+            if (mmIsDirty() && !confirm('Discard unsaved plan changes?')) return;
+            const v = id => document.getElementById(id).value.trim();
+            const res = await window.electronAPI.scanMissionLayout({
+                redBorder: v('injRedBorder'), blueBorder: v('injBlueBorder'),
+                redEw: v('injRedEw'), blueEw: v('injBlueEw'),
+                redSam: v('injRedSam'), blueSam: v('injBlueSam'),
+                staticRes: v('injStaticRes'), templatePrefix: v('injTemplate')
+            });
+            if (!res || res.error === 'Cancelled') return;
+            if (res.success) setMissionLayout(res.layout, res.fileName);
+            else showFeedback(`Could not read mission layout: ${res.error}`, false);
+        });
 
         // --- SYSTEM LOG VIEWER LOGIC ---
         const appLogModal = document.getElementById('appLogModal');

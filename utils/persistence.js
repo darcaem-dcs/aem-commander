@@ -15,7 +15,8 @@ class PersistenceManager {
                     red: 0,
                     blue: 0
                 }
-            }
+            },
+            completed_goals: []
         };
     }
 
@@ -133,6 +134,17 @@ class PersistenceManager {
         return Object.keys(this.state.units).filter(
             name => this.state.units[name].status === "destroyed"
         );
+    }
+
+    /** Completed goals */
+
+    getCompletedGoals() {
+        return this.state.completed_goals || [];
+    }
+
+    setCompletedGoals(list) {
+        this.state.completed_goals = [...list];
+        this.saveState();
     }
 }
 

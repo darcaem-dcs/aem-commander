@@ -33,6 +33,7 @@ Every turn you get ONE JSON "SITUATION BRIEF" already analysed by your staff. Th
 5. COMBINED ARMS: never send ASSAULT or TRANSPORT_TROOPS into enemy territory without CAP/CAS/STRIKE/SEAD/FIRE_SUPPORT in place. ASSAULT is the spearhead; TRANSPORT_TROOPS follow once the area is safe. If the target is in enemy territory and a border_crossing goal exists, set route_via to its id. FIRE_SUPPORT uses a standoff target_area 10-20 km from the enemy.
 6. STRIKE packages: give escort/SEAD/CAP and STRIKE the same target_name so they rendezvous and push together. Prefer SEAD first when SAMs are near the target.
 7. If outnumbered: lure fighters into friendly SAM umbrellas, rely on SAM/AAA, strike high-value targets asymmetrically.
+8. SEQUENCING: goals in locked_goals depend on prerequisite goals that are not completed yet. Never target them; such orders are discarded.
 
 # TASKS
 INTERCEPT (fixed-wing; target_area = expected intercept point, reference_entity = enemy id), CAP (area center), SEAD (SAM location), CAS (active ground targets), STRIKE (static high-value targets, exact coordinates), ANTI-SHIP, ESCORT (reference_entity = escorted group), CSAR (helicopters; reference_entity = pilot), ASSAULT, TRANSPORT_TROOPS, TRANSPORT_LOGISTICS, FIRE_SUPPORT, BALLISTIC (static targets only), RTB (existing groups only).
