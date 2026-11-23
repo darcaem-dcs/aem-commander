@@ -641,7 +641,7 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, 'public', 'index.html'));
     
     /// TODO: debug
-    mainWindow.webContents.openDevTools({ mode: 'detach' });
+    //mainWindow.webContents.openDevTools({ mode: 'detach' });
 }
 
 async function processCommander(side) {
