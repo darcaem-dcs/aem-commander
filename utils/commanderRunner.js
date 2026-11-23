@@ -32,7 +32,8 @@ module.exports = async function runCommanderCycle(side, d) {
             ballisticCount: persistence.getBallisticMissileCount(side),
             ballisticRangeKm: state.ballisticRangeKm,
             userContext: forces.instructions,
-            unitProfiles: state.unitProfiles
+            unitProfiles: state.unitProfiles,
+            reservedGroups: d.plan ? d.plan.reservedGroups(side) : null
         });
     } catch (err) {
         ui(`Commander of ${forces.coalition} error: ${err.message}`, 'error');

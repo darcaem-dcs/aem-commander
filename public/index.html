@@ -165,14 +165,16 @@
         .module-content-inner { transition: opacity 0.3s; }
         .module-disabled { opacity: 0.3; pointer-events: none; }
 
-        .mm-layout { display: flex; gap: 15px; align-items: stretch; }
-        #missionMap { flex: 1; height: 640px; border: 1px solid var(--border-color); border-radius: 6px; z-index: 1; }
-        .mm-side { flex: 0 0 320px; display: flex; flex-direction: column; gap: 8px; font-size: 0.9em; }
+        .mm-layout { display: flex; gap: 15px; align-items: flex-start; }
+        .mm-main { flex: 1; min-width: 0; position: sticky; top: 10px; }
+        #missionMap { width: 100%; height: calc(100vh - 175px); min-height: 400px; border: 1px solid var(--border-color); border-radius: 6px; z-index: 1; }
+        .mm-side { flex: 0 0 320px; position: sticky; top: 10px; max-height: calc(100vh - 20px); overflow-y: auto; display: flex; flex-direction: column; gap: 6px; font-size: 0.9em; padding-right: 4px; }
         .mm-side h4 { margin: 8px 0 4px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; font-size: 0.8em; }
         .mm-side label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
         .mm-count { margin-left: auto; color: var(--text-muted); }
-        #missionMapDetails { background: var(--bg-input); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px; flex: 1; overflow-y: auto; }
+        #missionMapDetails { background: var(--bg-input); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px; }
         #missionMapDetails td { padding: 2px 6px 2px 0; vertical-align: top; }
+        
         .mm-mode.active { border-color: var(--accent-blue); color: var(--accent-blue); }
         .mm-field { display: flex; flex-direction: column; gap: 2px; margin-bottom: 6px; }
         .mm-flabel { color: var(--text-muted); font-size: 0.85em; }
@@ -187,6 +189,9 @@
         .mm-goal-row:hover { background: var(--bg-header); }
         .mm-goal-row.sel { background: var(--bg-banner); outline: 1px solid var(--accent-blue); }
         .mm-goal-row .mm-phase { background: var(--bg-header); border-radius: 8px; padding: 0 6px; color: var(--text-muted); }
+        .mm-bad { color: var(--accent-red); }
+
+        .config-layout.sidebar-hidden .config-sidebar { display: none; }
     </style>
 </head>
 <body>
@@ -244,9 +249,9 @@
         <!-- WRAPPER: Hide the existing UI by default -->
         <div id="mainAppContainer" style="display: none;">
             
-            <!-- NEW: Back Button -->
-            <div style="margin-bottom: 15px;">
+            <div style="margin-bottom: 15px; display: flex; gap: 10px;">
                 <button id="btnGoBack" class="btn-icon"><i class="fa-solid fa-arrow-left"></i> Go Back</button>
+                <button class="btn-icon js-toggle-sidebar" title="Hide modules"><i class="fa-solid fa-angles-left"></i> Modules</button>
             </div>
 
             <div id="sectionConfig" class="config-layout">
@@ -742,33 +747,40 @@
                     <!-- Map -->
                     <div id="paneMap" class="module-pane">
                         <h2>Mission Map</h2>
-                        <p style="font-size: 0.9em; color: var(--text-muted); margin-bottom: 15px;">Overview of the mission layout: groups, AEM_RES reserves, goals and borders. Load settings from a mission, or pick a .miz here.</p>
-                        <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 8px; flex-wrap: wrap;">
-                            <button id="btnScanMission" class="btn-icon"><i class="fa-solid fa-folder-open"></i> Load mission layout...</button>
-                            <span id="missionMapStatus" style="color: var(--text-muted); font-size: 0.85em;">No mission loaded.</span>
-                        </div>
-                        <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 4px; flex-wrap: wrap;">
-                            <button id="mmBtnSelect" class="btn-icon mm-mode active"><i class="fa-solid fa-arrow-pointer"></i> Select</button>
-                            <button id="mmBtnAdd" class="btn-icon mm-mode"><i class="fa-solid fa-location-crosshairs"></i> Add goal</button>
-                            <select id="mmNewGoalSide" class="input-field" style="width: auto; padding: 6px;">
-                                <option value="red">Red</option><option value="blue">Blue</option>
-                            </select>
-                            <button id="mmBtnLink" class="btn-icon mm-mode"><i class="fa-solid fa-link"></i> Link dependency</button>
-                            <span style="flex: 1;"></span>
-                            <span id="mmPlanStatus" style="font-size: 0.85em; color: var(--text-muted);"></span>
-                            <button id="mmBtnRevert" class="btn-icon">Revert</button>
-                            <button id="mmBtnSave" class="btn-select" style="padding: 8px 16px; margin: 0;"><i class="fa-solid fa-floppy-disk"></i> Save plan</button>
-                        </div>
-                        <div id="mmHint" style="font-size: 0.8em; color: var(--text-muted); margin-bottom: 10px;">Click a goal to edit it.</div>
+                        <p style="font-size: 0.9em; color: var(--text-muted); margin-bottom: 15px;">Overview of the mission layout: groups, AEM_RES reserves, goals and borders. Edit goals, dependencies and initial orders here. Load settings from a mission, or pick a .miz here.</p>
                         <div class="mm-layout">
-                            <div id="missionMap"></div>
+                            <div class="mm-main">
+                                <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 8px; flex-wrap: wrap;">
+                                    <button class="btn-icon js-toggle-sidebar" title="Hide modules"><i class="fa-solid fa-angles-left"></i></button>
+                                    <button id="btnScanMission" class="btn-icon"><i class="fa-solid fa-folder-open"></i> Load mission layout...</button>
+                                    <span id="missionMapStatus" style="color: var(--text-muted); font-size: 0.85em;">No mission loaded.</span>
+                                </div>
+                                <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 4px; flex-wrap: wrap;">
+                                    <button id="mmBtnSelect" class="btn-icon mm-mode active"><i class="fa-solid fa-arrow-pointer"></i> Select</button>
+                                    <button id="mmBtnAdd" class="btn-icon mm-mode"><i class="fa-solid fa-location-crosshairs"></i> Add goal</button>
+                                    <select id="mmNewGoalSide" class="input-field" style="width: auto; padding: 6px;">
+                                        <option value="red">Red</option><option value="blue">Blue</option>
+                                    </select>
+                                    <button id="mmBtnLink" class="btn-icon mm-mode"><i class="fa-solid fa-link"></i> Link dependency</button>
+                                    <span style="flex: 1;"></span>
+                                    <span id="mmPlanStatus" style="font-size: 0.85em; color: var(--text-muted);"></span>
+                                    <button id="mmBtnRevert" class="btn-icon">Revert</button>
+                                    <button id="mmBtnSave" class="btn-select" style="padding: 8px 16px; margin: 0;"><i class="fa-solid fa-floppy-disk"></i> Save plan</button>
+                                </div>
+                                <div id="mmHint" style="font-size: 0.8em; color: var(--text-muted); margin-bottom: 8px;">Click a goal to edit it.</div>
+                                <div id="missionMap"></div>
+                            </div>
                             <div class="mm-side">
-                                <h4>Layers</h4>
-                                <div id="mmLayerList" style="display: flex; flex-direction: column; gap: 4px;"></div>
-                                <h4>Goals (by phase, then priority)</h4>
-                                <div id="mmGoalList" style="max-height: 200px; overflow-y: auto;"></div>
                                 <h4>Selection</h4>
                                 <div id="missionMapDetails"><span style="color: var(--text-muted);">Click an element on the map.</span></div>
+                                <h4>Goals (by phase, then priority)</h4>
+                                <div id="mmGoalList" style="max-height: 220px; overflow-y: auto;"></div>
+                                <h4>Initial orders</h4>
+                                <div id="mmOrderList" style="max-height: 180px; overflow-y: auto;"></div>
+                                <details style="margin-top: 6px;">
+                                    <summary style="cursor: pointer; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; font-size: 0.8em;">Layers</summary>
+                                    <div id="mmLayerList" style="display: flex; flex-direction: column; gap: 4px; margin-top: 6px;"></div>
+                                </details>
                             </div>
                         </div>
                     </div>
@@ -1317,6 +1329,19 @@
         const valAggBlueLabel = document.getElementById('valAggBlue');
         const bmCountRedInput = document.getElementById('bmCountRed');
         const bmCountBlueInput = document.getElementById('bmCountBlue');
+
+        function setSidebarHidden(hidden) {
+            sectionConfig.classList.toggle('sidebar-hidden', hidden);
+            localStorage.setItem('sidebarHidden', hidden ? '1' : '0');
+            document.querySelectorAll('.js-toggle-sidebar').forEach(b => {
+                b.title = hidden ? 'Show modules' : 'Hide modules';
+                b.querySelector('i').className = hidden ? 'fa-solid fa-angles-right' : 'fa-solid fa-angles-left';
+            });
+            if (missionMap) setTimeout(() => missionMap.invalidateSize(), 50);
+        }
+        document.querySelectorAll('.js-toggle-sidebar').forEach(b =>
+            b.addEventListener('click', () => setSidebarHidden(!sectionConfig.classList.contains('sidebar-hidden'))));
+        setSidebarHidden(localStorage.getItem('sidebarHidden') === '1');
 
         // --- MAIN MENU DROPDOWN LOGIC ---
         const btnMainMenu = document.getElementById('btnMainMenu');
@@ -2322,6 +2347,7 @@
             { key: 'blueReserves', label: 'Blue reserves (AEM_RES)', on: true },
             { key: 'goals',        label: 'Goals',                   on: true },
             { key: 'deps',         label: 'Goal dependencies',       on: true },
+            { key: 'orders',       label: 'Initial orders',          on: true },
             { key: 'borders',      label: 'Borders',                 on: true },
             { key: 'routes',       label: 'Planned routes',          on: false },
             { key: 'statics',      label: 'Other statics',           on: false },
@@ -2330,7 +2356,7 @@
         let missionMap = null, mmLayers = {}, mmLayout = null, mmFileName = '', mmNeedsRender = false;
         let mmPlan = { version: 1, goals: {}, orders: [] }, mmPlanSaved = JSON.stringify(mmPlan);
         let mmGoalTypes = ['strike', 'bm_depot', 'conquer', 'resupply', 'border_crossing', 'deploy_infantry'];
-        let mmMode = 'select', mmSel = null, mmLinkFrom = null;
+        let mmMode = 'select', mmSel = null, mmLinkFrom = null, mmSelOrder = null;
 
         const mmEsc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
         const mmColor = side => side === 'red' ? MM_RED : MM_BLUE;
@@ -2410,17 +2436,21 @@
             document.getElementById('missionMapDetails').replaceChildren(mmEl('span', { style: 'color: var(--text-muted);', textContent: 'Click an element on the map.' }));
         }
 
-        function showMissionDetails(title, rows) {
-            mmSel = null; renderGoals(); renderGoalList();
+        function showMissionDetails(title, rows, action) {
+            mmSel = null; mmSelOrder = null;
+            renderGoals(); renderGoalList(); renderOrders(); renderOrderList();
             const table = mmEl('table', {}, ...Object.entries(rows).filter(([, v]) => v !== undefined && v !== '' && v !== null)
                 .map(([k, v]) => mmEl('tr', {}, mmEl('td', { style: 'color: var(--text-muted);', textContent: k }), mmEl('td', { textContent: String(v) }))));
-            document.getElementById('missionMapDetails').replaceChildren(mmEl('strong', { textContent: title }), table);
+            const nodes = [mmEl('strong', { textContent: title }), table];
+            if (action) nodes.push(mmEl('button', { class: 'btn-icon', style: 'margin-top: 8px;', onclick: action.onClick }, action.label));
+            document.getElementById('missionMapDetails').replaceChildren(...nodes);
         }
 
         // ---------- layout rendering ----------
 
         function renderMissionLayout() {
             Object.values(mmLayers).forEach(l => l.clearLayers());
+            mmMarkers = {};
             const status = document.getElementById('missionMapStatus');
             document.querySelectorAll('[data-count]').forEach(el => el.textContent = '');
             if (!mmLayout) { status.textContent = 'No mission loaded.'; renderGoalList(); mmUpdatePlanStatus(); return; }
@@ -2440,12 +2470,16 @@
 
             mmLayout.groups.forEach(g => {
                 const key = g.late ? 'templates' : g.side + 'Groups';
+                const tip = `${g.id} (${g.type} x${g.count})`;
                 const marker = L.marker([g.lat, g.lon], { icon: getUnitIcon(g.category, g.tags, mmColor(g.side), false, g.heading) })
-                    .bindTooltip(mmEsc(`${g.id} (${g.type} x${g.count})`));
+                    .bindTooltip(mmEsc(tip));
+                mmMarkers[g.id] = { marker, text: tip };
                 marker.on('click', () => showMissionDetails('Group', {
                     Id: g.id, Coalition: g.side, Category: g.category, Type: g.type, Units: g.count,
-                    Tags: g.tags.join(', '), 'Late activation': g.late ? 'Yes' : 'No', Waypoints: g.route.length || ''
-                }));
+                    Tags: g.tags.join(', '), 'Late activation': g.late ? 'Yes' : 'No', Waypoints: g.route.length || '',
+                    'Initial order': mmOrderRef(g.id)
+                }, (g.late || g.category === 'Naval') ? null
+                    : mmAssetAction(g.id, 'Create initial order for this group', () => mmCreateOrderForGroup(g))));
                 marker.addTo(mmLayers[key]);
                 bump(key);
                 if (!g.late && g.route.length > 1) {
@@ -2464,9 +2498,11 @@
                     marker = L.circleMarker([s.lat, s.lon], { radius: 3, color: mmColor(s.side), weight: 1, fillOpacity: 0.6, bubblingMouseEvents: false });
                 }
                 marker.bindTooltip(mmEsc(`${s.id} (${s.type})`));
+                if (s.reserve) mmMarkers[s.id] = { marker, text: `${s.id} (${s.type})` };
                 marker.on('click', () => showMissionDetails(s.reserve ? 'Reserve' : 'Static', {
-                    Id: s.id, Coalition: s.side, Category: s.category, Type: s.type, Tasks: s.tags.join(', ')
-                }));
+                    Id: s.id, Coalition: s.side, Category: s.category, Type: s.type, Tasks: s.tags.join(', '),
+                    'Initial order': s.reserve ? mmOrderRef(s.id) : ''
+                }, s.reserve ? mmAssetAction(s.id, 'Create initial order launching this reserve', () => mmCreateOrderForReserve(s)) : null));
                 marker.addTo(mmLayers[key]);
                 bump(key);
             });
@@ -2478,7 +2514,10 @@
 
             renderGoals();
             renderGoalList();
+            renderOrders(); 
+            renderOrderList();
             mmUpdatePlanStatus();
+            mmRefreshBlocked();
 
             status.textContent = `${mmFileName} · ${mmLayout.theatre} · ${mmLayout.groups.length} groups · ${mmLayout.goals.length} mission goals`;
             const bb = mmLayout.bounds;
@@ -2639,6 +2678,10 @@
             delete mmPlan.goals[oldId];
             Object.values(mmPlan.goals).forEach(g => { g.requires = (g.requires || []).map(r => r === oldId ? newId : r); });
             if (mmSel === oldId) mmSel = newId;
+            mmOrders().forEach(o => {
+                if (o.action.target_name === oldId) o.action.target_name = newId;
+                if (o.trigger && o.trigger.goal === oldId) o.trigger.goal = newId;
+            });
             mmAfterPlanChange();
         }
 
@@ -2654,10 +2697,27 @@
         }
 
         function mmAfterPlanChange() {
-            renderGoals();
-            renderGoalList();
-            renderGoalEditor();
+            renderGoals(); 
+            renderGoalList(); 
+            renderOrders(); 
+            renderOrderList(); 
+            mmRenderEditor(); 
             mmUpdatePlanStatus();
+        }
+
+        function mmAfterPlanChange() {
+            renderGoals(); 
+            renderGoalList(); 
+            renderOrders(); 
+            renderOrderList(); 
+            mmRefreshBlocked(); 
+            mmRenderEditor(); 
+            mmUpdatePlanStatus();
+        }
+        
+        function mmRenderEditor() { 
+            if (mmSelOrder) renderOrderEditor(); 
+            else renderGoalEditor(); 
         }
 
         // ---------- goals on the map ----------
@@ -2727,6 +2787,10 @@
         }
 
         function mmOnGoalClick(id) {
+            if (mmMode === 'target') { 
+                mmApplyOrderTarget({ goalId: id }); 
+                return; 
+            }
             if (mmMode === 'link') {
                 if (!mmLinkFrom) { mmLinkFrom = id; mmSetHint('Now click the goal that depends on it.'); renderGoals(); return; }
                 const from = mmLinkFrom;
@@ -2743,6 +2807,7 @@
         }
 
         function mmOnMapClick(e) {
+            if (mmMode === 'target') { mmApplyOrderTarget({ latlng: e.latlng }); return; }
             if (mmMode === 'add') { mmAddCustomGoal(e.latlng); return; }
             if (mmMode === 'select') {
                 mmSel = null;
@@ -2752,6 +2817,9 @@
 
         function mmSelectGoal(id) {
             mmSel = id;
+            mmSelOrder = null; 
+            renderOrders(); 
+            renderOrderList();
             renderGoals();
             renderGoalList();
             renderGoalEditor();
@@ -2770,7 +2838,8 @@
             mmSetHint({
                 select: 'Click a goal to edit it.',
                 add: 'Click on the map to place the new goal (Esc to cancel).',
-                link: 'Click the prerequisite goal, then the goal that depends on it (Esc to cancel).'
+                link: 'Click the prerequisite goal, then the goal that depends on it (Esc to cancel).',
+                target: 'Click a goal or a point on the map to set the order target (Esc to cancel).'
             }[mode]);
             renderGoals();
         }
@@ -2928,6 +2997,326 @@
             if (res.success) setMissionLayout(res.layout, res.fileName);
             else showFeedback(`Could not read mission layout: ${res.error}`, false);
         });
+
+        // --- INITIAL ORDERS ---
+        const MM_ORDER_TASKS = {
+            Air:    ['CAP', 'SEAD', 'CAS', 'STRIKE', 'TRANSPORT_TROOPS', 'TRANSPORT_LOGISTICS', 'RTB'],
+            Helo:   ['CAS', 'TRANSPORT_TROOPS', 'TRANSPORT_LOGISTICS', 'RTB'],
+            Ground: ['ASSAULT', 'TRANSPORT_TROOPS', 'TRANSPORT_LOGISTICS', 'FIRE_SUPPORT', 'BALLISTIC', 'RTB']
+        };
+        const MM_TRIGGERS = [['start', 'At start'], ['delay', 'After a delay'], ['goal_done', 'When a goal is completed']];
+
+        const mmOrders = () => (mmPlan.orders || (mmPlan.orders = []));
+        const mmGroup = id => mmLayout && mmLayout.groups.find(g => g.id === id);
+        const mmStaticById = id => mmLayout && mmLayout.statics.find(s => s.id === id);
+        function mmNewOrderId() {
+            const ids = new Set(mmOrders().map(o => o.id));
+            let id;
+            do { id = 'o-' + Math.random().toString(36).slice(2, 8); } while (ids.has(id));
+            return id;
+        }
+
+                // ---------- one order per asset ----------
+        let mmMarkers = {};   // asset id -> { marker, text }
+        const MM_PAIR_RADIUS_KM = 4;   // reserves of the same base are parked close together
+
+        // asset id (group name or reserve unit name) -> { order, n }
+        function mmBlockedMap() {
+            const map = new Map();
+            mmOrders().forEach((o, i) => {
+                const ids = o.action.action_type === 'existing' ? [o.action.group_name] : (o.action.unit_names || []);
+                ids.forEach(id => map.set(id, { order: o, n: i + 1 }));
+            });
+            return map;
+        }
+        const mmOrderRef = id => { const b = mmBlockedMap().get(id); return b ? `#${b.n}` : ''; };
+
+        function mmAssetAction(id, createLabel, onCreate) {
+            const b = mmBlockedMap().get(id);
+            return b ? { label: `Go to initial order #${b.n}`, onClick: () => mmSelectOrder(b.order.id) }
+                     : { label: createLabel, onClick: onCreate };
+        }
+
+        function mmRefreshBlocked() {
+            const blocked = mmBlockedMap();
+            Object.entries(mmMarkers).forEach(([id, m]) => {
+                const b = blocked.get(id);
+                m.marker.setOpacity(b ? 0.4 : 1);
+                m.marker.setTooltipContent(mmEsc(m.text + (b ? ` · reserved by order #${b.n}` : '')));
+            });
+        }
+
+        function mmDistKm(a, b) {
+            const R = 6371, rad = Math.PI / 180;
+            const dLat = (b.lat - a.lat) * rad, dLon = (b.lon - a.lon) * rad;
+            const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLon / 2) ** 2;
+            return 2 * R * Math.asin(Math.sqrt(h));
+        }
+
+        // The anchor reserve plus the nearest FREE ones (same type, same task) up to "count". null if not enough.
+        function mmPickReserveUnits(anchor, task, count, ignoreOrderId) {
+            const blocked = mmBlockedMap();
+            const isFree = s => { const b = blocked.get(s.id); return !b || b.order.id === ignoreOrderId; };
+            const capable = s => s.tags.includes(task);
+            if (!isFree(anchor) || !capable(anchor)) return null;
+            const others = mmLayout.statics
+                .filter(s => s.reserve && s.id !== anchor.id && s.side === anchor.side && s.type === anchor.type &&
+                    s.category === anchor.category && capable(s) && isFree(s) && mmDistKm(anchor, s) <= MM_PAIR_RADIUS_KM)
+                .sort((a, b) => mmDistKm(anchor, a) - mmDistKm(anchor, b));
+            const picked = [anchor, ...others].slice(0, count);
+            return picked.length === count ? picked : null;
+        }
+
+        function mmSetOrderQuantity(o, n) {
+            const anchor = mmStaticById(o.action.unit_names[0]);
+            const units = anchor && mmPickReserveUnits(anchor, o.action.task, Math.max(1, n), o.id);
+            if (!units) showFeedback(`Not enough free reserves nearby for ${n} units.`, false);
+            else o.action.unit_names = units.map(u => u.id);
+            mmAfterPlanChange();
+        }
+
+        function mmSetOrderTask(o, task) {
+            const a = o.action;
+            if (a.action_type === 'new') {
+                const anchor = mmStaticById((a.unit_names || [])[0]);
+                const units = anchor && mmPickReserveUnits(anchor, task, a.unit_names.length, o.id);
+                if (!units) { showFeedback(`Cannot switch to ${task}: not enough free reserves nearby that can do it.`, false); mmAfterPlanChange(); return; }
+                a.unit_names = units.map(u => u.id);
+            }
+            a.task = task;
+            if (task === 'RTB') { delete a.target_area; delete a.target_name; }
+            mmAfterPlanChange();
+        }
+
+        function mmOrderOrigin(o) {
+            const a = o.action;
+            const src = a.action_type === 'existing' ? mmGroup(a.group_name) : mmStaticById((a.unit_names || [])[0]);
+            return src ? [src.lat, src.lon] : null;
+        }
+        
+        function mmTriggerText(t) {
+            if (!t || t.type === 'start') return 'T+0';
+            const m = t.minutes ? `${t.minutes}m` : '';
+            return t.type === 'delay' ? `T+${m || '0'}` : `after ${t.goal}${m ? ' +' + m : ''}`;
+        }
+        
+        function mmOrderSummary(o) {
+            const a = o.action;
+            let who;
+            if (a.action_type === 'existing') who = a.group_name;
+            else { const s = mmStaticById((a.unit_names || [])[0]); who = `${(a.unit_names || []).length}x ${s ? s.type : 'reserve'}`; }
+            const tgt = a.task === 'RTB' ? '' : ' → ' + (a.target_name || (a.target_area ? `${a.target_area.lat.toFixed(2)},${a.target_area.long.toFixed(2)}` : '?'));
+            return `${a.task} ${who}${tgt}`;
+        }
+        
+        function mmOrderIsBroken(o) {
+            const a = o.action;
+            if (a.action_type === 'existing' && !mmGroup(a.group_name)) return true;
+            if (a.action_type === 'new' && !(a.unit_names || []).every(n => mmStaticById(n))) return true;
+            const ids = mmAllGoalIds();
+            if (a.target_name && !ids.has(a.target_name)) return true;
+            return !!(o.trigger && o.trigger.type === 'goal_done' && !ids.has(o.trigger.goal));
+        }
+
+        function mmCreateOrderForGroup(g) {
+            const held = mmBlockedMap().get(g.id);
+            if (held) { mmSelectOrder(held.order.id); return; }
+            const tasks = MM_ORDER_TASKS[g.category];
+            if (!tasks) { showFeedback('Naval groups cannot be ordered yet.', false); return; }
+            const order = {
+                id: mmNewOrderId(), side: g.side, label: '', trigger: { type: 'start' },
+                action: { action_type: 'existing', task: tasks.find(t => g.tags.includes(t)) || tasks[0], group_name: g.id }
+            };
+            mmOrders().push(order);
+            mmSelectOrder(order.id);
+        }
+
+        function mmCreateOrderForReserve(s) {
+            const held = mmBlockedMap().get(s.id);
+            if (held) { mmSelectOrder(held.order.id); return; }
+            const task = (MM_ORDER_TASKS[s.category] || []).filter(t => t !== 'RTB').find(t => s.tags.includes(t));
+            if (!task) { showFeedback('This reserve has no task keyword in its name (CAP, SEAD, STRIKE...).', false); return; }
+            const count = s.category === 'Air' ? 2 : 1;
+            const units = mmPickReserveUnits(s, task, count, null);
+            if (!units) { showFeedback(`Not enough free ${s.type} reserves (${count} needed) next to this one: the others already have orders.`, false); return; }
+            const order = {
+                id: mmNewOrderId(), side: s.side, label: '', trigger: { type: 'start' },
+                action: { action_type: 'new', task, unit_names: units.map(u => u.id) }
+            };
+            mmOrders().push(order);
+            mmSelectOrder(order.id);
+        }
+
+        function mmSelectOrder(id) {
+            mmSel = null; mmSelOrder = id;
+            renderGoals(); renderGoalList(); renderOrders(); renderOrderList();
+            renderOrderEditor();
+            mmUpdatePlanStatus();
+        }
+
+        function mmApplyOrderTarget({ goalId, latlng }) {
+            const o = mmOrders().find(x => x.id === mmSelOrder);
+            if (o) {
+                if (goalId) {
+                    const g = mmEffectiveGoals().find(x => x.id === goalId);
+                    if (g) { o.action.target_name = g.id; o.action.target_area = { lat: g.lat, long: g.lon }; }
+                } else {
+                    delete o.action.target_name;
+                    o.action.target_area = { lat: +latlng.lat.toFixed(5), long: +latlng.lng.toFixed(5) };
+                }
+            }
+            mmSetMode('select');
+            mmAfterPlanChange();
+        }
+
+        function renderOrders() {
+            if (!missionMap || !mmLayout) return;
+            mmLayers.orders.clearLayers();
+            const orders = mmOrders();
+            orders.forEach(o => {
+                const from = mmOrderOrigin(o), to = o.action.target_area;
+                const c = mmColor(o.side), picked = mmSelOrder === o.id;
+                if (from && to) {
+                    L.polyline([from, [to.lat, to.long]], { color: c, weight: picked ? 4 : 2, dashArray: '2 8', opacity: 0.9, interactive: false }).addTo(mmLayers.orders);
+                }
+                const at = to ? [to.lat, to.long] : from;
+                if (!at) return;
+                L.marker(at, {
+                    icon: L.divIcon({
+                        className: '',
+                        html: `<div class="mm-goal-label${picked ? ' sel' : ''}" style="border-color: ${c};"><i class="fa-solid fa-flag"></i> ${mmEsc(o.action.task)} · ${mmEsc(mmTriggerText(o.trigger))}</div>`,
+                        iconSize: [150, 20], iconAnchor: [75, -4]
+                    })
+                }).bindTooltip(mmEsc(mmOrderSummary(o))).on('click', () => mmSelectOrder(o.id)).addTo(mmLayers.orders);
+            });
+            const el = document.querySelector('[data-count="orders"]');
+            if (el) el.textContent = orders.length;
+        }
+
+        function renderOrderList() {
+            const box = document.getElementById('mmOrderList');
+            box.replaceChildren();
+            if (!mmLayout) return;
+            const orders = mmOrders();
+            if (!orders.length) { box.append(mmEl('span', { style: 'color: var(--text-muted);', textContent: 'None. Click a group or a reserve on the map to create one.' })); return; }
+            orders.forEach((o, i) => box.append(mmEl('div', {
+                class: 'mm-goal-row' + (mmSelOrder === o.id ? ' sel' : '') + (mmOrderIsBroken(o) ? ' mm-bad' : ''),
+                title: mmOrderSummary(o),
+                onclick: () => {
+                    mmSelectOrder(o.id);
+                    const p = mmOrderOrigin(o);
+                    if (p && missionMap) missionMap.flyTo(p, Math.max(missionMap.getZoom(), 8), { duration: 0.5 });
+                }
+            },
+                mmEl('span', { class: 'mm-phase', textContent: '#' + (i + 1) }),
+                mmEl('span', { style: `flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: ${mmColor(o.side)};`, textContent: o.label || mmOrderSummary(o) }),
+                mmEl('span', { style: 'color: var(--text-muted);', textContent: mmTriggerText(o.trigger) })
+            )));
+        }
+
+        function mmOrderTaskOptions(o) {
+            const a = o.action;
+            let list;
+            if (a.action_type === 'existing') {
+                const g = mmGroup(a.group_name);
+                list = MM_ORDER_TASKS[g ? g.category : 'Air'] || ['RTB'];
+            } else {
+                const s = mmStaticById((a.unit_names || [])[0]);
+                list = s ? (MM_ORDER_TASKS[s.category] || []).filter(t => t !== 'RTB' && s.tags.includes(t)) : [];
+            }
+            return list.includes(a.task) ? list : [a.task, ...list];
+        }
+
+        function renderOrderEditor() {
+            const box = document.getElementById('missionMapDetails');
+            const o = mmOrders().find(x => x.id === mmSelOrder);
+            if (!o) { mmSelOrder = null; mmClearDetails(); return; }
+            const a = o.action;
+            const goals = mmEffectiveGoals().filter(g => g.side === o.side && !g.disabled);
+            const goalIds = mmAllGoalIds();
+
+            const field = (label, control) => mmEl('div', { class: 'mm-field' }, mmEl('span', { class: 'mm-flabel', textContent: label }), control);
+            const input = (type, value, onchange, extra = {}) => mmEl('input', { class: 'input-field', type, value, onchange, style: 'padding: 4px 6px;', ...extra });
+            const select = (options, current, onchange) => mmEl('select', { class: 'input-field', style: 'padding: 4px 6px;', onchange },
+                ...options.map(([v, t]) => mmEl('option', { value: v, textContent: t, selected: v === current })));
+            const goalOptions = (current) => {
+                const opts = goals.map(g => [g.id, `${g.id} (${g.type}, P${g.priority})`]);
+                if (current && !goalIds.has(current)) opts.unshift([current, `${current} (unknown goal)`]);
+                return opts;
+            };
+
+            // Subject
+            let subject;
+            if (a.action_type === 'existing') {
+                const blocked = mmBlockedMap();
+                const groups = mmLayout.groups.filter(g => g.side === o.side && !g.late && g.category !== 'Naval' && (!blocked.has(g.id) || g.id === a.group_name));
+                const opts = groups.map(g => [g.id, `${g.id} (${g.type} x${g.count})`]);
+                if (!mmGroup(a.group_name)) opts.unshift([a.group_name, `${a.group_name} (not found in the mission)`]);
+                subject = field('Group', select(opts, a.group_name, ev => {
+                    a.group_name = ev.target.value;
+                    const allowed = mmOrderTaskOptions(o);
+                    if (!allowed.includes(a.task)) a.task = allowed[0];
+                    if (a.task === 'RTB') { delete a.target_area; delete a.target_name; }
+                    mmAfterPlanChange();
+                }));
+            } else {
+                const names = a.unit_names || [];
+                const anchor = mmStaticById(names[0]);
+                subject = mmEl('div', {},
+                    field(`Reserve units (${names.length})`, mmEl('div', { style: 'font-size: 0.85em;' },
+                        ...names.map(n => mmEl('div', { textContent: n, class: mmStaticById(n) ? '' : 'mm-bad' })))),
+                    anchor && anchor.category === 'Air'
+                        ? mmEl('div', { style: 'color: var(--text-muted); font-size: 0.85em; margin-bottom: 6px;',
+                            textContent: 'Fixed-wing flights are always 2 aircraft: the selected one and its nearest free partner are reserved.' })
+                        : field('Quantity', input('number', names.length, ev => mmSetOrderQuantity(o, parseInt(ev.target.value, 10) || 1), { min: '1' })));
+            }
+
+            // Task + target
+            const taskField = field('Task', select(mmOrderTaskOptions(o).map(t => [t, t]), a.task, ev => mmSetOrderTask(o, ev.target.value)));
+
+            let targetField = '';
+            if (a.task !== 'RTB') {
+                const isGoal = !!a.target_name;
+                const opts = [['__point', 'Map point'], ...goalOptions(a.target_name)];
+                targetField = mmEl('div', {},
+                    field('Target', select(opts, isGoal ? a.target_name : '__point', ev => {
+                        if (ev.target.value === '__point') { delete a.target_name; }
+                        else {
+                            const g = goals.find(x => x.id === ev.target.value);
+                            a.target_name = ev.target.value;
+                            if (g) a.target_area = { lat: g.lat, long: g.lon };
+                        }
+                        mmAfterPlanChange();
+                    })),
+                    mmEl('div', { style: 'display: flex; gap: 8px; align-items: center; margin-bottom: 6px;' },
+                        mmEl('span', { style: 'color: var(--text-muted); font-size: 0.85em;', textContent: a.target_area ? `${a.target_area.lat.toFixed(4)}, ${a.target_area.long.toFixed(4)}` : 'No target set' }),
+                        mmEl('button', { class: 'btn-icon', style: 'padding: 3px 8px; font-size: 0.85em;', onclick: () => mmSetMode('target') }, 'Pick on map')));
+            }
+
+            // Trigger
+            const t = o.trigger || (o.trigger = { type: 'start' });
+            const triggerBox = mmEl('div', {},
+                field('When', select(MM_TRIGGERS, t.type, ev => {
+                    t.type = ev.target.value;
+                    if (t.type === 'start') { delete t.minutes; delete t.goal; }
+                    else { t.minutes = t.minutes || 0; if (t.type === 'goal_done' && !t.goal && goals[0]) t.goal = goals[0].id; if (t.type === 'delay') delete t.goal; }
+                    mmAfterPlanChange();
+                })),
+                t.type === 'goal_done' ? field('Goal', select(goalOptions(t.goal), t.goal, ev => { t.goal = ev.target.value; mmAfterPlanChange(); })) : '',
+                t.type !== 'start' ? field(t.type === 'delay' ? 'Minutes after the tracker connects to DCS' : 'Extra minutes after the goal is completed',
+                    input('number', t.minutes || 0, ev => { t.minutes = Math.max(0, parseFloat(ev.target.value) || 0); mmAfterPlanChange(); }, { min: '0', step: '1' })) : '');
+
+            box.replaceChildren(
+                mmEl('strong', { textContent: 'Initial order' }),
+                mmEl('div', { style: `color: ${mmColor(o.side)}; font-weight: bold; margin-bottom: 6px;`, textContent: o.side.toUpperCase() }),
+                field('Label (optional)', input('text', o.label || '', ev => { o.label = ev.target.value.trim(); mmAfterPlanChange(); })),
+                subject, taskField, targetField, triggerBox,
+                mmOrderIsBroken(o) ? mmEl('div', { class: 'mm-bad', style: 'font-size: 0.85em; margin-bottom: 6px;', textContent: 'This order references something that is not in the mission or the plan.' }) : '',
+                mmEl('button', { class: 'btn-icon', style: 'margin-top: 6px; color: var(--accent-red);', onclick: () => {
+                    mmPlan.orders = mmOrders().filter(x => x.id !== o.id);
+                    mmSelOrder = null; mmClearDetails(); mmAfterPlanChange();
+                } }, 'Delete order'));
+        }
 
         // --- SYSTEM LOG VIEWER LOGIC ---
         const appLogModal = document.getElementById('appLogModal');

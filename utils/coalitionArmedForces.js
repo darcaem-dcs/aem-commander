@@ -12,6 +12,8 @@ class ActiveGroup {
 		this.airbase = airbase;
 		this.nUnits = nUnits;
 		this.heading = heading;
+		this.reservedNames = new Set();   // units held for scripted orders
+		this.reservedUnits = [];          // ...kept here, invisible to the commander
 	}
 	
 	toJson() {
@@ -93,16 +95,26 @@ class CoalitionArmedForces {
 
     updateAvailableUnits(dataArray) {
         this.availableUnits = [];
+        this.reservedUnits = [];
         dataArray.forEach(group => {
             group.static_ids.forEach(staticId => {
-                if (!this.consumedStatics.has(staticId)) {
-                    this.availableUnits.push(new AvailableUnit(
-                        staticId, group.type, group.category, group.mission, 
-                        group.location.lat, group.location.long, group.airbase
-                    ));
-                }
+                if (this.consumedStatics.has(staticId)) return;
+                const unit = new AvailableUnit(
+                    staticId, group.type, group.category, group.mission,
+                    group.location.lat, group.location.long, group.airbase
+                );
+                (this.reservedNames.has(staticId) ? this.reservedUnits : this.availableUnits).push(unit);
             });
         });
+    }
+
+    /** Units held for scripted orders: hidden from the commander (AI and rules) until the order is sent. */
+    setReservedUnits(names) {
+        this.reservedNames = new Set(names || []);
+        if (this.availableUnits === null) return;     // AVAILABLE not received yet: updateAvailableUnits splits them
+        const all = [...this.availableUnits, ...this.reservedUnits];
+        this.availableUnits = all.filter(u => !this.reservedNames.has(u.name));
+        this.reservedUnits = all.filter(u => this.reservedNames.has(u.name));
     }
 
     updateISR(dataArray) {
@@ -121,6 +133,8 @@ class CoalitionArmedForces {
 	
 	removeAvailableUnit(name) {
 		this.consumedStatics.add(name);
+		this.reservedNames.delete(name);
+		this.reservedUnits = this.reservedUnits.filter(u => u.name !== name);
 		if (!this.availableUnits || this.availableUnits.length == 0) return false;
 		const index = this.availableUnits.findIndex(unit => unit.name === name);
 		if (index != -1) {

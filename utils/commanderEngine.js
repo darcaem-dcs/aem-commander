@@ -127,7 +127,8 @@ class CommanderEngine {
 
     _vctx(sctx) {
         return { forces: sctx.forces, targets: sctx.targets, territory: sctx.territory, posture: sctx.posture,
-            maxNew: this.opts.maxNewPerCycle, ballisticCount: sctx.ballisticCount, ballisticRangeKm: sctx.ballisticRangeKm };
+            maxNew: this.opts.maxNewPerCycle, ballisticCount: sctx.ballisticCount, ballisticRangeKm: sctx.ballisticRangeKm,
+            reservedGroups: sctx.reservedGroups };
     }
 
     _finish(side, sctx, sig, logsSeen, res) {

@@ -58,6 +58,8 @@ const threatAnalysis = require('./utils/threatAnalysis.js');
 const MissionScanner = require('./utils/missionScanner.js');
 const MissionPlan = require('./utils/missionPlan.js');
 const plan = new MissionPlan();
+const { runDueOrders } = require('./utils/orderExecutor.js');
+let planIntervalId = null;
 
 function getPlanPath(missionName) {
     const safe = String(missionName || 'mission').replace(/[^a-z0-9_-]/gi, '_');
@@ -91,6 +93,37 @@ function completeGoal(goalId) {
         if (persistence.currentFile && state.persistState) persistence.setCompletedGoals([...plan.completed]);
     }
     return isNew;
+}
+
+// Units held for pending scripted orders are hidden from the commander
+function syncReservedUnits() {
+    ['red', 'blue'].forEach(s => {
+        if (state[s].forces) state[s].forces.setReservedUnits(plan.reservedUnits(s));
+    });
+}
+
+function stopPlanLoop() {
+    if (planIntervalId) { clearInterval(planIntervalId); planIntervalId = null; }
+}
+
+// Independent of the commander cycle: works without AI and keeps delays accurate
+function startPlanLoop() {
+    stopPlanLoop();
+    planIntervalId = setInterval(() => {
+        if (!dcsSocket) return;
+        ['red', 'blue'].forEach(side => {
+            if (!state[side].forces) return;
+            try {
+                runDueOrders(side, {
+                    plan, state, persistence, logger, now: Date.now(),
+                    ui: (m, t) => { if (mainWindow) mainWindow.webContents.send('log-message', m, t); },
+                    sendOrdersToDCS, sendMessageToDCS, triggerMapUpdate
+                });
+            } catch (err) {
+                logger.error(`[plan] Order execution error (${side}):`, err);
+            }
+        });
+    }, 5000);
 }
 
 function startServer() {
@@ -145,6 +178,7 @@ function startServer() {
             if (processIntervalId) {
                 clearInterval(processIntervalId);
                 processIntervalId = null;
+                stopPlanLoop();
             }
             
             state.red.forces = null; 
@@ -173,6 +207,7 @@ function startServer() {
             if (processIntervalId) {
                 clearInterval(processIntervalId);
                 processIntervalId = null;
+                stopPlanLoop();
             }
             
             state.red.forces = null; 
@@ -263,7 +298,11 @@ function routeDCSMessage(msg) {
         else if (planRes.errors.length === 0) logger.info(`[plan] No mission plan found (expected at ${planPath})`);
         planRes.errors.forEach(e => planUi(`Mission plan error: ${e}`, 'error'));
         planRes.warnings.forEach(w => planUi(`Mission plan: ${w}`, 'error'));
-        if (persistence.currentFile) plan.setCompleted(persistence.getCompletedGoals());
+        if (persistence.currentFile) {
+            plan.setCompleted(persistence.getCompletedGoals());
+            plan.setExecuted(persistence.getExecutedOrders());
+            syncReservedUnits();
+        }
 
         if (persistence.currentFile) {
             if (incomingMission !== persistence.state.mission_info?.mission_name) {
@@ -675,6 +714,8 @@ ipcMain.handle('select-and-start', async (event, enableAiCommander, enablePersis
     }
     
     if (processIntervalId) clearInterval(processIntervalId);
+
+    startPlanLoop();
     
     // Only run the AI Commander monitoring loop if it was enabled
     if (enableAiCommander) {
@@ -715,6 +756,7 @@ ipcMain.handle('stop-monitor', async () => {
     if (processIntervalId) {
         clearInterval(processIntervalId);
         processIntervalId = null;
+        stopPlanLoop();
     }
 
     // Execute .miz modification based on toggle preferences

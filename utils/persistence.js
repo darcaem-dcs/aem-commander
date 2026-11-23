@@ -16,7 +16,8 @@ class PersistenceManager {
                     blue: 0
                 }
             },
-            completed_goals: []
+            completed_goals: [],
+            executed_orders: []
         };
     }
 
@@ -37,6 +38,14 @@ class PersistenceManager {
 
                 if (!this.state.active_groups) {
                     this.state.active_groups = {};
+                }
+
+                if (!Array.isArray(this.state.completed_goals)) {
+                    this.state.completed_goals = [];
+                }
+
+                if (!Array.isArray(this.state.executed_orders)) {
+                    this.state.executed_orders = [];
                 }
                 
                 this.currentFile = filePath;
@@ -144,6 +153,17 @@ class PersistenceManager {
 
     setCompletedGoals(list) {
         this.state.completed_goals = [...list];
+        this.saveState();
+    }
+
+    /** Executed initial orders */
+
+    getExecutedOrders() {
+        return this.state.executed_orders || [];
+    }
+
+    setExecutedOrders(list) {
+        this.state.executed_orders = [...list];
         this.saveState();
     }
 }

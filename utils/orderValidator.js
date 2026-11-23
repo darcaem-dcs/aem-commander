@@ -6,9 +6,10 @@ const clean = v => (v === null || v === undefined || v === '' || /^(null|none|n\
 const upper = v => String(v || '').toUpperCase();
 
 function validateActions(actions, ctx) {
+    const scripted = !!ctx.scripted;     // designer-authored orders: no posture / pacing / combined-arms / lock rules
     const { forces, targets, territory, posture } = ctx;
-    const maxNew = ctx.maxNew || 2;
-    const forbidden = new Set((posture && posture.forbiddenTasks) || []);
+    const maxNew = scripted ? Infinity : (ctx.maxNew || 2);
+    const forbidden = new Set(scripted ? [] : ((posture && posture.forbiddenTasks) || []));
     const goals = (targets && targets.targets) || [];
     const goalByName = new Map(goals.map(g => [g.name, g]));
     const crossings = goals.filter(g => g.type === 'border_crossing');
@@ -56,8 +57,8 @@ function validateActions(actions, ctx) {
         }
         const hasTarget = Number.isFinite(lat) && Number.isFinite(lon);
         if (a.task !== 'RTB' && !hasTarget) { reject('missing target_area'); continue; }
-        if (goal && posture && posture.peacetimeOnly && !goal.peacetime && goal.type !== 'csar') { reject(`goal ${goal.name} is not allowed in peacetime`); continue; }
-        if (goal && goal.locked) { reject(`goal ${goal.name} is locked until ${(goal.blockedBy || []).join(', ')} is completed`); continue; }
+        if (goal && !scripted && posture && posture.peacetimeOnly && !goal.peacetime && goal.type !== 'csar') { reject(`goal ${goal.name} is not allowed in peacetime`); continue; }
+        if (goal && goal.locked && !scripted) { reject(`goal ${goal.name} is locked until ${(goal.blockedBy || []).join(', ')} is completed`); continue; }
 
         const out = { action_type: a.action_type, task: a.task, rationale: a.rationale };
         if (hasTarget) out.target_area = { lat, long: lon };
@@ -88,12 +89,11 @@ function validateActions(actions, ctx) {
             if (first.category === 'Air') {                           // fixed-wing flights are exactly 2 aircraft
                 chosen = chosen.slice(0, 2);
                 if (chosen.length < 2) {
-                    const fill = (forces.availableUnits || []).filter(u => !usedUnits.has(u.name) && !chosen.includes(u) &&
-                        u.type === first.type && u.airbase === first.airbase && capable(u));
+                    const fill = (forces.availableUnits || []).filter(u => !usedUnits.has(u.name) && !(ctx.reserved && ctx.reserved.has(u.name)) && !chosen.includes(u) && u.type === first.type && u.airbase === first.airbase && capable(u));
                     chosen = chosen.concat(fill.slice(0, 2 - chosen.length));
                 }
             }
-            if (GROUND_PUSH.has(a.task) && hasTarget && !inFriendly(lat, lon) && !hasSupport()) {
+            if (GROUND_PUSH.has(a.task) && !scripted && hasTarget && !inFriendly(lat, lon) && !hasSupport()) {
                 reject('no CAP/CAS/STRIKE/SEAD/FIRE_SUPPORT support established for an advance into enemy territory'); continue;
             }
             fixRoute(first.lat, first.lon);
@@ -106,8 +106,9 @@ function validateActions(actions, ctx) {
         } else {
             const g = a.group_name && activeByName.get(a.group_name);
             if (!g) { reject('unknown active group'); continue; }
+            if (!scripted && ctx.reservedGroups && ctx.reservedGroups.has(g.name)) { reject('group is reserved for a scripted initial order'); continue; }
             if (usedGroups.has(g.name)) { reject('group already tasked this cycle'); continue; }
-            if (a.task !== 'RTB' && !(g.mission || []).some(m => upper(m) === a.task)) { reject(`task must match the group's current mission (${(g.mission || []).join('/')}) or RTB`); continue; }
+            if (a.task !== 'RTB' && !scripted && !(g.mission || []).some(m => upper(m) === a.task)) { reject(`task must match the group's current mission (${(g.mission || []).join('/')}) or RTB`); continue; }
             if (a.task === 'BALLISTIC') {
                 const d = dist(g.lat, g.lon, lat, lon);
                 if (ballisticUsed >= (ctx.ballisticCount || 0)) { reject('no ballistic missiles left'); continue; }
