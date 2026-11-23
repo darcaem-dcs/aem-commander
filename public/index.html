@@ -1330,19 +1330,6 @@
         const bmCountRedInput = document.getElementById('bmCountRed');
         const bmCountBlueInput = document.getElementById('bmCountBlue');
 
-        function setSidebarHidden(hidden) {
-            sectionConfig.classList.toggle('sidebar-hidden', hidden);
-            localStorage.setItem('sidebarHidden', hidden ? '1' : '0');
-            document.querySelectorAll('.js-toggle-sidebar').forEach(b => {
-                b.title = hidden ? 'Show modules' : 'Hide modules';
-                b.querySelector('i').className = hidden ? 'fa-solid fa-angles-right' : 'fa-solid fa-angles-left';
-            });
-            if (missionMap) setTimeout(() => missionMap.invalidateSize(), 50);
-        }
-        document.querySelectorAll('.js-toggle-sidebar').forEach(b =>
-            b.addEventListener('click', () => setSidebarHidden(!sectionConfig.classList.contains('sidebar-hidden'))));
-        setSidebarHidden(localStorage.getItem('sidebarHidden') === '1');
-
         // --- MAIN MENU DROPDOWN LOGIC ---
         const btnMainMenu = document.getElementById('btnMainMenu');
         const mainMenuDropdown = document.getElementById('mainMenuDropdown');
@@ -1764,9 +1751,9 @@
                 beaconLayerGroup.addLayer(marker);
             });
         }
-		
-		aggRedSlider.addEventListener('input', (e) => { valAggRedLabel.innerText = e.target.value + '%'; });
-        aggBlueSlider.addEventListener('input', (e) => { valAggBlueLabel.innerText = e.target.value + '%'; });
+
+        aggRedSlider.addEventListener('input', (e) => { if (valAggRedLabel) valAggRedLabel.innerText = e.target.value + '%'; });
+        aggBlueSlider.addEventListener('input', (e) => { if (valAggBlueLabel) valAggBlueLabel.innerText = e.target.value + '%'; });
 		
 		const prefersDarkScheme = window.matchMedia("(prefers-color-scheme: dark)");
         let currentTheme = localStorage.getItem("theme");
@@ -2368,6 +2355,7 @@
             Object.entries(props).forEach(([k, v]) => {
                 if (k === 'style') e.style.cssText = v;
                 else if (k === 'class') e.className = v;
+                else if (k.startsWith('data-')) e.setAttribute(k, v);
                 else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
                 else if (v !== undefined && v !== null) e[k] = v;
             });
@@ -2395,7 +2383,7 @@
                 });
                 list.appendChild(mmEl('label', {}, cb, mmEl('span', { textContent: def.label }), mmEl('span', { class: 'mm-count', 'data-count': def.key })));
             });
-            document.querySelectorAll('.mm-count').forEach(el => { el.dataset.count = el.getAttribute('data-count'); });
+        
         }
 
         function onMissionMapShown() {
@@ -2694,15 +2682,6 @@
             mmSel = null;
             mmClearDetails();
             mmAfterPlanChange();
-        }
-
-        function mmAfterPlanChange() {
-            renderGoals(); 
-            renderGoalList(); 
-            renderOrders(); 
-            renderOrderList(); 
-            mmRenderEditor(); 
-            mmUpdatePlanStatus();
         }
 
         function mmAfterPlanChange() {
@@ -3373,6 +3352,19 @@
                 priceIn: n('aiPriceIn'), priceOut: n('aiPriceOut')
             };
         }
+
+        function setSidebarHidden(hidden) {
+            sectionConfig.classList.toggle('sidebar-hidden', hidden);
+            localStorage.setItem('sidebarHidden', hidden ? '1' : '0');
+            document.querySelectorAll('.js-toggle-sidebar').forEach(b => {
+                b.title = hidden ? 'Show modules' : 'Hide modules';
+                b.querySelector('i').className = hidden ? 'fa-solid fa-angles-right' : 'fa-solid fa-angles-left';
+            });
+            if (missionMap) setTimeout(() => missionMap.invalidateSize(), 50);
+        }
+        document.querySelectorAll('.js-toggle-sidebar').forEach(b =>
+            b.addEventListener('click', () => setSidebarHidden(!sectionConfig.classList.contains('sidebar-hidden'))));
+        setSidebarHidden(localStorage.getItem('sidebarHidden') === '1');
     </script>
 </body>
 </html>

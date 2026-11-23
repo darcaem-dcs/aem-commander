@@ -639,6 +639,9 @@ function createWindow() {
 	mainWindow.maximize();
 	mainWindow.setMenu(null);
     mainWindow.loadFile(path.join(__dirname, 'public', 'index.html'));
+    
+    /// TODO: debug
+    mainWindow.webContents.openDevTools({ mode: 'detach' });
 }
 
 async function processCommander(side) {
