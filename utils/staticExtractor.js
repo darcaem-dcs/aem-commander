@@ -3,11 +3,20 @@ const CivExtractor = require('./civExtractor.js'); // reuse the Lua table helper
 
 const TASK_KEYWORDS = [
     'INTERCEPT', 'CAP', 'SEAD', 'CAS', 'STRIKE', 'ANTI-SHIP', 'ESCORT', 'CSAR',
+    'ASSAULT', 'FIRE_SUPPORT', 'BALLISTIC',
     'TRANSPORT_TROOPS', 'TRANSPORT_LOGISTICS', 'AWACS', 'TANKER'
 ];
 
 // DCS static "category" -> group table category
-const CATEGORY_MAP = { 'Planes': 'plane', 'Helicopters': 'helicopter' };
+const AIR_CATEGORIES = { 'Planes': 'plane', 'Helicopters': 'helicopter' };
+const GROUND_CATEGORIES = [
+    'Armor', 'Artillery', 'Air Defence', 'Unarmed', 'Infantry',
+    'MissilesSS', 'Locomotive', 'Carriage'
+];
+const CATEGORY_MAP = {
+    ...AIR_CATEGORIES,
+    ...Object.fromEntries(GROUND_CATEGORIES.map(c => [c, 'vehicle']))
+};
 
 class StaticExtractor {
 
@@ -74,7 +83,7 @@ class StaticExtractor {
                         const category = CivExtractor.getTopLevelField(unitBlock, 'category');
 
                         if (!type || !CATEGORY_MAP[category]) {
-                            skipped.push({ name, type, category, reason: 'Unsupported static category (only Planes and Helicopters)' });
+                            skipped.push({ name, type, category, reason: 'Unsupported static category (only Planes, Helicopters and Ground Units)' });
                             continue;
                         }
 

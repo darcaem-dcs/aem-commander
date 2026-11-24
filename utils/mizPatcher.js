@@ -1170,6 +1170,64 @@ ${t.livery ? `["livery_id"] = ${q(t.livery)},` : ''}
 }`;
     }
 
+    // Builds a late-activation, single-unit ground vehicle group (raw Lua table text)
+    buildGroundTemplate(t, ids) {
+        const q = (s) => '"' + String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+        const num = (v) => (Number.isFinite(v) ? v : 0);
+        const x = num(t.x), y = num(t.y);
+        const groupId = ++ids.group;
+        const unitId = ++ids.unit;
+
+        return `{
+["lateActivation"] = true,
+["visible"] = false,
+["tasks"] = {},
+["uncontrolled"] = false,
+["task"] = "Ground Nothing",
+["taskSelected"] = true,
+["groupId"] = ${groupId},
+["hidden"] = false,
+["start_time"] = 0,
+["x"] = ${x},
+["y"] = ${y},
+["name"] = ${q(t.templateName)},
+["route"] = {
+["spans"] = {},
+["points"] = {
+[1] = {
+["alt"] = 0,
+["type"] = "Turning Point",
+["action"] = "Off Road",
+["alt_type"] = "BARO",
+["formation_template"] = "",
+["ETA"] = 0,
+["ETA_locked"] = true,
+["x"] = ${x},
+["y"] = ${y},
+["name"] = "",
+["speed"] = 0,
+["speed_locked"] = true,
+["task"] = { ["id"] = "ComboTask", ["params"] = { ["tasks"] = {} } },
+},
+},
+},
+["units"] = {
+[1] = {
+["type"] = ${q(t.type)},
+["unitId"] = ${unitId},
+["skill"] = "Average",
+["name"] = ${q(t.templateName + ' Unit 1')},
+["x"] = ${x},
+["y"] = ${y},
+["heading"] = ${num(t.heading)},
+["playerCanDrive"] = false,
+["transportable"] = { ["randomTransportable"] = false },
+${t.livery ? `["livery_id"] = ${q(t.livery)},` : ''}
+},
+},
+}`;
+    }
+
     injectStaticTemplates(missionText, dictText, staticPrefix, templatePrefix) {
         let scan;
         try {
@@ -1195,7 +1253,7 @@ ${t.livery ? `["livery_id"] = ${q(t.livery)},` : ''}
             }
             const key = `${t.side}|${t.countryId}|${t.category}`;
             if (!plan.has(key)) plan.set(key, { side: t.side, countryId: t.countryId, category: t.category, groups: [] });
-            plan.get(key).groups.push(this.buildAircraftTemplate(t, ids));
+            plan.get(key).groups.push( t.category === 'vehicle' ? this.buildGroundTemplate(t, ids) : this.buildAircraftTemplate(t, ids));
         }
 
         const fallback = { blue: { id: 2, name: 'USA' }, red: { id: 0, name: 'Russia' } };
