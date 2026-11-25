@@ -2,114 +2,149 @@
   <img src="aem-commander.png" alt="AEM Commander image" width="50%">
 </p>
 
-# AEM Commander - Autonomous Engagement Monitor
+# AEM Commander
 
-`aem-commander` is a tool designed to connect the DCS World simulation environment with external Artificial Intelligence agents, enabling dynamic and automated decision-making in real-time. The system acts as a fully autonomous Theater Commander, monitoring the battlefield via simulated ISR and using Google's Gemini AI to make strategic decisions, deploy reserve units, and issue tactical orders.
+**Autonomous Engagement Monitor** — a companion app for [DCS World](https://www.digitalcombatsimulator.com/) that brings a living battlefield to your missions: an HQ that issues orders to the armed forces (driven by an LLM, by a built-in rule engine, or by your own scripted plan), plus persistence, CSAR, civilian traffic, QRA intercepts, a BFM trainer and more.
 
-## Project Status: Proof of Concept (PoC)
-
-Currently, the project is in a **Proof of Concept (PoC)** stage. The system is fully functional, focusing on validating the end-to-end technical architecture:
-
-1. **Data Collection:** Capturing events and the current state of the environment within the DCS World mission.
-2. **App Transmission:** Sending the collected information to the local external application.
-3. **AI Agent:** Processing and analyzing the data by an Artificial Intelligence agent.
-4. **Instruction Injection:** Sending the AI-generated directives back into the simulator.
-5. **Execution via MOOSE:** Receiving and successfully executing the instructions in-game.
+> ⚠️ **Status: in development.** Features, settings and file formats may change between versions. Expect rough edges and please report issues.
 
 ---
 
-## 1. Prerequisites & API Costs
+## How it works
 
-> [!WARNING]  
-> **API Usage Costs**  
-> Running the external AI agent requires connecting to a third-party AI provider (currently Google Gemini) via API. **This will incur real-world costs based on token usage.** As the mission progresses and data is continuously analyzed, token consumption can increase. You are responsible for providing your own API key and monitoring your billing limits.
+AEM Commander has two parts that talk over a local TCP socket (port `49080`):
 
-You must be authenticated to use the Google Gemini API, either with:
-*   **API Key:** Can be obtained in [Google AI Studio](https://aistudio.google.com/welcome). Check your region for free tier availability; otherwise, billing activation is required.
-*   **Vertex AI Service Account (JSON):** Harder to set up, but you get $300 in free credits to spend over 3 months by signing up on [Google Cloud](https://cloud.google.com/free).
+1. **An Electron desktop app** (this repo) that holds the "brain": commanders, mission plan, persistence, and the UI.
+2. **Lua scripts injected into your `.miz`** (built on [MOOSE](https://github.com/FlightControl-Master/MOOSE)) that export the battlefield state (order of battle, ISR contacts, goals, borders, events) and execute the orders they receive (spawn flights, route convoys, drop infantry, fire missiles...).
 
----
+The app can run on the same PC as DCS or on another machine in the same LAN.
 
-## 2. Building from Source Code
+```
+ DCS World  ──(Lua + MOOSE, TCP :49080)──►  AEM Commander app
+ (mission)  ◄────────── orders ───────────   (commanders, plan, persistence)
+```
 
-To compile the application into a standalone executable for your operating system, you need [Node.js](https://nodejs.org/en/download) installed.
+## Features
 
-1. Clone or download this repository.
-2. Open a terminal in the project folder and install the dependencies:
-   ```bash
-   npm install
-   ```
-3. Compile the application for your operating system using the following commands:
-   * **For Windows:**
-     ```bash
-     npm run package-win
-     ```
-   * **For macOS:**
-     ```bash
-     npm run package-mac
-     ```
-   * **For Linux:**
-     ```bash
-     npm run package-linux
-     ```
-The compiled executable will be generated in the `out/` or `dist/` folder.
+### Theater commanders (Red and/or Blue)
+- **Three modes:** `Hybrid` (AI with automatic rule-based fallback), `AI only`, or `Rules only` (no AI, no cost).
+- **LLM providers:** Google Gemini (API key or Vertex AI service account) and any **OpenAI-compatible** endpoint (Groq, OpenRouter, Ollama, LM Studio, DeepSeek...).
+- **Built to keep AI costs low:** the model is only consulted when the situation actually changes, with a single structured-output call per decision, configurable thinking level, optional "fast" and "strong" model tiers, hourly budgets (calls / tokens / cost) and automatic fallback to the rule engine after repeated failures.
+- **Pre-analysed situation brief:** goals, nearby threats, closest capable reserves, SAM/CAP cover and recent events are computed in code and handed to the model.
+- **Orders are validated in code**, not just requested in the prompt: unit capabilities, fixed-wing flights of two, combined-arms requirements, border crossings, ballistic missile range and inventory, and pacing limits.
+- **Reactive escalation:** a threat posture (GREEN / YELLOW / RED) driven by detected enemies and losses, with a per-coalition aggressiveness setting.
+- **Tasks:** `INTERCEPT`, `CAP`, `SEAD`, `CAS`, `STRIKE`, `ANTI-SHIP`, `ESCORT`, `CSAR`, `ASSAULT`, `TRANSPORT_TROOPS`, `TRANSPORT_LOGISTICS`, `FIRE_SUPPORT`, `BALLISTIC`, `RTB`.
+- **Strike packages** rendezvous and push together; ground forces can route through border-crossing goals and deploy infantry to capture zones.
+- **Ballistic missiles** with inventory, range, and depots that can be destroyed.
+- Custom doctrine text per coalition and per-unit capability profiles.
 
----
+### Mission Map & mission plan
+- Preview your mission layout (groups, reserves, borders, goals) on a map before playing.
+- Edit **goal priorities**, create **custom goals**, define **dependencies** between goals (goal B stays locked until goal A is completed), and set **scripted initial orders** (at start, after a delay, or when a goal is completed).
+- Plans are stored per mission and layered on top of what the `.miz` defines.
 
-## 3. Mission Editor Configuration
+### Persistence
+- Tracks destroyed units, downed pilots, active groups, completed goals and ballistic missile stock across sessions.
+- Optionally writes the latest group positions and the mission clock/date back into your `.miz` (a backup is created automatically).
 
-To allow the AI to interact with your mission, you must structure your DCS mission following these strict conventions:
+### Extra modules (each one can be switched on/off)
+| Module | What it does |
+|---|---|
+| **CSAR** | Ejected pilots spawn on land or water with SOS beacon, flare and F10 rescue menu. |
+| **Civilian traffic** | Random airliners between chosen airbases and zones. Pick aircraft types and liveries from a catalog extracted from your own `.miz`. |
+| **QRA interception** | Unidentified bogeys you must intercept and warn off (radio calls, gun warning shots, formation flying). |
+| **BFM trainer** | 1v1 sorties with a wingman that swaps into an adversary, hard deck and "Knock it off" handling. |
+| **Kneeboard** | Injects aerodrome data kneeboard pages from [DimOn by Minsky](https://forum.dcs.world/topic/269908-aerodrome-data-and-frequencies-updated-01-february-2026/) according to map and time of day. |
+| **Wildfires** | *Work in progress, disabled by default.* |
 
-1. **Load JSON Library:** `json.lua` must be loaded into the mission via a trigger at mission start.
-2. **Setup AI Reserves (Statics):** Add static objects representing the available units in the theater. Each static's name must start with the defined prefix and contain the tasks it can perform.
-   * *Example:* `AEM_RES CAP INTERCEPT RED_Mig21Bis_0007`
-3. **Setup Templates (Late Activation):** Place a late activation group for every unit type and task combination you included in your statics. The name must strictly follow the format: `[TEMPLATE_PREFIX][COALITION] [TASK] [UNIT TYPE]`.
-   * *Example:* `AEM_TPL_RED CAP MiG-21Bis`
-4. **Define Borders:** Create a late activation group with waypoints outlining the coalition's border. The first and last waypoints are virtually joined to create a closed polygon.
-   * *Example:* `RED BORDER` or `BLUE BORDER`
-5. **Define Goals (Trigger Zones):** Create trigger zones for the AI to attack, defend, or conquer. The zone name must start with `GOAL_RED` or `GOAL_BLUE`.
-6. **Infantry Templates:** Place late activation infantry groups named `AEM_RED_INFANTRY` and `AEM_BLUE_INFANTRY` for the AI to use during troop transport tasks.
-7. **CSAR Templates:** Place late activation groups for downed pilots (`BLUE DOWNED PILOT`, `RED DOWNED PILOT`) and rafts (`BLUE LIFE RAFT`, `RED LIFE RAFT`), and add the SOS audio file to the mission.
+### Tooling
+- **One-click injection** of scripts, templates and media into a *copy* of your mission (`aem_next.miz`, the original is never modified).
+- **Template builders:** late-activation templates are generated from your `AEM_RES` statics; CSAR and civilian templates, and payloads (loadouts), can be extracted from "master" `.miz` files.
+- **Load settings from a mission** that already has AEM Commander injected.
+- Live tactical map with beacons, light/dark theme and a built-in log viewer.
 
----
+## Requirements
 
-## 4. Lua Script Configuration (`aem-commander.lua`)
+- **DCS World** with a mission you can edit.
+- **[MOOSE](https://github.com/FlightControl-Master/MOOSE)** (and MIST if you use it) — the app can inject them if your mission doesn't already load them.
+- **Windows** is the primary target (a macOS build is available through `electron-builder`).
+- **Node.js** and npm, only if you run from source.
+- For the AI commander: a Gemini API key / Vertex AI service account, or an OpenAI-compatible endpoint. Not needed in `Rules only` mode.
+- TCP port **49080** free and not blocked by a firewall.
 
-Before running the mission, open the `aem-commander.lua` script and adjust the variables at the top of the file to match your environment and preferences.
+## Quick start
 
-### Network & Core Settings
-| Variable | Description |
-| :--- | :--- |
-| `MISSION_NAME` | The unique name of your mission. Used by the Persistence Manager to prevent loading incorrect save files. |
-| `HOST_IP` | The IP address of the machine running the AEM Commander app (e.g., `"127.0.0.1"` if running on the same PC). |
-| `AUTO_CONNECT` | Set to `true` to connect automatically on mission start, or `false` to connect manually via the F10 radio menu. |
+1. Download a release (or run from source, see below) and start **AEM Commander**.
+2. Choose **Configure new settings & inject**, enable the modules you want and press **Inject Scripts to .miz**. This creates `aem_next.miz` next to your mission.
+3. Open `aem_next.miz` in DCS and start the mission.
+4. In the app, configure the commanders and press **Start Tracker**. The Lua script connects automatically (or via the **F10 → Connect to HQ** menu).
 
-### Mission Editor Naming Conventions
-| Variable | Description | Default |
-| :--- | :--- | :--- |
-| `*_EW` | Prefix for early warning groups. They contribute to enemy detection regardless of unit type. | `"RED EW"` / `"BLUE EW"` |
-| `*_SAM` | Prefix for surface-to-air missile groups. | `"RED SAM"` / `"BLUE SAM"` |
-| `*_BORDER` | Late activation group defining the territory polygon. | `"RED BORDER"` / `"BLUE BORDER"` |
-| `STATIC_RESOURCE` | Prefix for static units tasked by the AI. | `"AEM_RES"` |
-| `TEMPLATE_PREFIX` | Prefix for late activation group templates used for spawning. | `"AEM_TPL_"` |
+On later sessions choose **Load settings from your mission** to pick up where you left off.
 
-### Modules & Gameplay Features
-| Variable | Description | Default |
-| :--- | :--- | :--- |
-| `MODULE_CSAR` | Toggles the Combat Search and Rescue mechanics. | `true` |
-| `MODULE_CIV_TRAFFIC` | Toggles dynamic neutral civilian air traffic between airbases. | `true` |
-| `MODULE_WILDFIRES` | Toggles dynamic spreading wildfires and helicopter firefighting mechanics. | `true` |
-| `BALLISTIC_MISSILE_RANGE` | Maximum engagement range (in meters) for strategic missile strikes. | `400000` |
-| `UNLIMITED_FUEL` | Grants unlimited fuel to AI-spawned flights to prevent them from dropping out of the sky. | `true` |
+### Preparing your mission (Mission Editor conventions)
 
----
+| Element | Convention |
+|---|---|
+| Reserves | Static units named `AEM_RES...` containing task keywords (`CAP`, `SEAD`, `STRIKE`, `TRANSPORT_TROOPS`, ...). Their type, country and livery are used to build late-activation templates named `AEM_TPL_<SIDE> <TASK> <type>`. |
+| Already deployed forces | Groups whose names contain task keywords (`CAP`, `SAM`, `AWACS`, `TANKER`, ...). |
+| EW / SAM | Groups prefixed `RED EW` / `BLUE EW` and `RED SAM` / `BLUE SAM` (configurable). |
+| Borders | A late-activation group named `RED BORDER` / `BLUE BORDER`; its route defines the polygon. |
+| Goals | Trigger zones named `GOAL_RED...` / `GOAL_BLUE...` with properties such as `type`, `priority`, `peacetime` (and `bm_count` for ballistic missile depots). |
+| Infantry | Templates `AEM_RED_INFANTRY` / `AEM_BLUE_INFANTRY`. |
+| Persistence | Groups containing the keyword `PERSIST` have their positions saved. |
 
-## 5. Running the System
+Goal types: `strike`, `bm_depot`, `conquer`, `resupply`, `border_crossing`, `deploy_infantry`.
 
-1. Open the compiled **AEM Commander** application.
-2. Enter your Gemini API Key or Vertex AI JSON file.
-3. Configure your Commander settings (Refresh interval, Aggressiveness, Escalation system, etc.).
-4. (Optional) Click **Load save file** or **Create new save** to enable state persistence.
-5. Click **Start** in the app. The app will begin listening on port `49080`.
-6. Start your DCS Mission. If `AUTO_CONNECT` is true, the script will immediately sync the Order of Battle and Goals with the app. If false, open the F10 Radio Menu and select **Connect to HQ**. 
-7. To save your progress mid-mission, use the **F10 > AEM Commander > Save persistence state** menu in DCS. All active flights, destroyed units, and strategic inventory will be preserved.
+## Running from source
+
+```bash
+git clone https://github.com/darcaem-dcs/aem-commander.git
+cd aem-commander
+npm install
+npm start
+```
+
+Packaging:
+
+```bash
+npm run package-win   # Windows (electron-packager)
+npm run package-mac   # macOS (electron-builder)
+```
+
+The `beacons`, `lua_scripts`, `media`, `loadouts`, `civ`, `csar` and `dimon` folders are shipped as extra resources.
+
+## Project structure
+
+```
+main.js              Electron main process, TCP server, message routing
+preload.js           IPC bridge
+public/index.html    UI
+lua_scripts/         Lua injected into the mission (code + generated values)
+utils/               Commander engine, brief builder, rule commander, order validator,
+                     LLM providers, mission plan/scanner, persistence, .miz patcher
+                     and extractors (loadouts, civ, CSAR, statics)
+```
+
+## Known limitations
+
+- Under active development: settings and save/plan formats can change.
+- The Mission Map needs a coordinate projection for the theatre; a few maps are not supported yet.
+- Naval groups cannot receive initial orders yet.
+- Logistics deliveries currently end with an RTB (supply construction is not implemented).
+- Wildfires module is experimental.
+
+## Contributing
+
+Bug reports, ideas and pull requests are welcome. Please open an issue first for larger changes. When reporting a problem, include the log from **Menu → View Log** and your DCS `dcs.log` if relevant.
+
+## Credits
+
+- [MOOSE](https://github.com/FlightControl-Master/MOOSE) — Moose Framework for DCS
+- [rxi/json.lua](https://github.com/rxi/json.lua) — JSON for Lua
+- [Leaflet](https://leafletjs.com/) and [OpenStreetMap](https://www.openstreetmap.org/) contributors
+- [DimOn kneeboards by Minsky](https://forum.dcs.world/topic/269908-aerodrome-data-and-frequencies-updated-01-february-2026/)
+- Font Awesome icons
+
+## License
+
+[MIT](LICENSE) © Alfonso Escriche Martínez
