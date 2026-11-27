@@ -125,63 +125,9 @@ class MissionPlan {
         return true;
     }
 
-    /** Drops goals already achieved in a previous session (Lua re-exports every zone on each connect). */
-    filterCompleted(items) {
-        return (items || []).filter(i => !this.completed.has(i.id));
-    }
-
-    // ---- merge layer ----------------------------------------------------
-
-    /** Idempotent: safe to call after every updateGoals() and once per cycle. */
-    applyTo(targets, log = () => {}) {
-        if (!targets || !Array.isArray(targets.targets)) return;   // GOALS not received yet
-        const side = targets.coalition;
-        const goals = this.data.goals;
-
-        // 1. Overrides on the goals exported by the mission zones
-        for (const t of [...targets.targets]) {
-            if (RUNTIME_TYPES.has(t.type)) continue;
-            const o = goals[t.name];
-            if (!o || o.custom) continue;
-            if (o.disabled) { targets.removeTarget(t.name); continue; }
-            if (o.priority !== undefined) t.priority = o.priority;
-            if (o.peacetime !== undefined) t.peacetime = o.peacetime;
-            if (o.type) t.type = o.type;
-            if (o.props) t.props = { ...t.props, ...o.props };
-        }
-
-        // 2. Custom goals of this coalition
-        for (const [id, o] of Object.entries(goals)) {
-            if (!o.custom || o.disabled || o.side !== side || this.completed.has(id)) continue;
-            const props = { ...(o.props || {}), radius: o.radius, custom: true };
-            const existing = targets.targets.find(t => t.name === id);
-            if (existing) {
-                Object.assign(existing, { priority: o.priority, type: o.type, peacetime: !!o.peacetime, props });
-            } else {
-                targets.addTarget(id, o.priority, o.type, o.lat, o.lon, null, !!o.peacetime, props);
-            }
-        }
-
-        // 3. Dependencies
-        this.refreshLocks(targets);
-
-        const known = new Set([...Object.keys(goals), ...this.completed, ...targets.targets.map(t => t.name)]);
-        for (const t of targets.targets) {
-            if (t.locked) this._note(`lock:${t.name}`, `Goal ${t.name} is locked until ${t.blockedBy.join(', ')} is completed.`, log);
-            (t.requires || []).filter(r => !known.has(r)).forEach(r =>
-                this._note(`unk:${t.name}:${r}`, `Goal ${t.name} requires "${r}", which is not in the plan nor in this coalition's goals (typo or other coalition?). It stays locked.`, log));
-        }
-    }
-
-    refreshLocks(targets) {
-        if (!targets || !Array.isArray(targets.targets)) return;
-        for (const t of targets.targets) {
-            const g = this.data.goals[t.name];
-            const req = (g && !RUNTIME_TYPES.has(t.type)) ? g.requires : [];
-            t.requires = req;
-            t.blockedBy = req.filter(r => !this.completed.has(r));
-            t.locked = t.blockedBy.length > 0;
-        }
+    unmarkCompleted(id) { 
+        this.completed.delete(id); 
+        this.completedAt.delete(id); 
     }
 
     _note(key, msg, log) {
@@ -190,7 +136,7 @@ class MissionPlan {
         log(msg);
     }
 
-        // ---- orders ---------------------------------------------------------
+    // ---- orders ---------------------------------------------------------
 
     normalizeOrders(rawOrders, warnings = []) {
         const used = new Set();          // assets (groups / reserve units) that already have an order

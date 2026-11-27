@@ -17,7 +17,8 @@ class PersistenceManager {
                 }
             },
             completed_goals: [],
-            executed_orders: []
+            executed_orders: [],
+            goal_states: {}
         };
     }
 
@@ -47,6 +48,9 @@ class PersistenceManager {
                 if (!Array.isArray(this.state.executed_orders)) {
                     this.state.executed_orders = [];
                 }
+
+                if (!this.state.goal_states || typeof this.state.goal_states !== 'object') 
+                    this.state.goal_states = {};
                 
                 this.currentFile = filePath;
                 return true;
@@ -145,16 +149,10 @@ class PersistenceManager {
         );
     }
 
-    /** Completed goals */
-
-    getCompletedGoals() {
-        return this.state.completed_goals || [];
-    }
-
-    setCompletedGoals(list) {
-        this.state.completed_goals = [...list];
-        this.saveState();
-    }
+    /** Goal states (COMPLETED / FAILED). completed_goals is the legacy list, only read for migration. */
+    getGoalStates() { return this.state.goal_states || {}; }
+    setGoalStates(obj) { this.state.goal_states = { ...obj }; this.saveState(); }
+    getCompletedGoals() { return this.state.completed_goals || []; }
 
     /** Executed initial orders */
 

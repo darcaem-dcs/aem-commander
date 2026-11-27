@@ -19,7 +19,7 @@ module.exports = async function runCommanderCycle(side, d) {
         return;
     }
 
-    if (d.plan) d.plan.applyTo(targets, m => logger.info(`[plan] ${m}`));
+    if (d.goals) d.goals.sync();
 
     // Always evaluate posture (it also applies the loss-decay), even if the AI call ends up skipped
     const posture = threatAnalysis.getPostureRestriction(cState, side, state.escalationEnabled, mainWindow, persistence);
@@ -62,6 +62,7 @@ module.exports = async function runCommanderCycle(side, d) {
     if (actions.length > 0) {
         ui(`Commander of ${forces.coalition}: ${decision.mission_log}`, 'success');
         d.sendOrdersToDCS(side.toUpperCase(), actions);
+        if (d.goals) d.goals.noteOrders(side, actions);
         d.sendMessageToDCS(side.toUpperCase(), decision.mission_log);
         actions.forEach(action => {
             if (action.action_type === 'new' && action.unit_names) action.unit_names.forEach(n => forces.removeAvailableUnit(n));

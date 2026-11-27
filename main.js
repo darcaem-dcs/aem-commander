@@ -31,14 +31,7 @@ let missionAbsTime = 0;  // Absolute time in seconds since mission start, update
 
 // Commanders
 const CoalitionArmedForces = require('./utils/coalitionArmedForces.js');
-let redCoalition = null, blueCoalition = null;
-const CoalitionTargets = require('./utils/coalitionTargets.js');
-let redTargets = null, blueTargets = null;
 const CoalitionTerritory = require('./utils/coalitionTerritory.js');
-let redTerritory = null, blueTerritory = null;
-const REBASE_INTERVAL = 30;
-let cycleCount = 0;
-let redActive = false, blueActive = false;
 
 let state = {
     red: { forces: null, targets: null, territory: null, aiLogs: [] },
@@ -66,35 +59,6 @@ function getPlanPath(missionName) {
     return path.join(app.getPath('userData'), 'plans', `${safe}.aemplan.json`);
 }
 
-// Marks a goal as achieved: persists it, removes it from every list and unlocks dependants
-function completeGoal(goalId) {
-    if (!goalId) return false;
-    const before = {};
-    ['red', 'blue'].forEach(s => {
-        const list = (state[s].targets && state[s].targets.targets) || [];
-        before[s] = new Set(list.filter(t => t.locked).map(t => t.name));
-    });
-
-    const isNew = plan.markCompleted(goalId);
-    ['red', 'blue'].forEach(s => {
-        const t = state[s].targets;
-        if (!t) return;
-        t.removeTarget(goalId);
-        plan.refreshLocks(t);
-        (t.targets || []).filter(x => before[s].has(x.name) && !x.locked).forEach(x => {
-            state[s].aiLogs.push(`Goal ${x.name} is now unlocked: its prerequisites are completed.`);
-            logger.info(`[plan] Goal ${x.name} unlocked.`);
-        });
-    });
-
-    if (isNew) {
-        logger.info(`[plan] Goal completed: ${goalId}`);
-        if (mainWindow) mainWindow.webContents.send('log-message', `Goal completed: ${goalId}`, 'success');
-        if (persistence.currentFile && state.persistState) persistence.setCompletedGoals([...plan.completed]);
-    }
-    return isNew;
-}
-
 // Units held for pending scripted orders are hidden from the commander
 function syncReservedUnits() {
     ['red', 'blue'].forEach(s => {
@@ -115,7 +79,7 @@ function startPlanLoop() {
             if (!state[side].forces) return;
             try {
                 runDueOrders(side, {
-                    plan, state, persistence, logger, now: Date.now(),
+                    plan, goals: goalManager, state, persistence, logger, now: Date.now(),
                     ui: (m, t) => { if (mainWindow) mainWindow.webContents.send('log-message', m, t); },
                     sendOrdersToDCS, sendMessageToDCS, triggerMapUpdate
                 });
@@ -125,6 +89,29 @@ function startPlanLoop() {
         });
     }, 5000);
 }
+
+// Goals management
+const GoalManager = require('./utils/goalManager.js');
+const goalManager = new GoalManager({
+    plan,
+    ui: (m, t) => { logger.info(`[goals] ${m}`); if (mainWindow) mainWindow.webContents.send('log-message', m, t); },
+    aiLog: (side, text) => { if (state[side]) state[side].aiLogs.push(text); },
+    save: states => { if (persistence.currentFile && state.persistState) persistence.setGoalStates(states); },
+    config: goals => {  // goals the Lua GoalMonitor must watch
+        if (!dcsSocket) return;
+        dcsSocket.write(JSON.stringify({ type: 'ORDERS', coalition: 'ALL', actions: [{ action_type: 'goal_config', goals }] }) + '\n');
+        logger.info(`[goals] Sent ${goals.length} goals to the DCS monitor.`);
+    },
+    onCompleted: g => { // depot destroyed by anyone (AI, players...)
+        if (g.type !== 'bm_depot') return;
+        const enemy = g.side === 'red' ? 'blue' : 'red';
+        const capacity = parseInt(g.props && g.props.bm_count) || 0;
+        const lost = persistence.destroyBallisticMissiles(enemy, capacity);
+        state[g.side].aiLogs.push(`INTEL CONFIRMS: Enemy ballistic missile depot destroyed! Estimated up to ${capacity} missiles eliminated.`);
+        state[enemy].aiLogs.push(`CRITICAL ALERT: Our ballistic missile depot ${g.name} was destroyed by enemy forces! We lost ${lost} missiles.`);
+        logger.info(`[AEM] ${enemy} lost ${lost} ballistic missiles due to depot strike.`);
+    }
+});
 
 function startServer() {
     // Prevent trying to start multiple servers on the same port
@@ -192,6 +179,7 @@ function startServer() {
             
             persistence = new PersistenceManager();
             plan.reset();
+            goalManager.reset();
             activeDeployments = {};
             
             if (mainWindow) {
@@ -221,6 +209,7 @@ function startServer() {
             
             persistence = new PersistenceManager();
             plan.reset();
+            goalManager.reset();
             activeDeployments = {};
             
             if (mainWindow) {
@@ -291,6 +280,7 @@ function routeDCSMessage(msg) {
 
         // Mission plan (goal overrides, custom goals, dependencies)
         plan.reset();
+        goalManager.reset();
         const planPath = getPlanPath(incomingMission);
         const planRes = plan.load(planPath);
         const planUi = (m, t) => { logger.info(`[plan] ${m}`); if (mainWindow) mainWindow.webContents.send('log-message', m, t); };
@@ -299,7 +289,7 @@ function routeDCSMessage(msg) {
         planRes.errors.forEach(e => planUi(`Mission plan error: ${e}`, 'error'));
         planRes.warnings.forEach(w => planUi(`Mission plan: ${w}`, 'error'));
         if (persistence.currentFile) {
-            plan.setCompleted(persistence.getCompletedGoals());
+            goalManager.loadSaved(persistence.getGoalStates(), persistence.getCompletedGoals());  // also fills plan.completed
             plan.setExecuted(persistence.getExecutedOrders());
             syncReservedUnits();
         }
@@ -463,120 +453,79 @@ function routeDCSMessage(msg) {
 			state[coal].forces.updateISR(msg.data);
             break;
         case "GOALS":
-            state[coal].targets.updateGoals(plan.filterCompleted(msg.data));
-            plan.applyTo(state[coal].targets, m => logger.info(`[plan] ${m}`));
+            goalManager.ingestZones(coal, msg.data);
             break;
         case "BORDER":
             state[coal].territory.updateBorder(msg.data);
             break;
-		case "EVENTS":
+        case "EVENTS":
             const forces = state[coal].forces;
-            const targets = state[coal].targets;
-            
-            for (let i = 0; i < msg.data.length; i++) {
-                const event = msg.data[i];
-                const eventCoalition = event.coalition.toLowerCase();
-                
-                if (eventCoalition !== coal) continue; 
+            const ai = text => state[coal].aiLogs.push(text);
+            const persistThreat = () => {
+                if (persistence.currentFile && state.persistState) {
+                    if (persistence.state.eventThreatBonus == null) persistence.state.eventThreatBonus = {};
+                    persistence.state.eventThreatBonus[coal] = state[coal].eventThreatBonus;
+                    persistence.saveState();
+                }
+            };
+
+            for (const event of msg.data) {
+                if (event.coalition.toLowerCase() !== coal) continue;
 
                 switch (event.type) {
-                    case 'activated':
-                        const arrayStatics = event.staticUnits;
-                        forces.addActiveGroup(
-                            event.group.name, event.group.type, event.group.category,
-                            event.group.mission, event.group.lat, event.group.lon,
-                            event.group.airbase, arrayStatics.length
-                        );
-                        arrayStatics.forEach(name => forces.removeAvailableUnit(name));
-                        state[coal].aiLogs.push(`The new flight ${event.group.name} has successfully launched from ${event.group.airbase}`);
-						
-						logger.info(`The new flight ${event.group.name} has successfully launched from ${event.group.airbase}`);
-						
+                    case 'activated': {
+                        const statics = event.staticUnits || [];
+                        forces.addActiveGroup(event.group.name, event.group.type, event.group.category,
+                            event.group.mission, event.group.lat, event.group.lon, event.group.airbase, statics.length);
+                        statics.forEach(n => forces.removeAvailableUnit(n));
+                        goalManager.bindGroup(statics, event.group.name);
+                        ai(`The new flight ${event.group.name} has successfully launched from ${event.group.airbase}`);
+                        logger.info(`The new flight ${event.group.name} has successfully launched from ${event.group.airbase}`);
                         break;
-                        
+                    }
                     case 'destroyed':
-						state[coal].eventThreatBonus = (state[coal].eventThreatBonus || 0) + 20;
+                        state[coal].eventThreatBonus = (state[coal].eventThreatBonus || 0) + 20;
                         if (!forces.activeUnitDestroyed(event.groupName)) {
-                            state[coal].aiLogs.push(`All units from ${event.groupName} have been destroyed, this group has been destroyed`);
+                            ai(`All units from ${event.groupName} have been destroyed, this group has been destroyed`);
+                            goalManager.releaseGroup(event.groupName);
                         } else {
-                            state[coal].aiLogs.push(`A unit from ${event.groupName} has been destroyed`);
+                            ai(`A unit from ${event.groupName} has been destroyed`);
                         }
-                        if (persistence.currentFile && state.persistState) {
-                            if (persistence.state.eventThreatBonus == null) persistence.state.eventThreatBonus = {};
-                            persistence.state.eventThreatBonus[coal] = state[coal].eventThreatBonus;
-                            persistence.saveState();
-                        }
+                        goalManager.pilotLost(event.groupName);
+                        persistThreat();
                         break;
-                        
                     case 'csar':
-                        if (eventCoalition === forces.coalition) {
-							state[coal].eventThreatBonus = (state[coal].eventThreatBonus || 0) + 30;
-                            targets.addTarget(`csar-${event.name}`, 999, 'csar', event.lat, event.lon, null);
-                            state[coal].aiLogs.push('One of our pilots has ejected safely and needs to be rescued. A new csar mission has been added to the targets list');
-                            if (persistence.currentFile && state.persistState) {
-                            if (persistence.state.eventThreatBonus == null) persistence.state.eventThreatBonus = {};
-                                persistence.state.eventThreatBonus[coal] = state[coal].eventThreatBonus;
-                                persistence.saveState();
-                            }
-                        } else {
-                            targets.addTarget(`enemy csar-${event.name}`, 0.5, 'enemy-csar', event.lat, event.lon, null);
-                            state[coal].aiLogs.push('An enemy pilot has ejected safely. A new enemy-csar mission has been added to the targets list');
-                        }
+                        state[coal].eventThreatBonus = (state[coal].eventThreatBonus || 0) + 30;
+                        goalManager.csarDown(coal, event);          // goal for us + enemy-csar goal for the other side
+                        persistThreat();
                         break;
-                        
                     case 'rescued':
-                        if (eventCoalition === forces.coalition) {
-                            if (targets.removeTarget(event.name)) {
-                                state[coal].aiLogs.push(`The CSAR mission to rescue ${event.name} has been a success`);
-                            }
-                        } else {
-                            if (targets.removeTarget(`enemy csar-${event.name}`)) {
-                                state[coal].aiLogs.push(`The enemy csar mission has rescued ${event.name}`);
-                            }
-                        }
+                        goalManager.rescued(coal, event.name);
                         break;
-                        
                     case 'land':
                         if (forces.removeActiveGroup(event.groupName)) {
-                            state[coal].aiLogs.push(`The group ${event.groupName} has landed safely and is no longer active. They are entering turnaround for rearm/refuel.`);
+                            ai(`The group ${event.groupName} has landed safely and is no longer active. They are entering turnaround for rearm/refuel.`);
+                        }
+                        goalManager.releaseGroup(event.groupName);
+                        break;
+                    case 'captured':    // only completes goals declared with completion=order
+                        if (goalManager.completeByOrder(event.goalName, { by: `infantry deployed by ${event.groupName}` })) {
+                            ai(`Goal ${event.goalName} has been secured: infantry deployed by ${event.groupName}.`);
+                        }
+                        goalManager.releaseGroup(event.groupName);
+                        break;
+                    case 'goal_status': // from the Lua GoalMonitor (next step)
+                        goalManager.applyStatus(event);
+                        break;
+                    case 'mission_completed':
+                        goalManager.releaseGroup(event.groupName);
+                        if (event.status === 'SUCCESS') {
+                            ai(`The ${event.task} mission by ${event.groupName} against ${event.targetName} was a SUCCESS.`);
+                            goalManager.completeByOrder(event.goalName || event.targetName, { by: `${event.task} by ${event.groupName}` });
+                        } else {
+                            ai(`The ${event.task} mission by ${event.groupName} against ${event.targetName} FAILED. Assess if a re-strike is necessary.`);
                         }
                         break;
-					
-					case 'captured':	// Zone has been captured
-						if (completeGoal(event.goalName)) {
-							state[coal].aiLogs.push(`Goal ${event.goalName} has been secured: infantry deployed by ${event.groupName}.`);
-						}
-						break;
-						
-					case 'mission_completed':
-						if (event.status === 'SUCCESS') {
-							state[coal].aiLogs.push(`The ${event.task} mission by ${event.groupName} against ${event.targetName} was a SUCCESS.`);
-
-							// The goal id travels in goalName (the old targetName was the enemy group, not the goal)
-							const goalId = event.goalName || event.targetName;
-							const enemyCoalition = coal === 'red' ? 'blue' : 'red';
-							let targetData = null;
-							for (const l of [state[coal].targets, state[enemyCoalition].targets]) {
-								targetData = ((l && l.targets) || []).find(t => t.name === goalId);
-								if (targetData) break;
-							}
-
-							// Ballistic missile depot destroyed
-							if (targetData && targetData.type === 'bm_depot') {
-								const depotCapacity = parseInt(targetData.props && targetData.props.bm_count) || 0;
-								const actualLost = persistence.destroyBallisticMissiles(enemyCoalition, depotCapacity);
-
-								state[coal].aiLogs.push(`INTEL CONFIRMS: Enemy ballistic missile depot destroyed! Estimated up to ${depotCapacity} missiles eliminated.`);
-								state[enemyCoalition].aiLogs.push(`CRITICAL ALERT: Our ballistic missile depot ${goalId} was destroyed by enemy forces! We lost ${actualLost} missiles.`);
-								logger.info(`[AEM] ${enemyCoalition} lost ${actualLost} ballistic missiles due to depot strike.`);
-							}
-
-							// Only real goals count (a coordinate strike has no goal)
-							if (targetData || plan.data.goals[goalId]) completeGoal(goalId);
-						} else {
-							state[coal].aiLogs.push(`The ${event.task} mission by ${event.groupName} against ${event.targetName} FAILED. Assess if a re-strike is necessary.`);
-						}
-						break;
                 }
             }
             break;
@@ -596,6 +545,7 @@ function triggerMapUpdate() {
                 enemyGroups: state.red.forces ? state.red.forces.enemyGroups : null,
 				availableUnits: state.red.forces ? state.red.forces.availableUnits : null
             },
+            goals: goalManager.snapshot('red'),
             targets: {
                 targets: state.red.targets ? state.red.targets.targets : null
             },
@@ -609,6 +559,7 @@ function triggerMapUpdate() {
                 enemyGroups: state.blue.forces ? state.blue.forces.enemyGroups : null,
 				availableUnits: state.blue.forces ? state.blue.forces.availableUnits : null
             },
+            goals: goalManager.snapshot('blue'),
             targets: {
                 targets: state.blue.targets ? state.blue.targets.targets : null
             },
@@ -650,7 +601,8 @@ async function processCommander(side) {
         getPersistence: () => persistence,      // `persistence` is re-assigned elsewhere, so pass a getter
         getMainWindow: () => mainWindow,
         sendOrdersToDCS, sendMessageToDCS, triggerMapUpdate,
-        retry: (s) => processCommander(s)
+        retry: (s) => processCommander(s),
+        goals: goalManager
     });
 }
 
@@ -681,7 +633,7 @@ ipcMain.handle('select-and-start', async (event, enableAiCommander, enablePersis
 
     if (commanderSide === 'red' || commanderSide === 'both') {
         state.red.forces = new CoalitionArmedForces('red', instructionsRed);
-        state.red.targets = new CoalitionTargets('red');
+        state.red.targets = goalManager.forSide('red');
         state.red.territory = new CoalitionTerritory('red');
         state.red.aggressiveness = aggRed;
         state.red.isrThreatScore = 0;
@@ -689,7 +641,7 @@ ipcMain.handle('select-and-start', async (event, enableAiCommander, enablePersis
     }
     if (commanderSide === 'blue' || commanderSide === 'both') {
         state.blue.forces = new CoalitionArmedForces('blue', instructionsBlue);
-        state.blue.targets = new CoalitionTargets('blue');
+        state.blue.targets = goalManager.forSide('blue');
         state.blue.territory = new CoalitionTerritory('blue');
         state.blue.aggressiveness = aggBlue;
         state.blue.isrThreatScore = 0;
@@ -807,6 +759,7 @@ ipcMain.handle('stop-monitor', async () => {
     state.blue.forces = null;
     persistence = new PersistenceManager();
     plan.reset();
+    goalManager.reset();
     activeDeployments = {};
     groupsToPersist = [];
     missionAbsTime = 0;

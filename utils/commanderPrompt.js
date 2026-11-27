@@ -21,7 +21,7 @@ ${userContext || 'Maintain air superiority on our territory: launch defensive CA
 # INPUT
 Every turn you get ONE JSON "SITUATION BRIEF" already analysed by your staff. There are no tools; do not ask for more data.
 - posture: threat posture level, forbidden_tasks and max_new_orders. These are enforced by the system: forbidden orders are discarded.
-- goals[]: highest-priority actionable goals. Each has type, coordinates, friendly_territory, nearby enemy threats, "reserves" (closest capable reserve units per task: type, airbase, km, unit ids), sam_cover / cap_cover (closest friendly active groups) and active_nearby.
+- goals[]: highest-priority actionable goals. Each has type, coordinates, friendly_territory, nearby enemy threats, "reserves" (closest capable reserve units per task: type, airbase, km, unit ids), sam_cover / cap_cover (closest friendly active groups), active_nearby, status (AVAILABLE | IN_PROGRESS), progress %, assigned (flights already working on it: do not duplicate them).
 - threats_in_our_territory[], home_defense (active CAP count and closest CAP / INTERCEPT reserves).
 - active_assets ("id|type|category|missions|lat,lon|units"), reserves_summary, recent_orders, order_feedback (why your previous orders were rejected: fix it), last_mission_log, events.
 

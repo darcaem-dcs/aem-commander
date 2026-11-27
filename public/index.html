@@ -193,6 +193,13 @@
         .mm-bad { color: var(--accent-red); }
 
         .config-layout.sidebar-hidden .config-sidebar { display: none; }
+
+        .goal-bar { height: 6px; background: var(--border-color); border-radius: 3px; overflow: hidden; margin: 4px 0 2px; min-width: 90px; }
+        .goal-bar > div { height: 100%; background: var(--accent-blue); }
+        .goal-item .goal-bar { margin-top: 3px; background: #333; }
+        .goal-state { font-size: 10px; font-weight: bold; padding: 0 5px; border-radius: 8px; color: #fff; margin-left: 6px; }
+        .goal-state.LOCKED { background: #6c757d; } .goal-state.AVAILABLE { background: #b58900; }
+        .goal-state.IN_PROGRESS { background: #0d6efd; } .goal-state.COMPLETED { background: #198754; } .goal-state.FAILED { background: #dc3545; }
     </style>
 </head>
 <body>
@@ -848,6 +855,12 @@
                         <div class="debug-panel">
                             <h4>Available Units</h4>
                             <div id="availableUnitsList" class="debug-list"></div>
+                        </div>
+                        <div class="debug-panel">
+                            <h4 style="display: flex; justify-content: space-between; align-items: center;">Goals
+                                <label style="font-weight: normal; text-transform: none; letter-spacing: 0;"><input type="checkbox" id="chkShowCompleted"> show done</label>
+                            </h4>
+                            <div id="goalsList" class="debug-list"></div>
                         </div>
                     </div>
                 </div>
@@ -1702,6 +1715,107 @@
 		let activeMarkers = {};
         let mapBeaconsData = null;
 
+        let goalMarkers = {};
+        let showCompletedGoals = false;
+        document.addEventListener('change', e => {
+            if (e.target && e.target.id === 'chkShowCompleted') { showCompletedGoals = e.target.checked; renderMap(); }
+        });
+
+        const GOAL_ORDER = ['IN_PROGRESS', 'AVAILABLE', 'LOCKED', 'COMPLETED', 'FAILED'];
+        const isRuntimeGoal = g => g.type === 'csar' || g.type === 'enemy-csar';
+
+        function goalStyle(g, sideColor) {
+            switch (g.state) {
+                case 'LOCKED':      return { color: '#888888', dash: '6 6', fill: 0.05, icon: 'fa-lock' };
+                case 'IN_PROGRESS': return { color: sideColor, dash: null, fill: 0.3, icon: 'fa-hourglass-half' };
+                case 'COMPLETED':   return { color: '#198754', dash: null, fill: 0.08, icon: 'fa-check' };
+                case 'FAILED':      return { color: '#dc3545', dash: '2 6', fill: 0.08, icon: 'fa-xmark' };
+                default:            return { color: g.peacetime ? '#198754' : '#ffc107', dash: g.objective === false ? '4 4' : null,
+                                            fill: 0.2, icon: g.objective === false ? 'fa-road' : 'fa-bullseye' };
+            }
+        }
+
+        function goalPopup(g) {
+            const pct = Math.round((g.progress || 0) * 100);
+            let h = `<b>Goal: ${mmEsc(g.name)}</b><br>Type: ${mmEsc(g.type)}${g.objective === false ? ' (waypoint)' : ''}` +
+                    `<br>Priority: ${mmEsc(g.priority)}<br>State: <b>${mmEsc(g.state)}</b>`;
+            if (g.objective !== false && g.state !== 'LOCKED') h += `<div class="goal-bar"><div style="width:${pct}%"></div></div>${pct}%`;
+            if (g.blockedBy && g.blockedBy.length) h += `<br>Waiting for: ${g.blockedBy.map(mmEsc).join(', ')}`;
+            if (g.assignments && g.assignments.length) h += `<br>Assigned: ${g.assignments.map(a => mmEsc(a.task + ' ' + (a.group || a.label))).join(', ')}`;
+            h += `<br>Peacetime allowed: ${g.peacetime ? 'Yes' : 'No'}`;
+            if (g.reason) h += `<br>Note: ${mmEsc(g.reason)}`;
+            return h;
+        }
+
+        function drawGoals(sideData, sideColor) {
+            goalMarkers = {};
+            const list = (sideData.goals || []).filter(g => !isRuntimeGoal(g));
+            const byId = new Map(list.map(g => [g.name, g]));
+            list.forEach(g => {
+                const done = g.state === 'COMPLETED' || g.state === 'FAILED';
+                if (done && !showCompletedGoals) return;
+                const st = goalStyle(g, sideColor);
+                const circle = L.circle([g.lat, g.lon], {
+                    radius: Math.max(g.radius || 3000, 500), color: st.color, dashArray: st.dash,
+                    fillColor: st.color, fillOpacity: st.fill, weight: g.state === 'IN_PROGRESS' ? 4 : 2
+                }).bindPopup(goalPopup(g));
+                mapLayerGroup.addLayer(circle);
+                goalMarkers[g.name] = circle;
+
+                const pct = (g.objective !== false && g.state === 'IN_PROGRESS' && g.progress) ? ` ${Math.round(g.progress * 100)}%` : '';
+                const label = L.marker([g.lat, g.lon], {
+                    icon: L.divIcon({
+                        className: '', iconSize: [70, 20], iconAnchor: [35, 10],
+                        html: `<div class="mm-goal-label" style="border-color:${st.color};"><i class="fa-solid ${st.icon}"></i> ${mmEsc(g.priority)}${pct}</div>`
+                    })
+                }).on('click', () => circle.openPopup());
+                mapLayerGroup.addLayer(label);
+
+                // prerequisite -> goal
+                (g.requires || []).forEach(r => {
+                    const p = byId.get(r);
+                    if (!p || (!showCompletedGoals && p.state === 'COMPLETED')) return;
+                    mapLayerGroup.addLayer(L.polyline([[p.lat, p.lon], [g.lat, g.lon]],
+                        { color: sideColor, weight: 2, dashArray: '8 6', opacity: 0.6, interactive: false }));
+                });
+            });
+        }
+
+        function renderGoalsPanel(sideData) {
+            const box = document.getElementById('goalsList');
+            if (!box) return;
+            box.innerHTML = '';
+            const list = (sideData && sideData.goals || []).filter(g => !isRuntimeGoal(g) && g.objective !== false);
+            if (!list.length) { box.innerHTML = '<div class="empty-list">No goals</div>'; return; }
+
+            GOAL_ORDER.forEach(state => {
+                if ((state === 'COMPLETED' || state === 'FAILED') && !showCompletedGoals) return;
+                const group = list.filter(g => g.state === state).sort((a, b) => b.priority - a.priority);
+                if (!group.length) return;
+                const head = document.createElement('div');
+                head.className = 'task-header';
+                head.textContent = `${state.replace('_', ' ')} (${group.length})`;
+                box.appendChild(head);
+                group.forEach(g => {
+                    const pct = Math.round((g.progress || 0) * 100);
+                    const item = document.createElement('div');
+                    item.className = 'debug-item active-unit-item goal-item';
+                    item.innerHTML = `<div style="flex:1; min-width:0;">
+                        <span class="unit-name">${mmEsc(g.name)}</span>
+                        <span class="unit-meta">${mmEsc(g.type)} · P${mmEsc(g.priority)}` +
+                        (g.state === 'LOCKED' && g.blockedBy.length ? ` · after ${g.blockedBy.map(mmEsc).join(', ')}` : '') +
+                        (g.assignments && g.assignments.length ? ` · ${g.assignments.length} assigned` : '') + `</span>` +
+                        (g.state === 'IN_PROGRESS' || g.state === 'AVAILABLE' ? `<div class="goal-bar"><div style="width:${pct}%"></div></div>` : '') +
+                        `</div><span class="goal-state ${g.state}">${pct}%</span>`;
+                    item.onclick = () => {
+                        const c = goalMarkers[g.name];
+                        if (c) { map.flyTo(c.getLatLng(), 9, { duration: 0.5 }); setTimeout(() => c.openPopup(), 500); }
+                    };
+                    box.appendChild(item);
+                });
+            });
+        }
+
         // Function to map beacon types to FontAwesome icons
         function getBeaconIcon(beaconType) {
             let iconClass = "fa-solid fa-tower-cell";
@@ -2033,31 +2147,14 @@
             }
 			
 			if (sideData.targets && sideData.targets.targets) {
-                sideData.targets.targets.forEach(target => {
-					if (target.type === 'csar' || target.type === 'enemy-csar') {
-                        let isEnemy = target.type === 'enemy-csar';
-                        let color = isEnemy ? enemyColor : friendlyColor;
-                        let customIcon = getUnitIcon("CSAR", "CSAR", color, isEnemy);
-                        let marker = L.marker([target.lat, target.lon], { icon: customIcon })
-                            .bindPopup('<b>Rescue Operation</b><br>Target: ' + target.name);
-                        mapLayerGroup.addLayer(marker);
-                    } else {				
-                        let ringColor = target.peacetime ? '#198754' : '#ffc107'; 
-                        let marker = L.circle([target.lat, target.lon], {
-                            radius: 3000,
-                            color: ringColor,
-                            fillOpacity: 0.2,
-                            weight: 2
-                        }).bindPopup(
-                            '<b>Goal: ' + target.name + '</b><br>' +
-                            'Priority: ' + target.priority + '<br>' +
-                            'Type: ' + target.type + '<br>' +
-                            'Peacetime allowed: ' + (target.peacetime ? 'Yes' : 'No')
-                        );
-                        mapLayerGroup.addLayer(marker);
-					}
+                sideData.targets.targets.filter(isRuntimeGoal).forEach(target => {
+                    const isEnemy = target.type === 'enemy-csar';
+                    const marker = L.marker([target.lat, target.lon], { icon: getUnitIcon("CSAR", "CSAR", isEnemy ? enemyColor : friendlyColor, isEnemy) })
+                        .bindPopup('<b>Rescue Operation</b><br>Target: ' + mmEsc(target.name));
+                    mapLayerGroup.addLayer(marker);
                 });
             }
+            drawGoals(sideData, friendlyColor);
 
 			if (sideData.forces.activeGroups) {
                 sideData.forces.activeGroups.forEach(group => {
@@ -2083,6 +2180,7 @@
                 isMapCentered = true;
             }
 			
+            renderGoalsPanel(sideData);
 			updateDebugLists(sideData, currentMapView);
         }
 		

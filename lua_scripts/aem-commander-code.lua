@@ -683,15 +683,11 @@ function AEM_DeathHandler:onEvent(event)
             -- Fallback to Unit Name
             targetUnitName = event.initiator:getName()
 
-            if not groupName and unitName then
+            if not targetGroupName and targetUnitName then
                 -- Match everything up to the last dash followed by digits
-                local derivedGroup = string.match(unitName, "^(.*)-%d+$")
-                if derivedGroup then
-                    groupName = derivedGroup
-                else
-                    groupName = unitName -- Fallback for statics or un-numbered units
-                end
+                targetGroupName = string.match(targetUnitName, "^(.*)-%d+$") or targetUnitName
             end
+
         end)
 
         if targetUnitName and coalStr then
@@ -707,6 +703,274 @@ function AEM_DeathHandler:onEvent(event)
     end
 end
 world.addEventHandler(AEM_DeathHandler)
+
+-- ======================================================================
+-- GOAL MONITOR
+--
+-- Evaluates goals against the real state of the world (Node only decides which goals exist).
+-- Node sends the goals to watch with a "goal_config" action; this script answers with
+-- "goal_status" events: { id, state = COMPLETED | AVAILABLE (reopened), progress = 0..1, warning }.
+--
+--   strike / bm_depot : baseline of enemy units + statics inside the zone; completed when
+--                       destroy_pct % of them are gone, whoever destroyed them (players included)
+--   conquer           : no enemy ground units inside the zone while a friendly ground unit that was NOT there
+--                       at baseline stays in it for hold_sec. Once completed, it reopens if enemy ground
+--                       units stay in the zone for GOAL_CONQUER_LOSE seconds
+--   deploy_infantry   : min_units alive units of the AEM infantry template inside the zone
+--   resupply          : a friendly TRANSPORT_LOGISTICS group inside the zone: landed / stopped (helicopters,
+--                       convoys) or flying over it (airplanes drop the supplies)
+--
+-- Zone properties (all optional): destroy_pct, hold_sec, min_units. Defaults below can be overridden
+-- in aem-commander-values.lua.
+--
+-- PLACE this block after the AEM_DeathHandler (it needs PushEvent / FlushEvents / messageToAll).
+-- ======================================================================
+
+GOAL_MONITOR_INTERVAL = GOAL_MONITOR_INTERVAL or 15    -- seconds between evaluations
+GOAL_SNAPSHOT_DELAY   = GOAL_SNAPSHOT_DELAY   or 20    -- seconds a new goal waits before taking its baseline
+GOAL_DESTROY_PCT      = GOAL_DESTROY_PCT      or 80    -- % of the baseline targets to destroy
+GOAL_CONQUER_HOLD     = GOAL_CONQUER_HOLD     or 300   -- seconds the zone must be held
+GOAL_CONQUER_LOSE     = GOAL_CONQUER_LOSE     or 120   -- seconds of enemy presence to lose a conquered zone
+local GOAL_PROGRESS_STEP = 0.05                        -- minimum change that is reported to Node
+
+local AEM_Goals = {}   -- id -> tracker
+
+local function goalOwnSide(side) return (side == "red") and coalition.side.RED or coalition.side.BLUE end
+local function goalEnemySide(side) return (side == "red") and coalition.side.BLUE or coalition.side.RED end
+
+-- "air" | "heli" | "ship" | "structure" | "ground"
+local function goalUnitClass(unit)
+    local desc = unit:getDesc()
+    local c = desc and desc.category
+    if c == Unit.Category.AIRPLANE then return "air"
+    elseif c == Unit.Category.HELICOPTER then return "heli"
+    elseif c == Unit.Category.SHIP then return "ship"
+    elseif c == Unit.Category.STRUCTURE then return "structure"
+    end
+    return "ground"
+end
+
+-- Calls fn(obj, kind) for every unit / static inside the goal circle (any altitude). kind = "unit" | "static"
+local function scanGoalZone(g, fn)
+    local p, r = g.point, g.radius
+    local volume = {
+        id = world.VolumeType.BOX,
+        params = {
+            min = { x = p.x - r, y = -1000, z = p.z - r },
+            max = { x = p.x + r, y = 30000, z = p.z + r }
+        }
+    }
+    local r2 = r * r
+    world.searchObjects({ Object.Category.UNIT, Object.Category.STATIC }, volume, function(obj)
+        pcall(function()
+            if obj and obj:isExist() then
+                local pt = obj:getPoint()
+                local dx, dz = pt.x - p.x, pt.z - p.z
+                if dx * dx + dz * dz <= r2 then
+                    fn(obj, (obj:getCategory() == Object.Category.STATIC) and "static" or "unit")
+                end
+            end
+        end)
+        return true
+    end)
+end
+
+-- Targets of a strike goal: enemy units and statics at baseline (aircraft in flight and the commander's own
+-- reserve statics are ignored: the latter disappear when AEM launches them, they are not "destroyed")
+local function takeGoalBaseline(g)
+    g.targets, g.total, g.baseFriends = {}, 0, {}
+    local enemy, own = goalEnemySide(g.side), goalOwnSide(g.side)
+    local reserve = (STATIC_RESOURCE and STATIC_RESOURCE ~= "" and STATIC_RESOURCE ~= "NONE") and STATIC_RESOURCE or nil
+
+    scanGoalZone(g, function(obj, kind)
+        local name = obj:getName()
+        local c = obj:getCoalition()
+        if c == enemy then
+            if reserve and string.find(name, reserve, 1, true) == 1 then return end
+            if kind == "unit" then
+                local cls = goalUnitClass(obj)
+                if cls == "air" or cls == "heli" then return end
+            end
+            g.targets[name] = kind
+            g.total = g.total + 1
+        elseif c == own and kind == "unit" and goalUnitClass(obj) == "ground" then
+            g.baseFriends[name] = true
+        end
+    end)
+
+    g.snapped = true
+    env.info(string.format("AEM GoalMonitor: baseline of %s (%s): %d targets", g.id, g.type, g.total))
+    if (g.type == "strike" or g.type == "bm_depot") and g.total == 0 then
+        PushEvent(g.side, { type = "goal_status", coalition = g.side, id = g.id,
+            warning = "no enemy unit or static inside the zone when the mission started: the goal can never be completed by the monitor (use completion=order or fix the zone)" })
+    end
+end
+
+local function goalTargetAlive(name, kind)
+    local obj = (kind == "static") and StaticObject.getByName(name) or Unit.getByName(name)
+    if not (obj and obj:isExist()) then return false end
+    local ok, life = pcall(function() return obj:getLife() end)
+    return (not ok) or (life == nil) or life > 0
+end
+
+-- returns progress (0..1), done
+local function evalGoalDestroy(g)
+    if g.total == 0 then return 0, false end
+    local dead = 0
+    for name, kind in pairs(g.targets) do
+        if not goalTargetAlive(name, kind) then dead = dead + 1 end
+    end
+    local needed = (g.destroyPct or GOAL_DESTROY_PCT) / 100
+    local fraction = dead / g.total
+    return math.min(1, fraction / needed), fraction >= needed
+end
+
+-- returns enemy ground units, friendly ground units that were not there at baseline
+local function countGoalGround(g)
+    local enemies, friends = 0, 0
+    local enemy, own = goalEnemySide(g.side), goalOwnSide(g.side)
+    scanGoalZone(g, function(obj, kind)
+        if kind ~= "unit" or goalUnitClass(obj) ~= "ground" then return end
+        local c = obj:getCoalition()
+        if c == enemy then enemies = enemies + 1
+        elseif c == own and not g.baseFriends[obj:getName()] then friends = friends + 1 end
+    end)
+    return enemies, friends
+end
+
+local function countGoalInfantry(g)
+    local template = (g.side == "red") and RED_INFANTRY or BLUE_INFANTRY
+    local own, n = goalOwnSide(g.side), 0
+    if not template or template == "NONE" then return 0 end
+    scanGoalZone(g, function(obj, kind)
+        if kind ~= "unit" or obj:getCoalition() ~= own then return end
+        local grp = obj:getGroup()
+        if grp and string.find(grp:getName(), template, 1, true) then n = n + 1 end
+    end)
+    return n
+end
+
+local function goalLogisticsArrived(g)
+    local own, arrived = goalOwnSide(g.side), false
+    scanGoalZone(g, function(obj, kind)
+        if arrived or kind ~= "unit" or obj:getCoalition() ~= own then return end
+        local grp = obj:getGroup()
+        if not (grp and string.find(string.upper(grp:getName()), "TRANSPORT_LOGISTICS", 1, true)) then return end
+        if goalUnitClass(obj) == "air" then
+            arrived = true                                   -- airdrop: the airplane flies over the zone
+        else
+            local v = obj:getVelocity()
+            local speed = v and math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z) or 0
+            if (not obj:inAir()) and speed < 3 then arrived = true end
+        end
+    end)
+    return arrived
+end
+
+local function sendGoalStatus(g, state, progress)
+    PushEvent(g.side, { type = "goal_status", coalition = g.side, id = g.id, state = state, progress = progress })
+    if state then FlushEvents() end                          -- state changes go out immediately, progress waits for the scheduler
+end
+
+local function evaluateGoal(g, now)
+    -- A conquered zone is watched to detect that it was lost again
+    if g.completed then
+        if g.type ~= "conquer" then return end
+        local enemies = countGoalGround(g)
+        if enemies > 0 then
+            g.loseSince = g.loseSince or now
+            if now - g.loseSince >= GOAL_CONQUER_LOSE then
+                g.completed, g.loseSince, g.holdSince, g.progress = false, nil, nil, 0
+                messageToAll("AEM Commander: " .. g.id .. " has been lost to the enemy", 15)
+                sendGoalStatus(g, "AVAILABLE", 0)
+            end
+        else
+            g.loseSince = nil
+        end
+        return
+    end
+
+    local progress, done = 0, false
+    if g.type == "strike" or g.type == "bm_depot" then
+        progress, done = evalGoalDestroy(g)
+    elseif g.type == "conquer" then
+        local enemies, friends = countGoalGround(g)
+        if (not g.locked) and enemies == 0 and friends > 0 then
+            g.holdSince = g.holdSince or now
+            local held = now - g.holdSince
+            local needed = g.holdSec or GOAL_CONQUER_HOLD
+            progress, done = math.min(1, held / math.max(needed, 1)), held >= needed
+        else
+            g.holdSince = nil
+        end
+    elseif g.type == "deploy_infantry" then
+        local needed = g.minUnits or 1
+        local n = countGoalInfantry(g)
+        progress, done = math.min(1, n / needed), n >= needed
+    elseif g.type == "resupply" then
+        done = goalLogisticsArrived(g)
+        progress = done and 1 or 0
+    end
+
+    if done and g.locked then done = false end               -- prerequisites first: it completes on the first tick after unlocking
+
+    if done then
+        g.completed, g.progress = true, 1
+        messageToAll("AEM Commander: goal " .. g.id .. " completed", 15)
+        env.info("AEM GoalMonitor: goal completed -> " .. g.id)
+        sendGoalStatus(g, "COMPLETED", 1)
+    elseif math.abs(progress - (g.progress or 0)) >= GOAL_PROGRESS_STEP then
+        g.progress = progress
+        sendGoalStatus(g, nil, progress)
+    end
+end
+
+local function goalMonitorTick()
+    local now = timer.getTime()
+    for id, g in pairs(AEM_Goals) do
+        if not g.snapped then
+            if now >= g.snapAt then
+                local ok, err = pcall(takeGoalBaseline, g)
+                if not ok then env.info("AEM GoalMonitor: baseline error " .. id .. ": " .. tostring(err)) end
+            end
+        else
+            local ok, err = pcall(evaluateGoal, g, now)
+            if not ok then env.info("AEM GoalMonitor: error evaluating " .. id .. ": " .. tostring(err)) end
+        end
+    end
+    return timer.getTime() + GOAL_MONITOR_INTERVAL
+end
+
+-- Called by ProcessAIOrders with the full list of goals to watch (replaces the previous list)
+function AEM_GoalMonitor_SetConfig(goals)
+    local seen, count = {}, 0
+    for _, c in ipairs(goals or {}) do
+        local id, side = c.id, string.lower(c.side or "")
+        if id and (side == "red" or side == "blue") then
+            seen[id] = true
+            count = count + 1
+            local g = AEM_Goals[id]
+            local radius = tonumber(c.radius) or 3000
+            local moved = g and (math.abs(g.lat - c.lat) > 1e-6 or math.abs(g.lon - c.lon) > 1e-6
+                or g.radius ~= radius or g.side ~= side or g.type ~= c.type)
+            if (not g) or moved then       -- new or edited goal: new baseline
+                g = { id = id, snapped = false, progress = 0, snapAt = timer.getTime() + GOAL_SNAPSHOT_DELAY }
+                AEM_Goals[id] = g
+            end
+            g.side, g.type, g.lat, g.lon, g.radius = side, c.type, c.lat, c.lon, radius
+            g.point = COORDINATE:NewFromLLDD(c.lat, c.lon):GetVec3()
+            g.locked = c.locked and true or false
+            g.completed = c.completed and true or false
+            g.destroyPct, g.holdSec, g.minUnits = tonumber(c.destroy_pct), tonumber(c.hold_sec), tonumber(c.min_units)
+        end
+    end
+    for id in pairs(AEM_Goals) do
+        if not seen[id] then AEM_Goals[id] = nil end
+    end
+    env.info("AEM GoalMonitor: watching " .. count .. " goals")
+end
+
+timer.scheduleFunction(goalMonitorTick, nil, timer.getTime() + 10)
 
 -- ======================================================================
 -- Order of Battle
@@ -959,6 +1223,8 @@ function ExportGoals()
     local goals_red = {}
     local goals_blue = {}
 
+    local RESERVED_GOAL_KEYS = { id = true, target_area = true, radius = true }
+
     -- Parse env.mission.triggers.zones to directly read DCS Zone Properties
     if env.mission and env.mission.triggers and env.mission.triggers.zones then
         for _, zoneData in pairs(env.mission.triggers.zones) do
@@ -966,31 +1232,26 @@ function ExportGoals()
             
             if zoneName and (string.find(zoneName, "^GOAL_RED") or string.find(zoneName, "^GOAL_BLUE")) then
 			
-                -- Get Coordinates using MOOSE wrapper
                 local mooseZone = ZONE:FindByName(zoneName)
-                local lat, lon = 0, 0
-                if mooseZone then
+                if not mooseZone then
+                    env.info("AEM: goal zone not found by MOOSE, skipped: " .. zoneName)
+                else
                     local coord = mooseZone:GetCoordinate()
-                    lat, lon = coord:GetLLDDM()
-                end
-
-                local entry = {
-                    id = zoneName,
-                    target_area = { lat = lat, long = lon }
-                }
-                
-				-- Extract custom properties from the Mission Editor
-                if zoneData.properties then
-                    for _, prop in pairs(zoneData.properties) do
-						entry[prop.key] = prop.value
+                    local lat, lon = coord:GetLLDDM()
+                    local entry = {
+                        id = zoneName,
+                        target_area = { lat = lat, long = lon },
+                        radius = zoneData.radius or 3000
+                    }
+                    if zoneData.properties then
+                        for _, prop in pairs(zoneData.properties) do
+                            if not RESERVED_GOAL_KEYS[prop.key] then entry[prop.key] = prop.value end
+                        end
                     end
+                    if string.find(zoneName, "^GOAL_RED") then table.insert(goals_red, entry)
+                    elseif string.find(zoneName, "^GOAL_BLUE") then table.insert(goals_blue, entry) end
                 end
-				
-                if string.find(zoneName, "^GOAL_RED") then
-                    table.insert(goals_red, entry)
-                elseif string.find(zoneName, "^GOAL_BLUE") then
-                    table.insert(goals_blue, entry)
-                end
+                
             end
         end
     end
@@ -3273,6 +3534,9 @@ function ProcessAIOrders(actions, coalitionStr)
                 end
                 env.info("AEM Commander: Restored " .. #args.groups .. " active groups from persistence.")
             end, { groups = action.groups }, timer.getTime() + 5.0)
+
+        elseif action.action_type == "goal_config" and action.goals then
+            AEM_GoalMonitor_SetConfig(action.goals)
 
 		elseif action.action_type == "new" and action.unit_names then
             

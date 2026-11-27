@@ -30,6 +30,7 @@ function actionableGoals(targets, posture, maxGoals = 4) {
     return list
         .filter(t => !t.locked)
         .filter(t => !(posture && posture.peacetimeOnly && !t.peacetime && t.type !== 'csar'))
+        .filter(t => t.objective !== false)
         .sort((a, b) => b.priority - a.priority)
         .slice(0, maxGoals);
 }
@@ -65,8 +66,12 @@ function buildBrief(ctx) {
             id: g.name, type: g.type, priority: g.priority,
             lat: r3(g.lat), lon: r3(g.lon),
             peacetime: g.peacetime,
-            friendly_territory: inFriendly(g.lat, g.lon)
+            friendly_territory: inFriendly(g.lat, g.lon),
+            status: g.state, 
+            progress: Math.round((g.progress || 0) * 100)
         };
+
+        if (g.assignments && g.assignments.length) entry.assigned = g.assignments.slice(0, 5).map(a => `${a.task}|${a.group || a.label}`);
 
         const near = forces.getEnemyThreatsNearLocation(g.lat, g.lon, radius);
         if (near.threats) {

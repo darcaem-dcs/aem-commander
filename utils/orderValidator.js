@@ -49,14 +49,16 @@ function validateActions(actions, ctx) {
         if (a.task !== 'RTB' && forbidden.has(a.task)) { reject(`task forbidden by current posture ${posture.level}`); continue; }
 
         // Target: explicit coordinates, else the named goal's
-        const goal = a.target_name ? goalByName.get(a.target_name) : null;
+        const named = a.target_name ? goalByName.get(a.target_name) : null;
         let lat = raw.target_area && Number(raw.target_area.lat);
         let lon = raw.target_area && Number(raw.target_area.long !== undefined ? raw.target_area.long : raw.target_area.lon);
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-            if (goal) { lat = goal.lat; lon = goal.lon; } else { lat = NaN; lon = NaN; }
+            if (named) { lat = named.lat; lon = named.lon; }
         }
         const hasTarget = Number.isFinite(lat) && Number.isFinite(lon);
         if (a.task !== 'RTB' && !hasTarget) { reject('missing target_area'); continue; }
+        // A coordinates-only order cannot dodge the lock / posture rules: resolve the goal by proximity
+        const goal = named || (hasTarget && targets && targets.resolve ? targets.resolve(null, lat, lon) : null);
         if (goal && !scripted && posture && posture.peacetimeOnly && !goal.peacetime && goal.type !== 'csar') { reject(`goal ${goal.name} is not allowed in peacetime`); continue; }
         if (goal && goal.locked && !scripted) { reject(`goal ${goal.name} is locked until ${(goal.blockedBy || []).join(', ')} is completed`); continue; }
 

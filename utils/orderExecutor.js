@@ -69,6 +69,7 @@ function runDueOrders(side, d) {
     if (actions.length > 0) {
         // One batch: flights sharing a target_name join the same rendezvous package
         d.sendOrdersToDCS(side.toUpperCase(), actions);
+        if (d.goals) d.goals.noteOrders(side, actions);
         d.sendMessageToDCS(side.toUpperCase(), `HQ initial orders: ${issued.join('; ')}`);
         ui(`Initial orders issued (${side}): ${issued.join('; ')}`, 'success');
         logger.info(`[plan] Initial orders issued (${side}): ${JSON.stringify(actions)}`);

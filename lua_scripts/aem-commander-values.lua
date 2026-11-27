@@ -210,14 +210,35 @@ RADIO_MESSAGES_SUBTITLES = {
 
 PERSISTENCE_KEYWORD = "PERSIST"
 
--- ======================================================================
+-------------------------------------------------------------------------
 -- BFM TRAINER
--- ======================================================================
+-------------------------------------------------------------------------
 MODULE_BFM = true
 BFM_FRIENDLY_TEMPLATE = "AEM_BFM_FRIENDLY"
 BFM_ADVERSARY_TEMPLATE = "AEM_BFM_ADVERSARY"
 BFM_MAX_FUEL_LBS = 7000
 BFM_HARD_DECK_FT = 10000
+
+
+-------------------------------------------------------------------------
+-- Goal monitoring times
+--
+--  type		all	strike, bm_depot, conquer, resupply, border_crossing, deploy_infantry
+--  priority	all	higher goes first (default 1, warns if missing)
+--  peacetime	all	allowed under GREEN/YELLOW posture
+--  objective	all	false = waypoint, never completed (default false only for border_crossing)
+--  completion	monitored types	order = legacy: completed by the outcome of an order, not watched in the world
+--  destroy_pct	strike, bm_depot	% of the targets in the zone to destroy (default 80)
+--  hold_sec	conquer	seconds the zone must be held (default 300)
+--  min_units	deploy_infantry	infantry units needed (default 1)
+--  bm_count	bm_depot	missiles lost by the enemy when destroyed
+--  
+-------------------------------------------------------------------------
+GOAL_MONITOR_INTERVAL = 15
+GOAL_SNAPSHOT_DELAY = 20
+GOAL_DESTROY_PCT = 80
+GOAL_CONQUER_HOLD = 300
+GOAL_CONQUER_LOSE = 120
 
 -------------------------------------------------------------------------
 -- Debug messages
